@@ -2,7 +2,7 @@
 #define PROTOCOL_H
 
 #define MAX_CLIENTS 70
-#define MAX_WEAPONS 5
+#define MAX_WEAPONS 6
 #define MAX_PROJECTILES 1024
 #define LAG_HISTORY 64
 
@@ -26,6 +26,7 @@
 #define WPN_AR 2
 #define WPN_SHOTGUN 3
 #define WPN_SNIPER 4
+#define WPN_KATANA 5
 
 #define RELOAD_TIME_FULL 60      
 #define RELOAD_TIME_TACTICAL 42  
@@ -73,11 +74,12 @@ typedef struct {
 } WeaponStats;
 
 static const WeaponStats WPN_STATS[MAX_WEAPONS] = {
-    {WPN_KNIFE,   200, 20, 1, 0.0f,  0},   
-    {WPN_MAGNUM,  45, 25, 1, 0.0f,  6},   
-    {WPN_AR,      20, 6,  1, 0.04f, 30},  
-    {WPN_SHOTGUN, 128, 17, 8, 0.15f, 8},   
-    {WPN_SNIPER,  101, 70, 1, 0.0f,  5}    
+    {WPN_KNIFE,   200, 20, 1, 0.0f,  0},
+    {WPN_MAGNUM,  45, 25, 1, 0.0f,  6},
+    {WPN_AR,      20, 6,  1, 0.04f, 30},
+    {WPN_SHOTGUN, 128, 17, 8, 0.15f, 8},
+    {WPN_SNIPER,  101, 70, 1, 0.0f,  5},
+    {WPN_KATANA,  40, 27, 1, 0.0f,  0}
 };
 
 typedef struct {
@@ -103,6 +105,8 @@ typedef struct {
     unsigned char in_vehicle;
     unsigned char hit_feedback; 
     unsigned char storm_charges;
+    unsigned char ability_cooldown;
+    unsigned char katana_flags;
 } NetPlayer;
 
 typedef struct {
@@ -142,6 +146,13 @@ typedef struct {
     unsigned int respawn_time;
     int storm_charges;
     int ability_cooldown;
+    int katana_slash_ticks;
+    int katana_dash_ticks;
+    float dash_vx;
+    float dash_vy;
+    float dash_vz;
+    int dash_hit_count;
+    int dash_hit_targets[8];
     unsigned int stunned_until_ms;
     unsigned int stun_immune_until_ms;
     float run_phase;

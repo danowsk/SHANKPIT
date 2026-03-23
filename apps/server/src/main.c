@@ -399,6 +399,10 @@ void server_broadcast() {
             np.in_vehicle = (unsigned char)p->in_vehicle;
             np.hit_feedback = (unsigned char)p->hit_feedback;
             np.storm_charges = (unsigned char)p->storm_charges;
+            np.ability_cooldown = (unsigned char)((p->ability_cooldown > 255) ? 255 : p->ability_cooldown);
+            np.katana_flags = 0;
+            if (katana_is_slashing(p)) np.katana_flags |= 1;
+            if (katana_is_dashing(p)) np.katana_flags |= 2;
 
             p->accumulated_reward = 0;
             memcpy(buffer + cursor, &np, sizeof(NetPlayer)); cursor += (int)sizeof(NetPlayer);

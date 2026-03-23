@@ -29,6 +29,18 @@
 #define HEAD_OFFSET 2.42f   
 #define MELEE_RANGE_SQ 250.0f 
 
+#define KATANA_SLASH_RANGE 2.75f
+#define KATANA_SLASH_ARC_DEG 90.0f
+#define KATANA_SLASH_DAMAGE 40
+#define KATANA_SLASH_COOLDOWN 27
+#define KATANA_SLASH_FX_TICKS 6
+#define KATANA_DASH_SPEED 6.0f
+#define KATANA_DASH_TIME 8
+#define KATANA_DASH_DAMAGE 50
+#define KATANA_DASH_COOLDOWN 420
+#define KATANA_DASH_RADIUS 2.2f
+#define KATANA_DASH_MAX_HITS 8
+
 void evolve_bot(PlayerState *loser, PlayerState *winner);
 PlayerState* get_best_bot();
 
@@ -419,6 +431,39 @@ static inline float clamp_pitch_deg(float pitch) {
     return pitch;
 }
 
+static inline void forward_from_yaw_pitch(float yaw, float pitch, float *out_x, float *out_y, float *out_z) {
+    float r = -yaw * 0.0174533f;
+    float rp = clamp_pitch_deg(pitch) * 0.0174533f;
+    *out_x = sinf(r) * cosf(rp);
+    *out_y = sinf(rp);
+    *out_z = -cosf(r) * cosf(rp);
+}
+
+static inline void katana_reset_dash_hits(PlayerState *p) {
+    p->dash_hit_count = 0;
+    for (int i = 0; i < KATANA_DASH_MAX_HITS; i++) p->dash_hit_targets[i] = -1;
+}
+
+static inline int katana_dash_has_hit(PlayerState *p, int target_id) {
+    for (int i = 0; i < p->dash_hit_count && i < KATANA_DASH_MAX_HITS; i++) {
+        if (p->dash_hit_targets[i] == target_id) return 1;
+    }
+    return 0;
+}
+
+static inline void katana_dash_register_hit(PlayerState *p, int target_id) {
+    if (p->dash_hit_count >= KATANA_DASH_MAX_HITS) return;
+    p->dash_hit_targets[p->dash_hit_count++] = target_id;
+}
+
+static inline int katana_is_slashing(const PlayerState *p) {
+    return p->katana_slash_ticks > 0;
+}
+
+static inline int katana_is_dashing(const PlayerState *p) {
+    return p->katana_dash_ticks > 0;
+}
+
 static inline float angle_diff(float a, float b) {
     float d = a - b;
     while (d < -180) d += 360;
@@ -575,6 +620,12 @@ void phys_respawn(PlayerState *p, unsigned int now) {
     for(int i=0; i<MAX_WEAPONS; i++) p->ammo[i] = WPN_STATS[i].ammo_max;
     p->storm_charges = 0;
     p->ability_cooldown = 0;
+    p->katana_slash_ticks = 0;
+    p->katana_dash_ticks = 0;
+    p->dash_vx = 0.0f;
+    p->dash_vy = 0.0f;
+    p->dash_vz = 0.0f;
+    katana_reset_dash_hits(p);
     p->portal_cooldown_until_ms = 0;
     p->stunned_until_ms = 0;
     p->stun_immune_until_ms = 0;
@@ -607,20 +658,91 @@ static inline void spawn_projectile(Projectile *projectiles, PlayerState *p, int
     }
 }
 
+static inline void apply_damage(PlayerState *owner, PlayerState *target, int damage, int hit_type) {
+    if (!target->active || target->state == STATE_DEAD) return;
+    if (owner) owner->accumulated_reward += 10.0f;
+    target->shield_regen_timer = SHIELD_REGEN_DELAY;
+    if (owner) {
+        if (hit_type == 2 && target->shield <= 0) {
+            damage *= 3;
+            owner->hit_feedback = 20;
+        } else {
+            owner->hit_feedback = 10;
+        }
+    }
+    if (target->shield > 0) {
+        if (target->shield >= damage) { target->shield -= damage; damage = 0; }
+        else { damage -= target->shield; target->shield = 0; }
+    }
+    target->health -= damage;
+    if(target->health <= 0) {
+        if (owner) {
+            owner->kills++;
+            owner->accumulated_reward += 1000.0f;
+            owner->hit_feedback = 30;
+        }
+        target->deaths++;
+        phys_respawn(target, 0);
+    }
+}
+
+static inline void katana_try_slash(PlayerState *p, PlayerState *targets) {
+    float fx, fy, fz;
+    float cos_half_arc = cosf((KATANA_SLASH_ARC_DEG * 0.5f) * 0.0174533f);
+    forward_from_yaw_pitch(p->yaw, p->pitch, &fx, &fy, &fz);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        PlayerState *target = &targets[i];
+        if (target == p || !target->active || target->state == STATE_DEAD) continue;
+        if (target->scene_id != p->scene_id) continue;
+        float tx = target->x - p->x;
+        float ty = (target->y + 2.0f) - (p->y + 2.0f);
+        float tz = target->z - p->z;
+        float dist_sq = tx*tx + ty*ty + tz*tz;
+        if (dist_sq > (KATANA_SLASH_RANGE * KATANA_SLASH_RANGE)) continue;
+        float dist = sqrtf(dist_sq);
+        if (dist < 0.001f) continue;
+        float inv_dist = 1.0f / dist;
+        float dot = fx * tx * inv_dist + fy * ty * inv_dist + fz * tz * inv_dist;
+        if (dot < cos_half_arc) continue;
+        apply_damage(p, target, KATANA_SLASH_DAMAGE, 1);
+    }
+}
+
 void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectiles, int shoot, int reload, int ability_press) {
     if (p->in_vehicle) return; 
     if (p->reload_timer > 0) p->reload_timer--;
     if (p->attack_cooldown > 0) p->attack_cooldown--;
     if (p->is_shooting > 0) p->is_shooting--;
     if (p->ability_cooldown > 0) p->ability_cooldown--;
-
-    if (ability_press && p->ability_cooldown == 0 && p->storm_charges == 0) {
-        p->storm_charges = 5;
-        p->ability_cooldown = 480;
+    if (p->katana_slash_ticks > 0) p->katana_slash_ticks--;
+    if (p->katana_dash_ticks > 0) p->katana_dash_ticks--;
+    if (p->katana_dash_ticks == 0) {
+        p->dash_vx = 0.0f; p->dash_vy = 0.0f; p->dash_vz = 0.0f;
     }
 
     int w = p->current_weapon;
-    if (reload && p->reload_timer == 0 && w != WPN_KNIFE) {
+    if (ability_press && p->ability_cooldown == 0) {
+        if (w == WPN_KATANA) {
+            float dx, dy, dz, len;
+            forward_from_yaw_pitch(p->yaw, p->pitch * 0.35f, &dx, &dy, &dz);
+            if (dy > 0.35f) dy = 0.35f;
+            if (dy < -0.2f) dy = -0.2f;
+            len = sqrtf(dx*dx + dy*dy + dz*dz);
+            if (len > 0.001f) { dx /= len; dy /= len; dz /= len; }
+            p->katana_dash_ticks = KATANA_DASH_TIME;
+            p->ability_cooldown = KATANA_DASH_COOLDOWN;
+            p->dash_vx = dx * KATANA_DASH_SPEED;
+            p->dash_vy = dy * KATANA_DASH_SPEED * 0.35f;
+            p->dash_vz = dz * KATANA_DASH_SPEED;
+            katana_reset_dash_hits(p);
+            p->is_shooting = KATANA_DASH_TIME;
+        } else if (p->storm_charges == 0) {
+            p->storm_charges = 5;
+            p->ability_cooldown = 480;
+        }
+    }
+
+    if (reload && p->reload_timer == 0 && w != WPN_KNIFE && w != WPN_KATANA) {
         if (p->ammo[w] < WPN_STATS[w].ammo_max) {
             if (p->ammo[w] > 0) p->reload_timer = RELOAD_TIME_TACTICAL;
             else p->reload_timer = RELOAD_TIME_FULL; 
@@ -636,14 +758,22 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
             p->recoil_anim = 0.5f;
             return;
         }
-        if (w != WPN_KNIFE && p->ammo[w] <= 0) p->reload_timer = RELOAD_TIME_FULL;
+        if (w == WPN_KATANA) {
+            p->is_shooting = KATANA_SLASH_FX_TICKS;
+            p->recoil_anim = 0.35f;
+            p->attack_cooldown = KATANA_SLASH_COOLDOWN;
+            p->katana_slash_ticks = KATANA_SLASH_FX_TICKS;
+            katana_try_slash(p, targets);
+            return;
+        }
+        if (w != WPN_KNIFE && w != WPN_KATANA && p->ammo[w] <= 0) p->reload_timer = RELOAD_TIME_FULL;
         else {
             p->is_shooting = 5; p->recoil_anim = 1.0f;
             p->attack_cooldown = WPN_STATS[w].rof;
-            if (w != WPN_KNIFE) p->ammo[w]--;
+            if (w != WPN_KNIFE && w != WPN_KATANA) p->ammo[w]--;
             
-            float r = -p->yaw * 0.0174533f; float rp = p->pitch * 0.0174533f;
-            float dx = sinf(r) * cosf(rp); float dy = sinf(rp); float dz = -cosf(r) * cosf(rp);
+            float dx, dy, dz;
+            forward_from_yaw_pitch(p->yaw, p->pitch, &dx, &dy, &dz);
             if (WPN_STATS[w].spr > 0) {
                 dx += phys_rand_f() * WPN_STATS[w].spr;
                 dy += phys_rand_f() * WPN_STATS[w].spr;
@@ -662,23 +792,7 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
                 int hit_type = check_hit_location(p->x, p->y + EYE_HEIGHT, p->z, dx, dy, dz, &targets[i]);
                 if (hit_type > 0) {
                     printf("🔫 HIT! Dmg: %d on Target %d\n", WPN_STATS[w].dmg, i);
-                    int damage = WPN_STATS[w].dmg;
-                    p->accumulated_reward += 10.0f;
-                    targets[i].shield_regen_timer = SHIELD_REGEN_DELAY;
-                    if (hit_type == 2 && targets[i].shield <= 0) { damage *= 3; p->hit_feedback = 20;
-                    } else { p->hit_feedback = 10; } 
-                    
-                    if (targets[i].shield > 0) {
-                        if (targets[i].shield >= damage) { targets[i].shield -= damage; damage = 0; } 
-                        else { damage -= targets[i].shield; targets[i].shield = 0; }
-                    }
-                    targets[i].health -= damage;
-                    if(targets[i].health <= 0) {
-                        p->kills++; targets[i].deaths++; 
-                        p->accumulated_reward += 1000.0f;
-                        p->hit_feedback = 30; // KILL CONFIRM (Triggers Double Ring)
-                        phys_respawn(&targets[i], 0);
-                    }
+                    apply_damage(p, &targets[i], WPN_STATS[w].dmg, hit_type);
                 }
             }
         }

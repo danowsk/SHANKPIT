@@ -12,6 +12,7 @@ int was_holding_jump = 0;
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time);
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time);
 void local_init_match(int num_players, int mode);
+static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int damage, unsigned int now_ms);
 
 float rand_weight() { return ((float)(rand()%2000)/1000.0f) - 1.0f; } 
 float rand_pos() { return ((float)(rand()%1000)/1000.0f); } 
@@ -107,8 +108,12 @@ void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw
         if (diff < -turn_speed) diff = -turn_speed;
         *out_yaw += diff;
         
-        *out_buttons |= BTN_ATTACK;
-        
+        if (me->current_weapon == WPN_KATANA) {
+            if (min_dist < 4.5f) *out_buttons |= BTN_ATTACK;
+        } else {
+            *out_buttons |= BTN_ATTACK;
+        }
+
         if (min_dist > 15.0f) *out_fwd = me->brain.w_aggro;
         else if (min_dist < 5.0f) *out_fwd = -me->brain.w_aggro; 
         else *out_fwd = 0.2f; 
@@ -116,7 +121,7 @@ void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw
         *out_yaw += me->brain.w_strafe * 10.0f;
         if (me->on_ground && (rand()%1000 < (me->brain.w_jump * 1000.0f))) *out_buttons |= BTN_JUMP;
         if (me->on_ground && (rand()%1000 < (me->brain.w_slide * 1000.0f))) *out_buttons |= BTN_CROUCH;
-        if (me->ammo[me->current_weapon] <= 0) *out_buttons |= BTN_RELOAD;
+        if (me->current_weapon != WPN_KATANA && me->ammo[me->current_weapon] <= 0) *out_buttons |= BTN_RELOAD;
     } else {
         *out_yaw += 2.0f;
         *out_fwd = 0.5f;
@@ -124,6 +129,23 @@ void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw
 }
 
 // --- UPDATE LOOP ---
+static void katana_update_dash_hits(PlayerState *p, unsigned int now_ms) {
+    if (!katana_is_dashing(p)) return;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        PlayerState *target = &local_state.players[i];
+        if (target == p || !target->active || target->state == STATE_DEAD) continue;
+        if (target->scene_id != p->scene_id) continue;
+        if (katana_dash_has_hit(p, i)) continue;
+        float dx = target->x - p->x;
+        float dy = (target->y + 2.0f) - (p->y + 2.0f);
+        float dz = target->z - p->z;
+        float dist_sq = dx*dx + dy*dy + dz*dz;
+        if (dist_sq > (KATANA_DASH_RADIUS * KATANA_DASH_RADIUS)) continue;
+        apply_projectile_damage(p, target, KATANA_DASH_DAMAGE, now_ms);
+        katana_dash_register_hit(p, i);
+    }
+}
+
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time) {
     if (!p->active) return;
     if (p->state == STATE_DEAD) return;
@@ -142,20 +164,41 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
         p->vz = 0.0f;
     }
 
-    apply_friction(p);
-    float g = (p->in_jump) ? GRAVITY_FLOAT : GRAVITY_DROP;
-    p->vy -= g; 
+    if (katana_is_dashing(p)) {
+        p->vx = p->dash_vx;
+        p->vy = p->dash_vy;
+        p->vz = p->dash_vz;
+        p->in_jump = 0;
+        p->in_reload = 0;
+    } else {
+        apply_friction(p);
+        float g = (p->in_jump) ? GRAVITY_FLOAT : GRAVITY_DROP;
+        p->vy -= g;
+    }
     p->y += p->vy;
-    
+
+    float old_x = p->x, old_z = p->z;
     resolve_collision(p);
     p->x += p->vx;
     p->z += p->vz;
+    if (katana_is_dashing(p)) {
+        float moved_x = p->x - old_x;
+        float moved_z = p->z - old_z;
+        float intended_x = p->dash_vx;
+        float intended_z = p->dash_vz;
+        if ((intended_x * intended_x + intended_z * intended_z) > 0.001f &&
+            (moved_x * moved_x + moved_z * moved_z) < (intended_x * intended_x + intended_z * intended_z) * 0.25f) {
+            p->katana_dash_ticks = 0;
+            p->dash_vx = p->dash_vy = p->dash_vz = 0.0f;
+        }
+    }
 
     if (p->recoil_anim > 0) p->recoil_anim -= 0.1f;
     if (p->recoil_anim < 0) p->recoil_anim = 0;
     if (p->hit_feedback > 0) p->hit_feedback--;
 
     update_weapons(p, local_state.players, local_state.projectiles, p->in_shoot > 0, p->in_reload > 0, p->in_ability > 0);
+    katana_update_dash_hits(p, cmd_time);
     scene_safety_check(p);
 }
 

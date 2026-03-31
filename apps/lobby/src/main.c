@@ -84,6 +84,8 @@ static ProcTexture g_vehicle_glitch_tex = {0};
 
 #define Z_FAR 8000.0f
 
+static void draw_box(float w, float h, float d);
+
 int sock = -1;
 struct sockaddr_in server_addr;
 

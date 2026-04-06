@@ -30,6 +30,9 @@
 #define RELOAD_TIME_FULL 60      
 #define RELOAD_TIME_TACTICAL 42  
 #define SHIELD_REGEN_DELAY 180 
+#define UMBRELLA_STATE_NONE 0
+#define UMBRELLA_STATE_DEPLOY 1
+#define UMBRELLA_STATE_GLIDE 2
 
 typedef struct {
     int active;
@@ -103,6 +106,9 @@ typedef struct {
     unsigned char in_vehicle;
     unsigned char hit_feedback; 
     unsigned char storm_charges;
+    unsigned char umbrella_state;
+    unsigned char umbrella_deploy_ticks;
+    unsigned char umbrella_anim_q;
 } NetPlayer;
 
 typedef struct {
@@ -142,6 +148,16 @@ typedef struct {
     unsigned int respawn_time;
     int storm_charges;
     int ability_cooldown;
+    int umbrella_active;
+    int umbrella_state;
+    int umbrella_deploy_ticks;
+    int umbrella_cooldown;
+    float umbrella_anim;
+    float umbrella_cam_blend;
+    unsigned int umbrella_hit_next_ms[MAX_CLIENTS];
+    unsigned char umbrella_hit_count[MAX_CLIENTS];
+    int umbrella_cancel_lock_ticks;
+    float umbrella_yaw;
     unsigned int stunned_until_ms;
     unsigned int stun_immune_until_ms;
     float run_phase;

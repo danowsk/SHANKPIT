@@ -1025,6 +1025,46 @@ void draw_player_3rd(PlayerState *p) {
         glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
         glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
         glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix(); 
+        if (p->umbrella_state == UMBRELLA_STATE_DEPLOY || p->umbrella_state == UMBRELLA_STATE_GLIDE) {
+            float open = p->umbrella_anim;
+            if (open < 0.1f) open = 0.1f;
+            float move_mag = sqrtf(p->vx * p->vx + p->vz * p->vz);
+            float sway = sinf(SDL_GetTicks() * 0.006f + p->id * 0.5f) * 6.0f * open + move_mag * 8.0f;
+            glPushMatrix();
+            glTranslatef(0.0f, 4.3f + open * 0.25f, 0.0f);
+            glRotatef(sway, 0, 0, 1);
+            glColor3f(0.08f, 0.08f, 0.1f);
+            glBegin(GL_TRIANGLE_FAN);
+            glVertex3f(0.0f, 0.0f, 0.0f);
+            for (int s = 0; s <= 12; s++) {
+                float t = (float)s / 12.0f;
+                float a = t * 6.2831853f;
+                float r = 1.8f * open;
+                glVertex3f(cosf(a) * r, -0.1f - 0.18f * open, sinf(a) * r);
+            }
+            glEnd();
+            glColor3f(0.0f, 1.0f, 0.8f);
+            glBegin(GL_LINE_LOOP);
+            for (int s = 0; s < 12; s++) {
+                float t = (float)s / 12.0f;
+                float a = t * 6.2831853f;
+                float r = 1.8f * open;
+                glVertex3f(cosf(a) * r, -0.1f - 0.18f * open, sinf(a) * r);
+            }
+            glEnd();
+            glBegin(GL_LINES);
+            glVertex3f(0.0f, -2.1f, 0.0f);
+            glVertex3f(0.0f, 0.1f, 0.0f);
+            for (int s = 0; s < 8; s++) {
+                float t = (float)s / 8.0f;
+                float a = t * 6.2831853f;
+                float r = 1.65f * open;
+                glVertex3f(0.0f, 0.0f, 0.0f);
+                glVertex3f(cosf(a) * r, -0.1f - 0.18f * open, sinf(a) * r);
+            }
+            glEnd();
+            glPopMatrix();
+        }
     }
     glPopMatrix();
 }
@@ -1080,14 +1120,20 @@ void draw_hud(PlayerState *p) {
         draw_string(style_buf, 50, 108, 6);
     }
 
-    if (p->storm_charges > 0) {
-        char storm_buf[32];
-        sprintf(storm_buf, "STORM ARROWS: %d", p->storm_charges);
-        glColor3f(1.0f, 0.2f, 0.2f);
-        draw_string(storm_buf, 50, 140, 8);
-    } else if (p->ability_cooldown == 0) {
+    if (p->umbrella_state == UMBRELLA_STATE_DEPLOY) {
+        glColor3f(0.8f, 0.95f, 1.0f);
+        draw_string("E: UMBRELLA DEPLOY", 50, 140, 8);
+    } else if (p->umbrella_state == UMBRELLA_STATE_GLIDE) {
+        glColor3f(0.5f, 0.9f, 1.0f);
+        draw_string("E: GLIDING", 50, 140, 8);
+    } else if (p->umbrella_cooldown == 0) {
         glColor3f(0.0f, 0.8f, 1.0f);
-        draw_string("E: STORM ARROWS READY", 50, 140, 8);
+        draw_string("E: UMBRELLA READY", 50, 140, 8);
+    } else {
+        char umb_buf[48];
+        snprintf(umb_buf, sizeof(umb_buf), "E: UMBRELLA CD %d", p->umbrella_cooldown / 60);
+        glColor3f(0.7f, 0.8f, 1.0f);
+        draw_string(umb_buf, 50, 140, 8);
     }
     
     float raw_speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
@@ -1260,8 +1306,21 @@ void draw_scene(PlayerState *render_p) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); glLoadIdentity();
     local_state.scene_id = render_p->scene_id;
     phys_set_scene(render_p->scene_id);
-    float cam_y = render_p->in_vehicle ? 8.0f : (render_p->crouching ? 2.5f : EYE_HEIGHT);
-    float cam_z_off = render_p->in_vehicle ? 10.0f : 0.0f;
+    int umbrella_cam_active = (render_p->umbrella_state == UMBRELLA_STATE_DEPLOY || render_p->umbrella_state == UMBRELLA_STATE_GLIDE);
+    float umbrella_target_blend = umbrella_cam_active ? 1.0f : 0.0f;
+    float umbrella_blend_step = 1.0f / (float)UMBRELLA_DEPLOY_TICKS;
+    if (render_p->umbrella_cam_blend < umbrella_target_blend) {
+        render_p->umbrella_cam_blend += umbrella_blend_step;
+        if (render_p->umbrella_cam_blend > umbrella_target_blend) render_p->umbrella_cam_blend = umbrella_target_blend;
+    } else if (render_p->umbrella_cam_blend > umbrella_target_blend) {
+        render_p->umbrella_cam_blend -= umbrella_blend_step;
+        if (render_p->umbrella_cam_blend < umbrella_target_blend) render_p->umbrella_cam_blend = umbrella_target_blend;
+    }
+
+    float vehicle_cam_y = render_p->in_vehicle ? 8.0f : (render_p->crouching ? 2.5f : EYE_HEIGHT);
+    float vehicle_cam_off = render_p->in_vehicle ? 10.0f : 0.0f;
+    float cam_y = vehicle_cam_y + (render_p->umbrella_cam_blend * 2.0f);
+    float cam_z_off = vehicle_cam_off + (render_p->umbrella_cam_blend * 7.4f);
     
     float rad = -cam_yaw * 0.01745f;
     float cx = sinf(rad) * cam_z_off;
@@ -1285,7 +1344,7 @@ void draw_scene(PlayerState *render_p) {
     draw_garage_vehicle_pads();
     draw_garage_portal_frame();
     draw_projectiles();
-    if (render_p->in_vehicle) draw_player_3rd(render_p);
+    if (render_p->in_vehicle || render_p->umbrella_cam_blend > 0.01f) draw_player_3rd(render_p);
     for(int i=0; i<MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
         if (!p->active || p->scene_id != render_p->scene_id) continue;
@@ -1728,6 +1787,10 @@ void net_process_snapshot(char *buffer, int len) {
         p->in_vehicle = np->in_vehicle;
         p->storm_charges = np->storm_charges;
         p->hit_feedback = np->hit_feedback;
+        p->umbrella_state = np->umbrella_state;
+        p->umbrella_active = (p->umbrella_state != UMBRELLA_STATE_NONE);
+        p->umbrella_deploy_ticks = np->umbrella_deploy_ticks;
+        p->umbrella_anim = ((float)np->umbrella_anim_q) / 255.0f;
         p->ammo[p->current_weapon] = np->ammo;
 
         if (now_shooting && !was_shooting) p->recoil_anim = 1.0f;
@@ -2113,13 +2176,16 @@ int main(int argc, char* argv[]) {
                             p0->scene_id = dest_scene;
                             p0->x = sx; p0->y = sy; p0->z = sz;
                             p0->vx = 0.0f; p0->vy = 0.0f; p0->vz = 0.0f;
+                            umbrella_clear_state(p0);
                             scene_request_transition(dest_scene);
                         }
                     } else if (in_garage && scene_near_vehicle_pad(local_state.scene_id, p0->x, p0->z, 6.0f, NULL)) {
                         p0->in_vehicle = !p0->in_vehicle;
+                        if (p0->in_vehicle) umbrella_clear_state(p0);
                         p0->vehicle_cooldown = 30;
                     } else if (!in_garage) {
                         p0->in_vehicle = !p0->in_vehicle;
+                        if (p0->in_vehicle) umbrella_clear_state(p0);
                         p0->vehicle_cooldown = 30;
                     }
                 }

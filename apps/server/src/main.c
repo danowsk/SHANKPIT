@@ -399,6 +399,12 @@ void server_broadcast() {
             np.in_vehicle = (unsigned char)p->in_vehicle;
             np.hit_feedback = (unsigned char)p->hit_feedback;
             np.storm_charges = (unsigned char)p->storm_charges;
+            np.umbrella_state = (unsigned char)p->umbrella_state;
+            np.umbrella_deploy_ticks = (unsigned char)((p->umbrella_deploy_ticks < 0) ? 0 : p->umbrella_deploy_ticks);
+            int anim_q = (int)(p->umbrella_anim * 255.0f);
+            if (anim_q < 0) anim_q = 0;
+            if (anim_q > 255) anim_q = 255;
+            np.umbrella_anim_q = (unsigned char)anim_q;
 
             p->accumulated_reward = 0;
             memcpy(buffer + cursor, &np, sizeof(NetPlayer)); cursor += (int)sizeof(NetPlayer);
@@ -491,6 +497,7 @@ int main(int argc, char *argv[]) {
                         p->x = sx; p->y = sy; p->z = sz;
                         p->vx = 0.0f; p->vy = 0.0f; p->vz = 0.0f;
                         p->in_vehicle = 0;
+                        umbrella_clear_state(p);
                         p->portal_cooldown_until_ms = now + 1000;
                         p->in_use = 0;
                         printf("PORTAL_TRAVEL client=%d from=%d to=%d\n", i, from_scene, dest_scene);
@@ -499,10 +506,12 @@ int main(int argc, char *argv[]) {
                     int in_garage = p->scene_id == SCENE_GARAGE_OSAKA;
                     if (in_garage && scene_near_vehicle_pad(p->scene_id, p->x, p->z, 6.0f, NULL)) {
                         p->in_vehicle = !p->in_vehicle;
+                        if (p->in_vehicle) umbrella_clear_state(p);
                         p->vehicle_cooldown = 30;
                         printf("Client %d Toggle Vehicle: %d\n", i, p->in_vehicle);
                     } else if (!in_garage) {
                         p->in_vehicle = !p->in_vehicle;
+                        if (p->in_vehicle) umbrella_clear_state(p);
                         p->vehicle_cooldown = 30;
                         printf("Client %d Toggle Vehicle: %d\n", i, p->in_vehicle);
                     }

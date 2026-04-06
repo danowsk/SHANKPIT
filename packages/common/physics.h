@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include "protocol.h"
 
 // --- TUNING ---
@@ -15,6 +16,16 @@
 #define STOP_SPEED 0.1f     
 #define SLIDE_FRICTION 0.01f 
 #define CROUCH_SPEED 0.35f  
+#define UMBRELLA_DEPLOY_TICKS 12
+#define UMBRELLA_COOLDOWN_TICKS 150
+#define UMBRELLA_POP_VELOCITY_GROUNDED 4.6f
+#define UMBRELLA_POP_VELOCITY_AIR 1.6f
+#define UMBRELLA_GLIDE_MAX_FALL_SPEED -1.6f
+#define UMBRELLA_GLIDE_GRAVITY_SCALE 0.2f
+#define UMBRELLA_GLIDE_AIR_ACCEL 0.75f
+#define UMBRELLA_HIT_RADIUS 2.35f
+#define UMBRELLA_HIT_REHIT_MS 60
+#define UMBRELLA_HIT_MAX_PER_TARGET 4
 
 // --- BUGGY TUNING ---
 #define BUGGY_MAX_SPEED 2.5f    
@@ -575,12 +586,138 @@ void phys_respawn(PlayerState *p, unsigned int now) {
     for(int i=0; i<MAX_WEAPONS; i++) p->ammo[i] = WPN_STATS[i].ammo_max;
     p->storm_charges = 0;
     p->ability_cooldown = 0;
+    p->umbrella_active = 0;
+    p->umbrella_state = UMBRELLA_STATE_NONE;
+    p->umbrella_deploy_ticks = 0;
+    p->umbrella_cooldown = 0;
+    p->umbrella_anim = 0.0f;
+    p->umbrella_cam_blend = 0.0f;
+    p->umbrella_cancel_lock_ticks = 0;
+    p->umbrella_yaw = 0.0f;
+    memset(p->umbrella_hit_next_ms, 0, sizeof(p->umbrella_hit_next_ms));
+    memset(p->umbrella_hit_count, 0, sizeof(p->umbrella_hit_count));
     p->portal_cooldown_until_ms = 0;
     p->stunned_until_ms = 0;
     p->stun_immune_until_ms = 0;
     if (p->is_bot) {
         PlayerState *winner = get_best_bot();
         if (winner && winner != p) evolve_bot(p, winner);
+    }
+}
+
+static inline void umbrella_clear_state(PlayerState *p) {
+    p->umbrella_active = 0;
+    p->umbrella_state = UMBRELLA_STATE_NONE;
+    p->umbrella_deploy_ticks = 0;
+    p->umbrella_anim = 0.0f;
+    p->umbrella_cancel_lock_ticks = 0;
+    memset(p->umbrella_hit_next_ms, 0, sizeof(p->umbrella_hit_next_ms));
+    memset(p->umbrella_hit_count, 0, sizeof(p->umbrella_hit_count));
+}
+
+static inline int try_activate_umbrella(PlayerState *p, unsigned int now_ms) {
+    if (!p || !p->active || p->state != STATE_ALIVE) return 0;
+    if (now_ms < p->stunned_until_ms) return 0;
+    if (p->in_vehicle) return 0;
+    if (p->umbrella_active) return 0;
+    if (p->umbrella_cooldown > 0) return 0;
+
+    p->umbrella_active = 1;
+    p->umbrella_state = UMBRELLA_STATE_DEPLOY;
+    p->umbrella_deploy_ticks = UMBRELLA_DEPLOY_TICKS;
+    p->umbrella_cooldown = UMBRELLA_COOLDOWN_TICKS;
+    p->umbrella_anim = 0.0f;
+    p->umbrella_cam_blend = 0.0f;
+    p->umbrella_cancel_lock_ticks = 6;
+    p->umbrella_yaw = p->yaw;
+    memset(p->umbrella_hit_next_ms, 0, sizeof(p->umbrella_hit_next_ms));
+    memset(p->umbrella_hit_count, 0, sizeof(p->umbrella_hit_count));
+
+    if (p->on_ground) {
+        p->y += 0.1f;
+        p->vy = UMBRELLA_POP_VELOCITY_GROUNDED;
+    } else {
+        if (p->vy < -3.0f) p->vy = -3.0f;
+        p->vy += UMBRELLA_POP_VELOCITY_AIR;
+        if (p->vy > UMBRELLA_POP_VELOCITY_GROUNDED) p->vy = UMBRELLA_POP_VELOCITY_GROUNDED;
+    }
+    p->on_ground = 0;
+    return 1;
+}
+
+static inline void umbrella_apply_hit(PlayerState *owner, PlayerState *target, int final_hit, unsigned int now_ms) {
+    if (!owner || !target) return;
+    int damage = final_hit ? 12 : 4;
+    float kb_h = final_hit ? 4.8f : 1.5f;
+    float kb_v = final_hit ? 5.1f : 1.4f;
+
+    float dx = target->x - owner->x;
+    float dz = target->z - owner->z;
+    float d2 = dx * dx + dz * dz;
+    if (d2 > 0.0001f) {
+        float inv = 1.0f / sqrtf(d2);
+        dx *= inv;
+        dz *= inv;
+    } else {
+        float r = -owner->yaw * 0.0174533f;
+        dx = sinf(r);
+        dz = -cosf(r);
+    }
+
+    target->vx += dx * kb_h;
+    target->vz += dz * kb_h;
+    target->vy = kb_v;
+    target->on_ground = 0;
+    target->shield_regen_timer = SHIELD_REGEN_DELAY;
+    owner->hit_feedback = final_hit ? 20 : 10;
+
+    if (target->shield > 0) {
+        if (target->shield >= damage) { target->shield -= damage; damage = 0; }
+        else { damage -= target->shield; target->shield = 0; }
+    }
+    target->health -= damage;
+    if (target->health <= 0) {
+        owner->kills++;
+        target->deaths++;
+        owner->hit_feedback = 30;
+        phys_respawn(target, now_ms);
+        return;
+    }
+    if (now_ms >= target->stun_immune_until_ms) {
+        unsigned int stun_end = now_ms + (final_hit ? 170 : 85);
+        if (stun_end > target->stunned_until_ms) target->stunned_until_ms = stun_end;
+        target->stun_immune_until_ms = now_ms + (final_hit ? 260 : 180);
+    }
+}
+
+static inline void update_umbrella_attack(PlayerState *owner, PlayerState *targets, unsigned int now_ms) {
+    if (!owner || !targets) return;
+    if (!owner->umbrella_active || owner->umbrella_state != UMBRELLA_STATE_DEPLOY) return;
+
+    float hit_y_min = owner->y + 1.3f;
+    float hit_y_max = owner->y + 5.2f;
+    int final_hit = owner->umbrella_deploy_ticks <= 2;
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        PlayerState *target = &targets[i];
+        if (target == owner) continue;
+        if (!target->active || target->state == STATE_DEAD) continue;
+        if (target->scene_id != owner->scene_id) continue;
+        if (owner->umbrella_hit_count[i] >= UMBRELLA_HIT_MAX_PER_TARGET) continue;
+        if (now_ms < owner->umbrella_hit_next_ms[i]) continue;
+
+        float tx = target->x;
+        float ty = target->y + (PLAYER_HEIGHT * 0.45f);
+        float tz = target->z;
+        float dx = tx - owner->x;
+        float dz = tz - owner->z;
+        float dist2 = dx * dx + dz * dz;
+        if (dist2 > (UMBRELLA_HIT_RADIUS * UMBRELLA_HIT_RADIUS)) continue;
+        if (ty < hit_y_min || ty > hit_y_max) continue;
+
+        umbrella_apply_hit(owner, target, final_hit, now_ms);
+        owner->umbrella_hit_count[i]++;
+        owner->umbrella_hit_next_ms[i] = now_ms + UMBRELLA_HIT_REHIT_MS;
     }
 }
 
@@ -607,16 +744,48 @@ static inline void spawn_projectile(Projectile *projectiles, PlayerState *p, int
     }
 }
 
-void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectiles, int shoot, int reload, int ability_press) {
-    if (p->in_vehicle) return; 
+void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectiles, int shoot, int reload, int ability_press, unsigned int now_ms) {
+    if (p->state != STATE_ALIVE) {
+        umbrella_clear_state(p);
+        return;
+    }
+    if (p->umbrella_cooldown > 0) p->umbrella_cooldown--;
+    if (p->ability_cooldown > 0) p->ability_cooldown--;
+    if (p->in_vehicle) {
+        umbrella_clear_state(p);
+        return;
+    }
     if (p->reload_timer > 0) p->reload_timer--;
     if (p->attack_cooldown > 0) p->attack_cooldown--;
     if (p->is_shooting > 0) p->is_shooting--;
-    if (p->ability_cooldown > 0) p->ability_cooldown--;
+    p->storm_charges = 0;
 
-    if (ability_press && p->ability_cooldown == 0 && p->storm_charges == 0) {
-        p->storm_charges = 5;
-        p->ability_cooldown = 480;
+    if (p->umbrella_cancel_lock_ticks > 0) p->umbrella_cancel_lock_ticks--;
+    if (ability_press && !p->umbrella_active) {
+        try_activate_umbrella(p, now_ms);
+    } else if (ability_press && p->umbrella_state == UMBRELLA_STATE_GLIDE && p->umbrella_cancel_lock_ticks == 0) {
+        umbrella_clear_state(p);
+    }
+
+    if (p->umbrella_active) {
+        if (now_ms < p->stunned_until_ms) umbrella_clear_state(p);
+        else if (p->on_ground && p->umbrella_state == UMBRELLA_STATE_GLIDE) umbrella_clear_state(p);
+        else if (p->umbrella_state == UMBRELLA_STATE_DEPLOY) {
+            if (p->umbrella_deploy_ticks > 0) p->umbrella_deploy_ticks--;
+            p->umbrella_anim = 1.0f - ((float)p->umbrella_deploy_ticks / (float)UMBRELLA_DEPLOY_TICKS);
+            if (p->umbrella_anim < 0.0f) p->umbrella_anim = 0.0f;
+            if (p->umbrella_anim > 1.0f) p->umbrella_anim = 1.0f;
+            update_umbrella_attack(p, targets, now_ms);
+            if (p->umbrella_deploy_ticks <= 0) {
+                p->umbrella_state = UMBRELLA_STATE_GLIDE;
+                p->umbrella_anim = 1.0f;
+            }
+        } else if (p->umbrella_state == UMBRELLA_STATE_GLIDE) {
+            p->umbrella_anim = 1.0f;
+            if (p->crouching) {
+                umbrella_clear_state(p);
+            }
+        }
     }
 
     int w = p->current_weapon;
@@ -628,14 +797,6 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
     }
     if (p->reload_timer == 1) p->ammo[w] = WPN_STATS[w].ammo_max;
     if (shoot && p->attack_cooldown == 0 && p->reload_timer == 0) {
-        if (p->storm_charges > 0 && w == WPN_SNIPER) {
-            int storm_damage = (int)(WPN_STATS[w].dmg * 0.7f);
-            spawn_projectile(projectiles, p, storm_damage, 1, 1.5f);
-            p->storm_charges--;
-            p->attack_cooldown = 8;
-            p->recoil_anim = 0.5f;
-            return;
-        }
         if (w != WPN_KNIFE && p->ammo[w] <= 0) p->reload_timer = RELOAD_TIME_FULL;
         else {
             p->is_shooting = 5; p->recoil_anim = 1.0f;

@@ -54,18 +54,27 @@ static inline void shankpit_simulate_movement_tick(PlayerState *p, unsigned int 
         .forward = p->in_fwd,
         .strafe = p->in_vehicle ? 0.0f : p->in_strafe,
         .control_yaw_deg = p->yaw,
-        .wants_jump = p->in_jump,
+        .wants_jump = (p->umbrella_state == UMBRELLA_STATE_GLIDE) ? 0 : p->in_jump,
         .wants_sprint = 0
     };
     MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
 
     float max_spd = p->in_vehicle ? BUGGY_MAX_SPEED : MAX_SPEED;
     float acc = p->in_vehicle ? BUGGY_ACCEL : ACCEL;
+    if (p->umbrella_state == UMBRELLA_STATE_GLIDE) {
+        acc = UMBRELLA_GLIDE_AIR_ACCEL;
+    }
     float wish_speed = move_wish.magnitude * max_spd;
     accelerate(p, move_wish.dir_x, move_wish.dir_z, wish_speed, acc);
 
     float g = p->in_vehicle ? BUGGY_GRAVITY : (p->in_jump ? GRAVITY_FLOAT : GRAVITY_DROP);
+    if (p->umbrella_state == UMBRELLA_STATE_GLIDE) {
+        g *= UMBRELLA_GLIDE_GRAVITY_SCALE;
+    }
     p->vy -= g;
+    if (p->umbrella_state == UMBRELLA_STATE_GLIDE && p->vy < UMBRELLA_GLIDE_MAX_FALL_SPEED) {
+        p->vy = UMBRELLA_GLIDE_MAX_FALL_SPEED;
+    }
     if (p->in_jump && p->on_ground) {
         p->y += 0.1f;
         p->vy += JUMP_FORCE;

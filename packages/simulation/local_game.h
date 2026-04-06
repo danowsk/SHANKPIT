@@ -140,11 +140,22 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
         p->in_ability = 0;
         p->vx = 0.0f;
         p->vz = 0.0f;
+        umbrella_clear_state(p);
+    }
+
+    if (p->in_vehicle) {
+        umbrella_clear_state(p);
     }
 
     apply_friction(p);
     float g = (p->in_jump) ? GRAVITY_FLOAT : GRAVITY_DROP;
+    if (p->umbrella_state == UMBRELLA_STATE_GLIDE) {
+        g *= UMBRELLA_GLIDE_GRAVITY_SCALE;
+    }
     p->vy -= g; 
+    if (p->umbrella_state == UMBRELLA_STATE_GLIDE && p->vy < UMBRELLA_GLIDE_MAX_FALL_SPEED) {
+        p->vy = UMBRELLA_GLIDE_MAX_FALL_SPEED;
+    }
     p->y += p->vy;
     
     resolve_collision(p);
@@ -155,7 +166,7 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
     if (p->recoil_anim < 0) p->recoil_anim = 0;
     if (p->hit_feedback > 0) p->hit_feedback--;
 
-    update_weapons(p, local_state.players, local_state.projectiles, p->in_shoot > 0, p->in_reload > 0, p->in_ability > 0);
+    update_weapons(p, local_state.players, local_state.projectiles, p->in_shoot > 0, p->in_reload > 0, p->in_ability > 0, cmd_time);
     scene_safety_check(p);
 }
 
@@ -248,15 +259,16 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         .forward = fwd,
         .strafe = str,
         .control_yaw_deg = yaw,
-        .wants_jump = jump,
+        .wants_jump = (p0->umbrella_state == UMBRELLA_STATE_GLIDE) ? 0 : jump,
         .wants_sprint = 0
     };
     MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
-    accelerate(p0, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, ACCEL);
+    float move_accel = (p0->umbrella_state == UMBRELLA_STATE_GLIDE) ? UMBRELLA_GLIDE_AIR_ACCEL : ACCEL;
+    accelerate(p0, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, move_accel);
     
     int fresh_jump_press = (jump && !was_holding_jump);
     // --- PHASE 485: TUNED SLIDE JUMP ---
-    if (jump && p0->on_ground) {
+    if (jump && p0->on_ground && p0->umbrella_state != UMBRELLA_STATE_GLIDE) {
         float speed = sqrtf(p0->vx*p0->vx + p0->vz*p0->vz);
         if (p0->crouching && speed > 0.5f && fresh_jump_press) {
             float boost_mult = 1.0f + (0.25f / speed);
@@ -290,7 +302,7 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             p->in_reload = (b_btns & BTN_RELOAD);
             p->crouching = (b_btns & BTN_CROUCH);
             p->in_ability = 0;
-            if ((b_btns & BTN_JUMP) && p->on_ground) { p->y += 0.1f; p->vy += JUMP_FORCE; }
+            if ((b_btns & BTN_JUMP) && p->on_ground && p->umbrella_state != UMBRELLA_STATE_GLIDE) { p->y += 0.1f; p->vy += JUMP_FORCE; }
         }
         phys_set_scene(p->scene_id);
         update_entity(p, 0.016f, server_context, cmd_time);

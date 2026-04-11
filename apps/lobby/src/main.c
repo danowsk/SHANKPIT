@@ -79,6 +79,9 @@ static VehicleStyle g_vehicle_style = {0.85f, 0.15f, 0.25f, 0.45f, 0.2f, 0.18f, 
 static int vehicle_style_enabled = 1;
 static int vehicle_underglow_enabled = 1;
 static int vehicle_worklights_enabled = 1;
+static int terrain_wireframe_enabled = 1;
+static int terrain_normal_debug_enabled = 0;
+static unsigned int terrain_sample_log_ms = 0;
 static ProcTexture g_vehicle_noise_tex = {0};
 static ProcTexture g_vehicle_glitch_tex = {0};
 
@@ -591,6 +594,77 @@ void draw_grid() {
         glVertex3f(-4000, 0.1f, i); glVertex3f(4000, 0.1f, i); 
     }
     glEnd();
+}
+
+static void draw_terrain(const TerrainHeightfield *terrain) {
+    if (!terrain || !terrain->active || !terrain->heights) return;
+
+    for (int gz = 0; gz < terrain->height - 1; gz++) {
+        glBegin(GL_TRIANGLE_STRIP);
+        for (int gx = 0; gx < terrain->width; gx++) {
+            float x0 = terrain->origin_x + (float)gx * terrain->cell_size;
+            float z0 = terrain->origin_z + (float)gz * terrain->cell_size;
+            float z1 = terrain->origin_z + (float)(gz + 1) * terrain->cell_size;
+            float y0 = terrain_get_height(terrain, gx, gz);
+            float y1 = terrain_get_height(terrain, gx, gz + 1);
+
+            float shade0 = 0.10f + y0 * 0.0022f;
+            float shade1 = 0.10f + y1 * 0.0022f;
+            if (shade0 < 0.06f) shade0 = 0.06f;
+            if (shade1 < 0.06f) shade1 = 0.06f;
+            if (shade0 > 0.30f) shade0 = 0.30f;
+            if (shade1 > 0.30f) shade1 = 0.30f;
+
+            glColor3f(shade0, shade0 + 0.03f, shade0 + 0.01f);
+            glVertex3f(x0, y0, z0);
+            glColor3f(shade1, shade1 + 0.03f, shade1 + 0.01f);
+            glVertex3f(x0, y1, z1);
+        }
+        glEnd();
+    }
+
+    if (terrain_wireframe_enabled) {
+        glLineWidth(1.0f);
+        glColor4f(0.1f, 0.9f, 0.8f, 0.45f);
+        for (int gz = 0; gz < terrain->height - 1; gz++) {
+            glBegin(GL_LINE_STRIP);
+            for (int gx = 0; gx < terrain->width; gx++) {
+                float x = terrain->origin_x + (float)gx * terrain->cell_size;
+                float z = terrain->origin_z + (float)gz * terrain->cell_size;
+                float y = terrain_get_height(terrain, gx, gz) + 0.05f;
+                glVertex3f(x, y, z);
+            }
+            glEnd();
+        }
+        for (int gx = 0; gx < terrain->width; gx++) {
+            glBegin(GL_LINE_STRIP);
+            for (int gz = 0; gz < terrain->height; gz++) {
+                float x = terrain->origin_x + (float)gx * terrain->cell_size;
+                float z = terrain->origin_z + (float)gz * terrain->cell_size;
+                float y = terrain_get_height(terrain, gx, gz) + 0.05f;
+                glVertex3f(x, y, z);
+            }
+            glEnd();
+        }
+    }
+
+    if (terrain_normal_debug_enabled) {
+        glLineWidth(1.0f);
+        glColor3f(0.95f, 0.4f, 0.1f);
+        glBegin(GL_LINES);
+        for (int gz = 0; gz < terrain->height; gz += 6) {
+            for (int gx = 0; gx < terrain->width; gx += 6) {
+                float x = terrain->origin_x + (float)gx * terrain->cell_size;
+                float z = terrain->origin_z + (float)gz * terrain->cell_size;
+                float y = terrain_get_height(terrain, gx, gz);
+                float nx = 0.0f, ny = 1.0f, nz = 0.0f;
+                terrain_sample_normal(terrain, x, z, &nx, &ny, &nz);
+                glVertex3f(x, y + 0.2f, z);
+                glVertex3f(x + nx * 4.0f, y + 0.2f + ny * 4.0f, z + nz * 4.0f);
+            }
+        }
+        glEnd();
+    }
 }
 
 // --- NEON BRUTALIST BLOCK RENDERER ---
@@ -1281,6 +1355,7 @@ void draw_scene(PlayerState *render_p) {
     
     draw_grid(); 
     update_and_draw_trails();
+    draw_terrain(phys_get_active_terrain());
     draw_map();
     draw_garage_vehicle_pads();
     draw_garage_portal_frame();
@@ -1294,6 +1369,22 @@ void draw_scene(PlayerState *render_p) {
     }
     draw_weapon_p(render_p); draw_hud(render_p); draw_garage_overlay(render_p);
     draw_travel_overlay();
+
+    if (terrain_normal_debug_enabled) {
+        unsigned int now = SDL_GetTicks();
+        if (now - terrain_sample_log_ms > 500) {
+            int has_terrain = 0;
+            float h = phys_sample_ground_height(render_p->x, render_p->z, &has_terrain);
+            if (has_terrain) {
+                printf("[TERRAIN] sample x=%.1f z=%.1f h=%.2f\n", render_p->x, render_p->z, h);
+                if (render_p->on_ground) {
+                    printf("[TERRAIN] grounded source=%s\n",
+                           phys_was_grounded_on_terrain() ? "terrain" : "box");
+                }
+            }
+            terrain_sample_log_ms = now;
+        }
+    }
 }
 
 static void draw_lobby_buttons(int menu_count, float base_x, float base_y, float gap, float size) {
@@ -2014,10 +2105,17 @@ int main(int argc, char* argv[]) {
                         SDL_SetRelativeMouseMode(SDL_FALSE);
                         setup_lobby_2d();
                     } else if (e.key.keysym.sym == SDLK_F6) {
-                        vehicle_style_enabled = !vehicle_style_enabled;
+                        terrain_wireframe_enabled = !terrain_wireframe_enabled;
+                        printf("[TERRAIN] wireframe=%d\n", terrain_wireframe_enabled);
                     } else if (e.key.keysym.sym == SDLK_F7) {
-                        vehicle_underglow_enabled = !vehicle_underglow_enabled;
+                        terrain_normal_debug_enabled = !terrain_normal_debug_enabled;
+                        phys_set_terrain_debug_logging(terrain_normal_debug_enabled);
+                        printf("[TERRAIN] normals=%d\n", terrain_normal_debug_enabled);
                     } else if (e.key.keysym.sym == SDLK_F8) {
+                        vehicle_style_enabled = !vehicle_style_enabled;
+                    } else if (e.key.keysym.sym == SDLK_F9) {
+                        vehicle_underglow_enabled = !vehicle_underglow_enabled;
+                    } else if (e.key.keysym.sym == SDLK_F10) {
                         vehicle_worklights_enabled = !vehicle_worklights_enabled;
                     }
                 }

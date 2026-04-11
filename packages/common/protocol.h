@@ -2,8 +2,9 @@
 #define PROTOCOL_H
 
 #define MAX_CLIENTS 70
-#define MAX_WEAPONS 5
+#define MAX_WEAPONS 6
 #define MAX_PROJECTILES 1024
+#define MAX_HELICOPTERS 8
 #define LAG_HISTORY 64
 
 #define SCENE_GARAGE_OSAKA 0
@@ -26,6 +27,7 @@
 #define WPN_AR 2
 #define WPN_SHOTGUN 3
 #define WPN_SNIPER 4
+#define WPN_KATANA 5
 
 #define RELOAD_TIME_FULL 60      
 #define RELOAD_TIME_TACTICAL 42  
@@ -66,6 +68,7 @@ typedef struct {
 #define VEH_NONE  0
 #define VEH_BUGGY 1
 #define VEH_BIKE  2
+#define VEH_HELICOPTER 3
 
 typedef struct {
     int id;
@@ -77,7 +80,8 @@ static const WeaponStats WPN_STATS[MAX_WEAPONS] = {
     {WPN_MAGNUM,  45, 25, 1, 0.0f,  6},   
     {WPN_AR,      20, 6,  1, 0.04f, 30},  
     {WPN_SHOTGUN, 128, 17, 8, 0.15f, 8},   
-    {WPN_SNIPER,  101, 70, 1, 0.0f,  5}    
+    {WPN_SNIPER,  101, 70, 1, 0.0f,  5},   
+    {WPN_KATANA,   40, 28, 1, 0.0f,  0}    
 };
 
 typedef struct {
@@ -104,6 +108,22 @@ typedef struct {
     unsigned char hit_feedback; 
     unsigned char storm_charges;
 } NetPlayer;
+
+typedef struct {
+    unsigned char id;
+    unsigned char scene_id;
+    unsigned char active;
+    unsigned char grounded;
+    float x, y, z;
+    float vx, vy, vz;
+    float yaw;
+    float pitch_visual;
+    float roll_visual;
+    float rotor_angle;
+    float rotor_speed;
+    unsigned char health;
+    signed char occupant_player_id;
+} NetHelicopter;
 
 typedef struct {
     int version;
@@ -142,6 +162,13 @@ typedef struct {
     unsigned int respawn_time;
     int storm_charges;
     int ability_cooldown;
+    int katana_slash_timer;
+    int dash_timer;
+    float dash_vx;
+    float dash_vy;
+    float dash_vz;
+    int dash_hit_count;
+    int dash_hit_targets[8];
     unsigned int stunned_until_ms;
     unsigned int stun_immune_until_ms;
     float run_phase;
@@ -154,11 +181,38 @@ typedef struct {
     float vx, vy, vz;
 } LagRecord;
 
+typedef struct {
+    float forward;
+    float yaw;
+    float strafe;
+    int ascend;
+    int descend;
+} HeliInputState;
+
+typedef struct {
+    int active;
+    int id;
+    int scene_id;
+    float x, y, z;
+    float vx, vy, vz;
+    float yaw;
+    float pitch_visual;
+    float roll_visual;
+    float rotor_angle;
+    float rotor_speed;
+    float collective;
+    int health;
+    int occupant_player_id;
+    int grounded;
+    HeliInputState input;
+} HelicopterState;
+
 typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100 } GameMode;
 
 typedef struct {
     PlayerState players[MAX_CLIENTS];
     Projectile projectiles[MAX_PROJECTILES];
+    HelicopterState helicopters[MAX_HELICOPTERS];
     LagRecord history[MAX_CLIENTS][LAG_HISTORY];
     int server_tick;
     int game_mode;

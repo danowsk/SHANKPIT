@@ -57,6 +57,39 @@ static inline void scene_load(int scene_id) {
     }
 }
 
+static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z) {
+    memset(h, 0, sizeof(*h));
+    h->active = 1;
+    h->id = id;
+    h->scene_id = scene_id;
+    h->x = x; h->y = y; h->z = z;
+    h->health = 250;
+    h->occupant_player_id = -1;
+    h->rotor_speed = 8.0f;
+    h->yaw = 180.0f;
+}
+
+static inline HelicopterState *heli_find_nearby(int scene_id, float x, float y, float z, float radius) {
+    float rr = radius * radius;
+    for (int i = 0; i < MAX_HELICOPTERS; i++) {
+        HelicopterState *h = &local_state.helicopters[i];
+        if (!h->active || h->scene_id != scene_id) continue;
+        float dx = h->x - x, dy = h->y - y, dz = h->z - z;
+        if ((dx * dx + dy * dy + dz * dz) <= rr) return h;
+    }
+    return NULL;
+}
+
+static inline int heli_try_place_player(PlayerState *p, HelicopterState *h, float ox, float oz) {
+    float px = h->x + ox;
+    float pz = h->z + oz;
+    if (!heli_point_collides(px, h->y + 1.0f, pz) && !heli_point_collides(px, h->y + 2.0f, pz)) {
+        p->x = px; p->y = h->y; p->z = pz;
+        return 1;
+    }
+    return 0;
+}
+
 static inline void scene_request_transition(int scene_id) {
     if (local_state.transition_timer > 0) return;
     local_state.pending_scene = scene_id;
@@ -144,12 +177,30 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
 
     apply_friction(p);
     float g = (p->in_jump) ? GRAVITY_FLOAT : GRAVITY_DROP;
-    p->vy -= g; 
+    if (p->dash_timer <= 0) p->vy -= g; 
     p->y += p->vy;
     
     resolve_collision(p);
-    p->x += p->vx;
-    p->z += p->vz;
+    if (p->dash_timer > 0) {
+        float nx = 0.0f, ny = 0.0f, nz = 0.0f;
+        float hit_x = 0.0f, hit_y = 0.0f, hit_z = 0.0f;
+        float next_x = p->x + p->vx;
+        float next_y = p->y;
+        float next_z = p->z + p->vz;
+        if (trace_map(p->x, p->y + 1.0f, p->z, next_x, next_y + 1.0f, next_z, &hit_x, &hit_y, &hit_z, &nx, &ny, &nz)) {
+            p->x = hit_x;
+            p->z = hit_z;
+            p->dash_timer = 0;
+            p->dash_vx = p->dash_vy = p->dash_vz = 0.0f;
+            p->vx = 0.0f; p->vy = 0.0f; p->vz = 0.0f;
+        } else {
+            p->x = next_x;
+            p->z = next_z;
+        }
+    } else {
+        p->x += p->vx;
+        p->z += p->vz;
+    }
 
     if (p->recoil_anim > 0) p->recoil_anim -= 0.1f;
     if (p->recoil_anim < 0) p->recoil_anim = 0;
@@ -244,15 +295,17 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     }
     p0->yaw = yaw; p0->pitch = pitch;
     if (weapon_req >= 0 && weapon_req < MAX_WEAPONS) p0->current_weapon = weapon_req;
-    MoveIntent move_intent = {
-        .forward = fwd,
-        .strafe = str,
-        .control_yaw_deg = yaw,
-        .wants_jump = jump,
-        .wants_sprint = 0
-    };
-    MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
-    accelerate(p0, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, ACCEL);
+    if (!(p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER)) {
+        MoveIntent move_intent = {
+            .forward = fwd,
+            .strafe = str,
+            .control_yaw_deg = yaw,
+            .wants_jump = jump,
+            .wants_sprint = 0
+        };
+        MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
+        accelerate(p0, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, ACCEL);
+    }
     
     int fresh_jump_press = (jump && !was_holding_jump);
     // --- PHASE 485: TUNED SLIDE JUMP ---
@@ -273,9 +326,33 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     p0->in_ability = ability;
     was_holding_jump = jump;
     
+    for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
+        HelicopterState *h = &local_state.helicopters[hi];
+        if (!h->active) continue;
+        if (h->occupant_player_id >= 0 && h->occupant_player_id < MAX_CLIENTS) {
+            PlayerState *occ = &local_state.players[h->occupant_player_id];
+            h->input.forward = occ->in_fwd;
+            h->input.yaw = occ->in_strafe;
+            h->input.strafe = occ->in_ability ? -1.0f : (occ->in_bike ? 1.0f : 0.0f);
+            h->input.ascend = occ->in_jump;
+            h->input.descend = occ->crouching;
+            heli_simulate_step(h, SHANKPIT_NET_FIXED_DT);
+            occ->x = h->x; occ->y = h->y; occ->z = h->z;
+            occ->yaw = h->yaw; occ->vx = occ->vy = occ->vz = 0.0f;
+            occ->on_ground = h->grounded;
+        } else {
+            h->input.forward = 0.0f; h->input.yaw = 0.0f; h->input.strafe = 0.0f;
+            h->input.ascend = 0; h->input.descend = 0;
+            heli_simulate_step(h, SHANKPIT_NET_FIXED_DT);
+        }
+    }
+
     for(int i=0; i<MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
         if (!p->active) continue;
+        if (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER) {
+            continue;
+        }
         if (i > 0 && p->active && p->state != STATE_DEAD) {
             float b_fwd=0, b_yaw=p->yaw;
             int b_btns=0;
@@ -314,5 +391,6 @@ void local_init_match(int num_players, int mode) {
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);
     }
+    heli_spawn_defaults(&local_state.helicopters[0], 0, local_state.scene_id, 16.0f, 4.0f, 12.0f);
 }
 #endif

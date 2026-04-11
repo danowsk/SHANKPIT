@@ -120,6 +120,10 @@ static int map_count = 0;
 #define GARAGE_PORTAL_Y 6.0f
 #define GARAGE_PORTAL_Z 56.0f
 #define GARAGE_PORTAL_RADIUS 6.0f
+#define GARAGE_VOX_PORTAL_X 48.0f
+#define GARAGE_VOX_PORTAL_Y 6.0f
+#define GARAGE_VOX_PORTAL_Z 0.0f
+#define GARAGE_VOX_PORTAL_RADIUS 6.5f
 #define STADIUM_PORTAL_X 0.0f
 #define STADIUM_PORTAL_Y 2.0f
 #define STADIUM_PORTAL_Z 0.0f
@@ -138,6 +142,7 @@ static int map_count = 0;
 #define PORTAL_ID_GARAGE_EXIT 0
 #define PORTAL_ID_STADIUM_TO_VOXWORLD 1
 #define PORTAL_ID_VOXWORLD_TO_STADIUM 2
+#define PORTAL_ID_GARAGE_TO_VOXWORLD 3
 
 typedef struct {
     float x;
@@ -328,6 +333,13 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
         scene_spawn_point(*out_scene, slot, out_x, out_y, out_z);
         return 1;
     }
+    if (current_scene == SCENE_GARAGE_OSAKA && portal_id == PORTAL_ID_GARAGE_TO_VOXWORLD) {
+        *out_scene = SCENE_VOXWORLD;
+        *out_x = -420.0f;
+        *out_y = 8.0f;
+        *out_z = 180.0f;
+        return 1;
+    }
     if (current_scene == SCENE_STADIUM && portal_id == PORTAL_ID_STADIUM_TO_VOXWORLD) {
         *out_scene = SCENE_VOXWORLD;
         *out_x = STADIUM_EDGE_TELEPORT_X;
@@ -377,6 +389,16 @@ static inline const VehiclePad *scene_vehicle_pads(int scene_id, int *out_count)
 
 static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
     if (!scene_portal_active(p->scene_id)) return 0;
+
+    if (p->scene_id == SCENE_GARAGE_OSAKA) {
+        float dx_vox = p->x - GARAGE_VOX_PORTAL_X;
+        float dz_vox = p->z - GARAGE_VOX_PORTAL_Z;
+        float dist_sq_vox = dx_vox * dx_vox + dz_vox * dz_vox;
+        if (dist_sq_vox <= (GARAGE_VOX_PORTAL_RADIUS * GARAGE_VOX_PORTAL_RADIUS)) {
+            if (out_portal_id) *out_portal_id = PORTAL_ID_GARAGE_TO_VOXWORLD;
+            return 1;
+        }
+    }
 
     if (p->scene_id == SCENE_STADIUM) {
         float dx_main = p->x - STADIUM_PORTAL_X;

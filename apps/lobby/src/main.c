@@ -1212,6 +1212,20 @@ static void draw_garage_portal_frame() {
     glVertex3f(-pr, 6.0f, 0.0f);
     glEnd();
     glPopMatrix();
+
+    if (local_state.scene_id == SCENE_GARAGE_OSAKA) {
+        glPushMatrix();
+        glTranslatef(GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z);
+        glColor3f(0.95f, 0.2f, 0.95f);
+        glLineWidth(3.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex3f(-GARAGE_VOX_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_VOX_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_VOX_PORTAL_RADIUS, 6.0f, 0.0f);
+        glVertex3f(-GARAGE_VOX_PORTAL_RADIUS, 6.0f, 0.0f);
+        glEnd();
+        glPopMatrix();
+    }
 }
 
 static void draw_garage_vehicle_pads() {
@@ -1244,6 +1258,7 @@ static void draw_garage_overlay(PlayerState *p) {
     draw_string("OSAKA GARAGE", 40, 670, 10);
     glColor3f(0.9f, 0.9f, 0.9f);
     draw_string("PORTAL -> STADIUM", 40, 640, 6);
+    draw_string("PORTAL -> VOXWORLD TERRAIN", 40, 620, 6);
 
     int pad_count = 0;
     const VehiclePad *pads = scene_vehicle_pads(local_state.scene_id, &pad_count);
@@ -1270,6 +1285,7 @@ static void draw_garage_overlay(PlayerState *p) {
     float portal_x = 0.0f, portal_y = 0.0f, portal_z = 0.0f, portal_r = 0.0f;
     scene_portal_info(local_state.scene_id, &portal_x, &portal_y, &portal_z, &portal_r);
     int portal_target = target_in_view(p, portal_x, portal_y, portal_z, 30.0f, 0.75f);
+    int vox_portal_target = target_in_view(p, GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z, 30.0f, 0.75f);
     int pad_target = 0;
     if (scene_near_vehicle_pad(local_state.scene_id, p->x, p->z, 12.0f, NULL)) {
         int pad_idx = -1;
@@ -1279,7 +1295,7 @@ static void draw_garage_overlay(PlayerState *p) {
     }
 
     glColor3f(1.0f, 1.0f, 0.0f);
-    if (portal_target) {
+    if (portal_target || vox_portal_target) {
         draw_string("TRAVEL", 600, 350, 8);
     } else if (pad_target) {
         draw_string(p->in_vehicle ? "EXIT VEHICLE" : "ENTER VEHICLE", 560, 350, 8);

@@ -79,6 +79,9 @@ static VehicleStyle g_vehicle_style = {0.85f, 0.15f, 0.25f, 0.45f, 0.2f, 0.18f, 
 static int vehicle_style_enabled = 1;
 static int vehicle_underglow_enabled = 1;
 static int vehicle_worklights_enabled = 1;
+static int terrain_wireframe_debug = 0;
+static int terrain_normals_debug = 0;
+static unsigned int terrain_debug_last_log_ms = 0;
 static ProcTexture g_vehicle_noise_tex = {0};
 static ProcTexture g_vehicle_glitch_tex = {0};
 
@@ -665,6 +668,77 @@ void draw_map() {
     }
 }
 
+void draw_terrain() {
+    TerrainHeightfield *t = scene_active_terrain();
+    if (!t || !t->active || !t->heights || t->width < 2 || t->height < 2) return;
+
+    glDisable(GL_LIGHTING);
+    for (int gz = 0; gz < t->height - 1; gz++) {
+        glBegin(GL_TRIANGLE_STRIP);
+        for (int gx = 0; gx < t->width; gx++) {
+            float x = t->origin_x + gx * t->cell_size;
+            float z0 = t->origin_z + gz * t->cell_size;
+            float z1 = t->origin_z + (gz + 1) * t->cell_size;
+            float h0 = terrain_get_height(t, gx, gz);
+            float h1 = terrain_get_height(t, gx, gz + 1);
+            float shade0 = 0.14f + 0.02f * sinf((x + z0) * 0.01f) + h0 * 0.0015f;
+            float shade1 = 0.14f + 0.02f * sinf((x + z1) * 0.01f) + h1 * 0.0015f;
+            if (shade0 < 0.06f) shade0 = 0.06f;
+            if (shade1 < 0.06f) shade1 = 0.06f;
+            if (shade0 > 0.26f) shade0 = 0.26f;
+            if (shade1 > 0.26f) shade1 = 0.26f;
+            glColor3f(shade0 * 0.4f, shade0, shade0 * 0.5f);
+            glVertex3f(x, h0, z0);
+            glColor3f(shade1 * 0.4f, shade1, shade1 * 0.5f);
+            glVertex3f(x, h1, z1);
+        }
+        glEnd();
+    }
+
+    if (terrain_wireframe_debug) {
+        glLineWidth(1.0f);
+        glColor3f(0.15f, 0.9f, 0.9f);
+        glBegin(GL_LINES);
+        for (int gz = 0; gz < t->height; gz++) {
+            for (int gx = 0; gx < t->width - 1; gx++) {
+                float x0 = t->origin_x + gx * t->cell_size;
+                float x1 = t->origin_x + (gx + 1) * t->cell_size;
+                float z = t->origin_z + gz * t->cell_size;
+                glVertex3f(x0, terrain_get_height(t, gx, gz) + 0.05f, z);
+                glVertex3f(x1, terrain_get_height(t, gx + 1, gz) + 0.05f, z);
+            }
+        }
+        for (int gx = 0; gx < t->width; gx++) {
+            for (int gz = 0; gz < t->height - 1; gz++) {
+                float x = t->origin_x + gx * t->cell_size;
+                float z0 = t->origin_z + gz * t->cell_size;
+                float z1 = t->origin_z + (gz + 1) * t->cell_size;
+                glVertex3f(x, terrain_get_height(t, gx, gz) + 0.05f, z0);
+                glVertex3f(x, terrain_get_height(t, gx, gz + 1) + 0.05f, z1);
+            }
+        }
+        glEnd();
+    }
+
+    if (terrain_normals_debug) {
+        glLineWidth(1.0f);
+        glColor3f(0.95f, 0.2f, 0.95f);
+        glBegin(GL_LINES);
+        for (int gz = 1; gz < t->height - 1; gz += 4) {
+            for (int gx = 1; gx < t->width - 1; gx += 4) {
+                float x = t->origin_x + gx * t->cell_size;
+                float z = t->origin_z + gz * t->cell_size;
+                float y = terrain_get_height(t, gx, gz);
+                float nx = 0.0f, ny = 1.0f, nz = 0.0f;
+                terrain_sample_normal(t, x, z, &nx, &ny, &nz);
+                glVertex3f(x, y + 0.4f, z);
+                glVertex3f(x + nx * 5.0f, y + 0.4f + ny * 5.0f, z + nz * 5.0f);
+            }
+        }
+        glEnd();
+    }
+}
+
 static void draw_box_solid(float hx, float hy, float hz) {
     glBegin(GL_QUADS);
     glNormal3f(0, 1, 0);
@@ -1134,6 +1208,10 @@ void draw_hud(PlayerState *p) {
         glColor3f(0.95f, 0.55f, 0.1f);
         draw_string(style_buf, 50, 108, 6);
     }
+    glColor3f(0.4f, 0.95f, 0.8f);
+    draw_string(terrain_wireframe_debug ? "F6 TERRAIN WIRE:ON" : "F6 TERRAIN WIRE:OFF", 50, 26, 5);
+    glColor3f(0.9f, 0.4f, 0.95f);
+    draw_string(terrain_normals_debug ? "F7 TERRAIN NORMALS:ON" : "F7 TERRAIN NORMALS:OFF", 220, 26, 5);
 
     if (p->current_weapon == WPN_KATANA) {
         char katana_buf[64];
@@ -1200,6 +1278,20 @@ static void draw_garage_portal_frame() {
     glVertex3f(-pr, 6.0f, 0.0f);
     glEnd();
     glPopMatrix();
+
+    if (local_state.scene_id == SCENE_GARAGE_OSAKA) {
+        glPushMatrix();
+        glTranslatef(GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z);
+        glColor3f(0.95f, 0.2f, 0.95f);
+        glLineWidth(3.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex3f(-GARAGE_VOX_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_VOX_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_VOX_PORTAL_RADIUS, 6.0f, 0.0f);
+        glVertex3f(-GARAGE_VOX_PORTAL_RADIUS, 6.0f, 0.0f);
+        glEnd();
+        glPopMatrix();
+    }
 }
 
 static void draw_garage_vehicle_pads() {
@@ -1232,6 +1324,7 @@ static void draw_garage_overlay(PlayerState *p) {
     draw_string("OSAKA GARAGE", 40, 670, 10);
     glColor3f(0.9f, 0.9f, 0.9f);
     draw_string("PORTAL -> STADIUM", 40, 640, 6);
+    draw_string("PORTAL -> VOXWORLD TERRAIN", 40, 620, 6);
 
     int pad_count = 0;
     const VehiclePad *pads = scene_vehicle_pads(local_state.scene_id, &pad_count);
@@ -1258,6 +1351,7 @@ static void draw_garage_overlay(PlayerState *p) {
     float portal_x = 0.0f, portal_y = 0.0f, portal_z = 0.0f, portal_r = 0.0f;
     scene_portal_info(local_state.scene_id, &portal_x, &portal_y, &portal_z, &portal_r);
     int portal_target = target_in_view(p, portal_x, portal_y, portal_z, 30.0f, 0.75f);
+    int vox_portal_target = target_in_view(p, GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z, 30.0f, 0.75f);
     int pad_target = 0;
     int heli_target = 0;
     if (scene_near_vehicle_pad(local_state.scene_id, p->x, p->z, 12.0f, NULL)) {
@@ -1279,7 +1373,7 @@ static void draw_garage_overlay(PlayerState *p) {
     }
 
     glColor3f(1.0f, 1.0f, 0.0f);
-    if (portal_target) {
+    if (portal_target || vox_portal_target) {
         draw_string("TRAVEL", 600, 350, 8);
     } else if (heli_target || (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER)) {
         draw_string(p->in_vehicle ? "PRESS F TO EXIT HELICOPTER" : "PRESS F TO ENTER HELICOPTER", 460, 350, 8);
@@ -1389,6 +1483,7 @@ void draw_scene(PlayerState *render_p) {
     
     draw_grid(); 
     update_and_draw_trails();
+    draw_terrain();
     draw_map();
     draw_garage_vehicle_pads();
     draw_garage_portal_frame();
@@ -2164,10 +2259,16 @@ int main(int argc, char* argv[]) {
                         SDL_SetRelativeMouseMode(SDL_FALSE);
                         setup_lobby_2d();
                     } else if (e.key.keysym.sym == SDLK_F6) {
-                        vehicle_style_enabled = !vehicle_style_enabled;
+                        terrain_wireframe_debug = !terrain_wireframe_debug;
+                        printf("[TERRAIN] wireframe=%s\n", terrain_wireframe_debug ? "on" : "off");
                     } else if (e.key.keysym.sym == SDLK_F7) {
-                        vehicle_underglow_enabled = !vehicle_underglow_enabled;
+                        terrain_normals_debug = !terrain_normals_debug;
+                        printf("[TERRAIN] normals=%s\n", terrain_normals_debug ? "on" : "off");
                     } else if (e.key.keysym.sym == SDLK_F8) {
+                        vehicle_style_enabled = !vehicle_style_enabled;
+                    } else if (e.key.keysym.sym == SDLK_F9) {
+                        vehicle_underglow_enabled = !vehicle_underglow_enabled;
+                    } else if (e.key.keysym.sym == SDLK_F10) {
                         vehicle_worklights_enabled = !vehicle_worklights_enabled;
                     }
                 }
@@ -2339,6 +2440,22 @@ int main(int argc, char* argv[]) {
             if (app_state == STATE_GAME_NET && !net_have_initial_local_snapshot_sync) {
                 render_pid = 0;
                 render_p = &local_state.players[render_pid];
+            }
+            phys_set_scene(render_p->scene_id);
+            unsigned int terrain_now_ms = SDL_GetTicks();
+            if (terrain_now_ms - terrain_debug_last_log_ms >= 1000) {
+                terrain_debug_last_log_ms = terrain_now_ms;
+                TerrainHeightfield *terrain = scene_active_terrain();
+                printf("[TERRAIN] active=%s scene=%d\n", (terrain && terrain->active) ? "yes" : "no", render_p->scene_id);
+                if (terrain && terrain->active) {
+                    float th = terrain_sample_height(terrain, render_p->x, render_p->z);
+                    int ground_source_terrain = 0;
+                    float gh = phys_sample_ground_height(render_p->x, render_p->z, &ground_source_terrain);
+                    printf("[TERRAIN] sample x=%.2f z=%.2f h=%.2f ground=%.2f source=%s last=%s\n",
+                           render_p->x, render_p->z, th, gh,
+                           ground_source_terrain ? "terrain" : "box",
+                           phys_last_grounded_on_terrain() ? "terrain" : "box");
+                }
             }
             draw_scene(render_p);
             SDL_GL_SwapWindow(win);

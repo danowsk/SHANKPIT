@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "protocol.h"
+#include "../world/terrain.h"
 
 // --- TUNING ---
 #define GRAVITY_FLOAT 0.025f 
@@ -134,6 +135,10 @@ static int map_count = 0;
 #define GARAGE_PORTAL_Y 6.0f
 #define GARAGE_PORTAL_Z 56.0f
 #define GARAGE_PORTAL_RADIUS 6.0f
+#define GARAGE_VOX_PORTAL_X 48.0f
+#define GARAGE_VOX_PORTAL_Y 6.0f
+#define GARAGE_VOX_PORTAL_Z 0.0f
+#define GARAGE_VOX_PORTAL_RADIUS 6.5f
 #define STADIUM_PORTAL_X 0.0f
 #define STADIUM_PORTAL_Y 2.0f
 #define STADIUM_PORTAL_Z 0.0f
@@ -152,6 +157,7 @@ static int map_count = 0;
 #define PORTAL_ID_GARAGE_EXIT 0
 #define PORTAL_ID_STADIUM_TO_VOXWORLD 1
 #define PORTAL_ID_VOXWORLD_TO_STADIUM 2
+#define PORTAL_ID_GARAGE_TO_VOXWORLD 3
 
 typedef struct {
     float x;
@@ -205,19 +211,58 @@ static inline void init_voxworld_city_geo() {
 }
 
 static int phys_scene_id = SCENE_STADIUM;
+static TerrainHeightfield g_scene_terrain = {0};
+static int g_last_ground_source_terrain = 0;
+static inline void init_voxworld_terrain(void);
 
 static inline void phys_set_scene(int scene_id) {
     phys_scene_id = scene_id;
     if (scene_id == SCENE_GARAGE_OSAKA) {
         map_geo = map_geo_garage;
         map_count = (int)(sizeof(map_geo_garage) / sizeof(Box));
+        g_scene_terrain.active = 0;
     } else if (scene_id == SCENE_VOXWORLD) {
         init_voxworld_city_geo();
         map_geo = map_geo_voxworld;
         map_count = map_geo_voxworld_count;
+        init_voxworld_terrain();
+        g_scene_terrain.active = (g_scene_terrain.heights != NULL);
     } else {
         map_geo = map_geo_stadium;
         map_count = (int)(sizeof(map_geo_stadium) / sizeof(Box));
+        g_scene_terrain.active = 0;
+    }
+}
+
+static inline TerrainHeightfield* scene_active_terrain(void) {
+    return g_scene_terrain.active ? &g_scene_terrain : NULL;
+}
+
+static inline int phys_last_grounded_on_terrain(void) {
+    return g_last_ground_source_terrain;
+}
+
+static inline void init_voxworld_terrain(void) {
+    if (g_scene_terrain.active) return;
+    if (!terrain_init(&g_scene_terrain, 72, 72, 16.0f, -576.0f, -576.0f)) return;
+    terrain_clear(&g_scene_terrain, 0.0f);
+    for (int gz = 0; gz < g_scene_terrain.height; gz++) {
+        for (int gx = 0; gx < g_scene_terrain.width; gx++) {
+            float wx = g_scene_terrain.origin_x + gx * g_scene_terrain.cell_size;
+            float wz = g_scene_terrain.origin_z + gz * g_scene_terrain.cell_size;
+            float hill = 22.0f * expf(-((wx + 260.0f) * (wx + 260.0f) + (wz - 140.0f) * (wz - 140.0f)) / (2.0f * 260.0f * 260.0f));
+            float runup = 0.05f * (wx + 360.0f);
+            float bowl_r = sqrtf((wx - 240.0f) * (wx - 240.0f) + (wz + 180.0f) * (wz + 180.0f));
+            float bowl = 0.0f;
+            if (bowl_r < 200.0f) {
+                float t = 1.0f - (bowl_r / 200.0f);
+                bowl = -16.0f * t * t;
+            }
+            float berm = 10.0f * expf(-((wx - 40.0f) * (wx - 40.0f)) / (2.0f * 120.0f * 120.0f))
+                       * expf(-((wz - 260.0f) * (wz - 260.0f)) / (2.0f * 70.0f * 70.0f));
+            float und = 2.8f * sinf(wx * 0.012f) * cosf(wz * 0.011f);
+            terrain_set_height(&g_scene_terrain, gx, gz, hill + runup + bowl + berm + und);
+        }
     }
 }
 
@@ -303,6 +348,13 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
         scene_spawn_point(*out_scene, slot, out_x, out_y, out_z);
         return 1;
     }
+    if (current_scene == SCENE_GARAGE_OSAKA && portal_id == PORTAL_ID_GARAGE_TO_VOXWORLD) {
+        *out_scene = SCENE_VOXWORLD;
+        *out_x = -420.0f;
+        *out_y = 8.0f;
+        *out_z = 180.0f;
+        return 1;
+    }
     if (current_scene == SCENE_STADIUM && portal_id == PORTAL_ID_STADIUM_TO_VOXWORLD) {
         *out_scene = SCENE_VOXWORLD;
         *out_x = STADIUM_EDGE_TELEPORT_X;
@@ -352,6 +404,16 @@ static inline const VehiclePad *scene_vehicle_pads(int scene_id, int *out_count)
 
 static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
     if (!scene_portal_active(p->scene_id)) return 0;
+
+    if (p->scene_id == SCENE_GARAGE_OSAKA) {
+        float dx_vox = p->x - GARAGE_VOX_PORTAL_X;
+        float dz_vox = p->z - GARAGE_VOX_PORTAL_Z;
+        float dist_sq_vox = dx_vox * dx_vox + dz_vox * dz_vox;
+        if (dist_sq_vox <= (GARAGE_VOX_PORTAL_RADIUS * GARAGE_VOX_PORTAL_RADIUS)) {
+            if (out_portal_id) *out_portal_id = PORTAL_ID_GARAGE_TO_VOXWORLD;
+            return 1;
+        }
+    }
 
     if (p->scene_id == SCENE_STADIUM) {
         float dx_main = p->x - STADIUM_PORTAL_X;
@@ -577,9 +639,17 @@ static inline int trace_map_boxes(float x1, float y1, float z1, float x2, float 
             return 1;
         }
     }
-    if (y2 < 0.0f) {
+    float terrain_ground = 0.0f;
+    int terrain_ok = 0;
+    if (g_scene_terrain.active && terrain_contains_world(&g_scene_terrain, x2, z2)) {
+        terrain_ground = terrain_sample_height(&g_scene_terrain, x2, z2);
+        terrain_ok = 1;
+    }
+    if (y2 < 0.0f || (terrain_ok && y2 < terrain_ground)) {
         *nx = 0.0f; *ny = 1.0f; *nz = 0.0f;
-        *out_x = x2; *out_y = 0.1f; *out_z = z2;
+        *out_x = x2;
+        *out_y = (terrain_ok ? terrain_ground : 0.0f) + 0.1f;
+        *out_z = z2;
         return 1;
     }
     return 0;
@@ -588,6 +658,27 @@ static inline int trace_map_boxes(float x1, float y1, float z1, float x2, float 
 int trace_map(float x1, float y1, float z1, float x2, float y2, float z2,
               float *out_x, float *out_y, float *out_z, float *nx, float *ny, float *nz) {
     return trace_map_boxes(x1, y1, z1, x2, y2, z2, out_x, out_y, out_z, nx, ny, nz);
+}
+
+static inline float phys_sample_ground_height(float x, float z, int *out_source_terrain) {
+    float h = 0.0f;
+    int source_terrain = 0;
+    if (g_scene_terrain.active && terrain_contains_world(&g_scene_terrain, x, z)) {
+        h = terrain_sample_height(&g_scene_terrain, x, z);
+        source_terrain = 1;
+    }
+    for (int i = 1; i < map_count; i++) {
+        Box b = map_geo[i];
+        if (x > b.x - b.w/2 && x < b.x + b.w/2 && z > b.z - b.d/2 && z < b.z + b.d/2) {
+            float top = b.y + b.h / 2.0f;
+            if (top > h || !source_terrain) {
+                h = top;
+                source_terrain = 0;
+            }
+        }
+    }
+    if (out_source_terrain) *out_source_terrain = source_terrain;
+    return h;
 }
 
 int check_hit_location(float ox, float oy, float oz, float dx, float dy, float dz, PlayerState *target) {
@@ -663,7 +754,21 @@ void resolve_collision(PlayerState *p) {
     float pw = p->in_vehicle ? 3.0f : PLAYER_WIDTH;
     float ph = p->in_vehicle ? 3.0f : (p->crouching ? (PLAYER_HEIGHT / 2.0f) : PLAYER_HEIGHT);
     p->on_ground = 0;
-    if (p->y < 0) { p->y = 0; p->vy = 0; p->on_ground = 1; }
+    g_last_ground_source_terrain = 0;
+
+    float ground_floor = 0.0f;
+    int terrain_ok = 0;
+    if (g_scene_terrain.active && terrain_contains_world(&g_scene_terrain, p->x, p->z)) {
+        terrain_ok = 1;
+        ground_floor = terrain_sample_height(&g_scene_terrain, p->x, p->z);
+        if (ground_floor < 0.0f) ground_floor = 0.0f;
+    }
+    if (p->y < 0.0f || (terrain_ok && p->y < ground_floor)) {
+        p->y = terrain_ok ? ground_floor : 0.0f;
+        p->vy = 0.0f;
+        p->on_ground = 1;
+        g_last_ground_source_terrain = terrain_ok ? 1 : 0;
+    }
     for(int i=1; i<map_count; i++) {
         Box b = map_geo[i];
         if (p->x + pw > b.x - b.w/2 && p->x - pw < b.x + b.w/2 &&
@@ -672,6 +777,7 @@ void resolve_collision(PlayerState *p) {
                 float prev_y = p->y - p->vy;
                 if (prev_y >= b.y + b.h/2) {
                     p->y = b.y + b.h/2; p->vy = 0; p->on_ground = 1;
+                    g_last_ground_source_terrain = 0;
                 } else {
                     float dx = p->x - b.x; float dz = p->z - b.z;
                     float w = (b.w > 0.1f) ? b.w : 1.0f;

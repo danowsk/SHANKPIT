@@ -378,15 +378,18 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
 void local_init_match(int num_players, int mode) {
     memset(&local_state, 0, sizeof(ServerState));
     local_state.game_mode = mode;
+    scene_set_game_mode(mode);
     local_state.scene_id = SCENE_GARAGE_OSAKA;
     local_state.pending_scene = -1;
     local_state.transition_timer = 0;
     phys_set_scene(local_state.scene_id);
     local_state.players[0].active = 1;
+    local_state.players[0].team_id = 0;
     local_state.players[0].scene_id = local_state.scene_id;
     phys_respawn(&local_state.players[0], 0);
     for(int i=1; i<num_players; i++) {
         local_state.players[i].active = 1;
+        local_state.players[i].team_id = (mode == MODE_TDM || mode == MODE_CTF) ? (i % 2) : -1;
         local_state.players[i].scene_id = local_state.scene_id;
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);

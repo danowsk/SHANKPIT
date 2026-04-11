@@ -126,10 +126,21 @@ static int map_count = 0;
 #define STADIUM_BOUNDS_X 420.0f
 #define STADIUM_BOUNDS_Z 420.0f
 
-#define VOXWORLD_KILL_Y -120.0f
-#define VOXWORLD_BOUNDS_X 1180.0f
-#define VOXWORLD_BOUNDS_Z 1180.0f
-#define VOXWORLD_SEED 1337
+#define VOXWORLD_KILL_Y -180.0f
+#define VOXWORLD_TERRAIN_W 160
+#define VOXWORLD_TERRAIN_H 96
+#define VOXWORLD_CELL 18.0f
+#define VOXWORLD_ORIGIN_X (-(VOXWORLD_TERRAIN_W * VOXWORLD_CELL * 0.5f))
+#define VOXWORLD_ORIGIN_Z (-(VOXWORLD_TERRAIN_H * VOXWORLD_CELL * 0.5f))
+#define VOXWORLD_LENGTH 2600.0f
+#define VOXWORLD_HALF_LENGTH (VOXWORLD_LENGTH * 0.5f)
+#define VOXWORLD_WIDTH 1400.0f
+#define VOXWORLD_HALF_WIDTH (VOXWORLD_WIDTH * 0.5f)
+#define VOXWORLD_BOUNDS_X (VOXWORLD_HALF_LENGTH + 250.0f)
+#define VOXWORLD_BOUNDS_Z (VOXWORLD_HALF_WIDTH + 220.0f)
+#define VOXWORLD_BASE_RED_X -1040.0f
+#define VOXWORLD_BASE_BLUE_X 1040.0f
+#define VOXWORLD_BASE_Z 0.0f
 
 #define GARAGE_PORTAL_X 0.0f
 #define GARAGE_PORTAL_Y 6.0f
@@ -166,54 +177,192 @@ typedef struct {
     const char *label;
 } VehiclePad;
 
+typedef struct {
+    float x;
+    float z;
+    const char *label;
+} VoxRouteAnchor;
+
 static const VehiclePad garage_vehicle_pads[] = {
     {-30.0f, 0.0f, -30.0f, "FOXBODY '93"},
     {0.0f, 0.0f, -30.0f, "LANDSHIP"},
     {30.0f, 0.0f, -30.0f, "RESERVED"}
 };
 
+static const Vec2 voxworld_spawn_points_red[] = {
+    {-1120.0f, -90.0f}, {-1090.0f, 90.0f}, {-980.0f, 0.0f},
+    {-940.0f, -220.0f}, {-940.0f, 220.0f}, {-1180.0f, 0.0f}
+};
+static const Vec2 voxworld_spawn_points_blue[] = {
+    {1120.0f, -90.0f}, {1090.0f, 90.0f}, {980.0f, 0.0f},
+    {940.0f, -220.0f}, {940.0f, 220.0f}, {1180.0f, 0.0f}
+};
+static const Vec2 voxworld_spawn_points_ffa[] = {
+    {-700.0f, -180.0f}, {-600.0f, 150.0f}, {-320.0f, 260.0f}, {-260.0f, -250.0f},
+    {-40.0f, -200.0f}, {20.0f, 220.0f}, {260.0f, -260.0f}, {320.0f, 230.0f},
+    {580.0f, -190.0f}, {690.0f, 170.0f}, {-170.0f, 470.0f}, {190.0f, -470.0f}
+};
+static const VehiclePad voxworld_vehicle_pads[] = {
+    {-1000.0f, 0.0f, -85.0f, "RED WARTHOG"},
+    {-1015.0f, 0.0f, 105.0f, "RED GHOST"},
+    {1000.0f, 0.0f, 85.0f, "BLUE WARTHOG"},
+    {1015.0f, 0.0f, -105.0f, "BLUE GHOST"}
+};
+static const Vec2 voxworld_flag_home_red = {-1080.0f, 0.0f};
+static const Vec2 voxworld_flag_home_blue = {1080.0f, 0.0f};
+static const Vec2 voxworld_teleporters[] = {
+    {-1015.0f, 180.0f}, {1015.0f, -180.0f}
+};
+static const Vec2 voxworld_teleport_destinations[] = {
+    {-120.0f, 470.0f}, {120.0f, -470.0f}
+};
+static const VoxRouteAnchor voxworld_route_anchors[] = {
+    {0.0f, 0.0f, "CENTER LANE"},
+    {0.0f, -500.0f, "LEFT CAVE CUT"},
+    {0.0f, 500.0f, "RIGHT CLIFF SHELF"},
+    {VOXWORLD_BASE_RED_X, 0.0f, "RED BASE"},
+    {VOXWORLD_BASE_BLUE_X, 0.0f, "BLUE BASE"}
+};
+
 float phys_rand_f() { return ((float)(rand()%1000)/500.0f) - 1.0f; }
 
-static inline void init_voxworld_city_geo() {
+static int g_phys_game_mode = MODE_DEATHMATCH;
+static TerrainHeightfield g_scene_terrain;
+
+static inline float vox_hash_noise(float x, float z) {
+    return sinf(x * 0.00431f + z * 0.00711f) * cosf(z * 0.00377f - x * 0.00623f);
+}
+
+static inline void vox_terrain_stamp(TerrainHeightfield *t, float cx, float cz, float radius, float target_h, float blend) {
+    if (!t || !t->heights || radius <= 0.0f) return;
+    float minx = cx - radius;
+    float maxx = cx + radius;
+    float minz = cz - radius;
+    float maxz = cz + radius;
+    int gx0 = (int)((minx - t->origin_x) / t->cell_size); if (gx0 < 0) gx0 = 0;
+    int gz0 = (int)((minz - t->origin_z) / t->cell_size); if (gz0 < 0) gz0 = 0;
+    int gx1 = (int)((maxx - t->origin_x) / t->cell_size); if (gx1 > t->width - 1) gx1 = t->width - 1;
+    int gz1 = (int)((maxz - t->origin_z) / t->cell_size); if (gz1 > t->height - 1) gz1 = t->height - 1;
+    for (int gz = gz0; gz <= gz1; gz++) {
+        for (int gx = gx0; gx <= gx1; gx++) {
+            float wx = t->origin_x + gx * t->cell_size;
+            float wz = t->origin_z + gz * t->cell_size;
+            float dx = wx - cx;
+            float dz = wz - cz;
+            float dist = sqrtf(dx * dx + dz * dz);
+            if (dist > radius) continue;
+            float falloff = 1.0f - (dist / radius);
+            falloff = falloff * falloff * (3.0f - 2.0f * falloff);
+            float cur = terrain_get_height(t, gx, gz);
+            float target = cur + (target_h - cur) * blend * falloff;
+            terrain_set_height(t, gx, gz, target);
+        }
+    }
+}
+
+static inline void vox_terrain_smooth(TerrainHeightfield *t, int passes, float alpha) {
+    if (!t || !t->heights || passes <= 0) return;
+    int n = t->width * t->height;
+    float *scratch = (float*)malloc(sizeof(float) * (size_t)n);
+    if (!scratch) return;
+    for (int pass = 0; pass < passes; pass++) {
+        for (int gz = 0; gz < t->height; gz++) {
+            for (int gx = 0; gx < t->width; gx++) {
+                float sum = 0.0f;
+                int cnt = 0;
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int sx = gx + dx; if (sx < 0) sx = 0; if (sx > t->width - 1) sx = t->width - 1;
+                        int sz = gz + dz; if (sz < 0) sz = 0; if (sz > t->height - 1) sz = t->height - 1;
+                        sum += terrain_get_height(t, sx, sz);
+                        cnt++;
+                    }
+                }
+                float cur = terrain_get_height(t, gx, gz);
+                float avg = (cnt > 0) ? (sum / (float)cnt) : cur;
+                scratch[gz * t->width + gx] = cur + (avg - cur) * alpha;
+            }
+        }
+        for (int gz = 0; gz < t->height; gz++) {
+            for (int gx = 0; gx < t->width; gx++) {
+                terrain_set_height(t, gx, gz, scratch[gz * t->width + gx]);
+            }
+        }
+    }
+    free(scratch);
+}
+
+static inline void voxworld_add_box(float x, float y, float z, float w, float h, float d) {
+    if (map_geo_voxworld_count >= CITY_MAX_BOXES) return;
+    map_geo_voxworld[map_geo_voxworld_count++] = (Box){x, y, z, w, h, d};
+}
+
+static inline float voxworld_height_at(float x, float z) {
+    if (g_scene_terrain.active && g_scene_terrain.heights) {
+        return terrain_sample_height(&g_scene_terrain, x, z);
+    }
+    return 0.0f;
+}
+
+static inline void voxworld_build_base_geo(float base_x, int team_sign) {
+    float front_x = base_x + (float)team_sign * 110.0f;
+    float shell_h = voxworld_height_at(base_x, 0.0f);
+    float front_h = voxworld_height_at(front_x, 0.0f);
+    float roof_y = shell_h + 58.0f;
+    float bay_y = shell_h + 18.0f;
+    float room_y = shell_h + 24.0f;
+
+    voxworld_add_box(base_x, shell_h + 8.0f, 0.0f, 170.0f, 16.0f, 150.0f);
+    voxworld_add_box(base_x - (float)team_sign * 18.0f, room_y, 0.0f, 126.0f, 26.0f, 92.0f);
+    voxworld_add_box(base_x, roof_y, 0.0f, 148.0f, 8.0f, 124.0f);
+    voxworld_add_box(base_x - (float)team_sign * 62.0f, shell_h + 30.0f, -65.0f, 18.0f, 36.0f, 24.0f);
+    voxworld_add_box(base_x - (float)team_sign * 62.0f, shell_h + 30.0f, 65.0f, 18.0f, 36.0f, 24.0f);
+
+    voxworld_add_box(base_x + (float)team_sign * 34.0f, bay_y + 9.0f, -64.0f, 10.0f, 20.0f, 22.0f);
+    voxworld_add_box(base_x + (float)team_sign * 34.0f, bay_y + 9.0f, 64.0f, 10.0f, 20.0f, 22.0f);
+    voxworld_add_box(base_x + (float)team_sign * 68.0f, front_h + 10.0f, 0.0f, 38.0f, 14.0f, 64.0f);
+    voxworld_add_box(base_x + (float)team_sign * 94.0f, front_h + 5.0f, -95.0f, 58.0f, 6.0f, 36.0f);
+    voxworld_add_box(base_x + (float)team_sign * 94.0f, front_h + 5.0f, 95.0f, 58.0f, 6.0f, 36.0f);
+
+    voxworld_add_box(base_x - (float)team_sign * 24.0f, shell_h + 44.0f, -10.0f, 14.0f, 26.0f, 44.0f);
+    voxworld_add_box(base_x - (float)team_sign * 18.0f, shell_h + 53.0f, 0.0f, 42.0f, 8.0f, 34.0f);
+    voxworld_add_box(base_x - (float)team_sign * 122.0f, shell_h + 22.0f, (float)team_sign * 165.0f, 34.0f, 20.0f, 52.0f);
+}
+
+static inline void init_voxworld_bloodgulch_geo(void) {
     if (map_geo_voxworld_init) return;
     map_geo_voxworld_init = 1;
     map_geo_voxworld_count = 0;
 
-    map_geo_voxworld[map_geo_voxworld_count++] = (Box){0.0f, -2.0f, 0.0f, 2800.0f, 4.0f, 2800.0f};
-    map_geo_voxworld[map_geo_voxworld_count++] = (Box){0.0f, 100.0f, 1400.0f, 2800.0f, 200.0f, 8.0f};
-    map_geo_voxworld[map_geo_voxworld_count++] = (Box){0.0f, 100.0f, -1400.0f, 2800.0f, 200.0f, 8.0f};
-    map_geo_voxworld[map_geo_voxworld_count++] = (Box){1400.0f, 100.0f, 0.0f, 8.0f, 200.0f, 2800.0f};
-    map_geo_voxworld[map_geo_voxworld_count++] = (Box){-1400.0f, 100.0f, 0.0f, 8.0f, 200.0f, 2800.0f};
+    voxworld_add_box(0.0f, -8.0f, 0.0f, 3400.0f, 10.0f, 2200.0f);
+    voxworld_add_box(0.0f, 110.0f, VOXWORLD_BOUNDS_Z, 3400.0f, 260.0f, 16.0f);
+    voxworld_add_box(0.0f, 110.0f, -VOXWORLD_BOUNDS_Z, 3400.0f, 260.0f, 16.0f);
+    voxworld_add_box(VOXWORLD_BOUNDS_X, 110.0f, 0.0f, 16.0f, 260.0f, 2200.0f);
+    voxworld_add_box(-VOXWORLD_BOUNDS_X, 110.0f, 0.0f, 16.0f, 260.0f, 2200.0f);
 
-    const float block = 220.0f;
-    const float road = 50.0f;
-    const float pitch = block + road;
-    for (int gx = -4; gx <= 4; gx++) {
-        for (int gz = -4; gz <= 4; gz++) {
-            float cx = gx * pitch;
-            float cz = gz * pitch;
-            if ((abs(gx) <= 1 && gz == 0) || (abs(gz) <= 1 && gx == 0)) continue;
+    voxworld_build_base_geo(VOXWORLD_BASE_RED_X, +1);
+    voxworld_build_base_geo(VOXWORLD_BASE_BLUE_X, -1);
 
-            float n1 = sinf((float)(gx * 17 + gz * 31 + VOXWORLD_SEED) * 0.13f);
-            float n2 = cosf((float)(gx * 11 - gz * 23 + VOXWORLD_SEED) * 0.19f);
-            float h = 24.0f + (n1 + 1.0f) * 28.0f + (n2 + 1.0f) * 18.0f;
-            float w = 35.0f + (fabsf(n1) * 45.0f);
-            float d = 35.0f + (fabsf(n2) * 45.0f);
-
-            if (map_geo_voxworld_count + 1 < CITY_MAX_BOXES) {
-                map_geo_voxworld[map_geo_voxworld_count++] = (Box){cx, h * 0.5f, cz, w, h, d};
-            }
-            if (map_geo_voxworld_count + 1 < CITY_MAX_BOXES && (gx + gz) % 3 == 0) {
-                map_geo_voxworld[map_geo_voxworld_count++] = (Box){cx + 0.35f * block, (h * 0.35f), cz - 0.3f * block, w * 0.55f, h * 0.7f, d * 0.55f};
-            }
-        }
+    for (int i = -2; i <= 2; i++) {
+        float cx = (float)i * 280.0f;
+        float cz = (i % 2 == 0) ? -120.0f : 120.0f;
+        float cy = voxworld_height_at(cx, cz) + 8.0f;
+        voxworld_add_box(cx, cy, cz, 42.0f, 16.0f, 36.0f);
     }
+    for (int i = 0; i < 4; i++) {
+        float side = (i < 2) ? -1.0f : 1.0f;
+        float x = (i % 2 == 0) ? -380.0f : 380.0f;
+        float z = side * 500.0f;
+        float y = voxworld_height_at(x, z) + 10.0f;
+        voxworld_add_box(x, y, z, 52.0f, 20.0f, 26.0f);
+    }
+    printf("[VOXWORLD] authored geo boxes=%d\n", map_geo_voxworld_count);
 }
 
 static int phys_scene_id = SCENE_STADIUM;
 static TerrainHeightfield g_scene_terrain = {0};
 static int g_last_ground_source_terrain = 0;
-static inline void init_voxworld_terrain(void);
+static inline void init_voxworld_bloodgulch_terrain(void);
 
 static inline void phys_set_scene(int scene_id) {
     phys_scene_id = scene_id;
@@ -222,10 +371,10 @@ static inline void phys_set_scene(int scene_id) {
         map_count = (int)(sizeof(map_geo_garage) / sizeof(Box));
         g_scene_terrain.active = 0;
     } else if (scene_id == SCENE_VOXWORLD) {
-        init_voxworld_city_geo();
+        init_voxworld_bloodgulch_terrain();
+        init_voxworld_bloodgulch_geo();
         map_geo = map_geo_voxworld;
         map_count = map_geo_voxworld_count;
-        init_voxworld_terrain();
         g_scene_terrain.active = (g_scene_terrain.heights != NULL);
     } else {
         map_geo = map_geo_stadium;
@@ -242,28 +391,74 @@ static inline int phys_last_grounded_on_terrain(void) {
     return g_last_ground_source_terrain;
 }
 
-static inline void init_voxworld_terrain(void) {
+static inline void scene_set_game_mode(int mode) {
+    g_phys_game_mode = mode;
+}
+
+static inline void init_voxworld_bloodgulch_terrain(void) {
     if (g_scene_terrain.active) return;
-    if (!terrain_init(&g_scene_terrain, 72, 72, 16.0f, -576.0f, -576.0f)) return;
+    if (!terrain_init(&g_scene_terrain, VOXWORLD_TERRAIN_W, VOXWORLD_TERRAIN_H, VOXWORLD_CELL, VOXWORLD_ORIGIN_X, VOXWORLD_ORIGIN_Z)) return;
     terrain_clear(&g_scene_terrain, 0.0f);
+
     for (int gz = 0; gz < g_scene_terrain.height; gz++) {
         for (int gx = 0; gx < g_scene_terrain.width; gx++) {
             float wx = g_scene_terrain.origin_x + gx * g_scene_terrain.cell_size;
             float wz = g_scene_terrain.origin_z + gz * g_scene_terrain.cell_size;
-            float hill = 22.0f * expf(-((wx + 260.0f) * (wx + 260.0f) + (wz - 140.0f) * (wz - 140.0f)) / (2.0f * 260.0f * 260.0f));
-            float runup = 0.05f * (wx + 360.0f);
-            float bowl_r = sqrtf((wx - 240.0f) * (wx - 240.0f) + (wz + 180.0f) * (wz + 180.0f));
-            float bowl = 0.0f;
-            if (bowl_r < 200.0f) {
-                float t = 1.0f - (bowl_r / 200.0f);
-                bowl = -16.0f * t * t;
+
+            float cross = fabsf(wz) / VOXWORLD_HALF_WIDTH;
+            if (cross > 1.0f) cross = 1.0f;
+            float side = 8.0f + 108.0f * cross * cross;
+            float lane = -10.0f + 4.0f * sinf(wx * 0.0031f);
+
+            float end_t = fabsf(wx) / VOXWORLD_HALF_LENGTH;
+            if (end_t > 1.0f) end_t = 1.0f;
+            float end_raise = 7.0f * end_t * end_t;
+
+            float h = side + lane + end_raise;
+
+            float center_lumps = 0.0f;
+            center_lumps += 7.5f * expf(-((wx + 260.0f) * (wx + 260.0f)) / (2.0f * 180.0f * 180.0f)) * expf(-(wz * wz) / (2.0f * 140.0f * 140.0f));
+            center_lumps -= 6.0f * expf(-((wx - 120.0f) * (wx - 120.0f)) / (2.0f * 150.0f * 150.0f)) * expf(-((wz + 80.0f) * (wz + 80.0f)) / (2.0f * 110.0f * 110.0f));
+            center_lumps += 6.5f * expf(-((wx - 320.0f) * (wx - 320.0f)) / (2.0f * 170.0f * 170.0f)) * expf(-((wz - 120.0f) * (wz - 120.0f)) / (2.0f * 120.0f * 120.0f));
+            h += center_lumps;
+
+            if (wz < -340.0f && fabsf(wx) < 1180.0f) {
+                float cave_t = (fabsf(wz + 490.0f) / 170.0f);
+                if (cave_t < 1.0f) {
+                    float cave_cut = (1.0f - cave_t);
+                    h -= 26.0f * cave_cut * cave_cut;
+                }
             }
-            float berm = 10.0f * expf(-((wx - 40.0f) * (wx - 40.0f)) / (2.0f * 120.0f * 120.0f))
-                       * expf(-((wz - 260.0f) * (wz - 260.0f)) / (2.0f * 70.0f * 70.0f));
-            float und = 2.8f * sinf(wx * 0.012f) * cosf(wz * 0.011f);
-            terrain_set_height(&g_scene_terrain, gx, gz, hill + runup + bowl + berm + und);
+            if (wz > 310.0f && fabsf(wx) < 1220.0f) {
+                float shelf_t = fabsf(wz - 480.0f) / 190.0f;
+                if (shelf_t < 1.0f) {
+                    float shelf = 1.0f - shelf_t;
+                    h += 20.0f * shelf * shelf;
+                }
+            }
+            if (fabsf(wx - VOXWORLD_BASE_RED_X) < 260.0f || fabsf(wx - VOXWORLD_BASE_BLUE_X) < 260.0f) {
+                float base = 12.0f * expf(-(wz * wz) / (2.0f * 240.0f * 240.0f));
+                h += base;
+            }
+
+            h += vox_hash_noise(wx, wz) * 1.6f;
+            terrain_set_height(&g_scene_terrain, gx, gz, h);
         }
     }
+
+    vox_terrain_stamp(&g_scene_terrain, VOXWORLD_BASE_RED_X, 0.0f, 220.0f, 20.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, VOXWORLD_BASE_BLUE_X, 0.0f, 220.0f, 20.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, VOXWORLD_BASE_RED_X + 130.0f, 0.0f, 140.0f, 14.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, VOXWORLD_BASE_BLUE_X - 130.0f, 0.0f, 140.0f, 14.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, -260.0f, -500.0f, 130.0f, -6.0f, 0.75f);
+    vox_terrain_stamp(&g_scene_terrain, 260.0f, -500.0f, 130.0f, -6.0f, 0.75f);
+    vox_terrain_stamp(&g_scene_terrain, -260.0f, 480.0f, 140.0f, 28.0f, 0.75f);
+    vox_terrain_stamp(&g_scene_terrain, 260.0f, 480.0f, 140.0f, 28.0f, 0.75f);
+    vox_terrain_smooth(&g_scene_terrain, 2, 0.42f);
+
+    printf("[VOXWORLD] terrain initialized %dx%d cell=%.1f origin=(%.1f, %.1f)\n",
+           g_scene_terrain.width, g_scene_terrain.height, g_scene_terrain.cell_size,
+           g_scene_terrain.origin_x, g_scene_terrain.origin_z);
 }
 
 static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float *out_y, float *out_z) {
@@ -276,11 +471,12 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
         return;
     }
     if (scene_id == SCENE_VOXWORLD) {
-        float offsets[] = {-120.0f, -60.0f, 0.0f, 60.0f, 120.0f};
-        int idx = slot % 5;
-        *out_x = offsets[idx];
-        *out_y = 6.0f;
-        *out_z = 0.0f;
+        const Vec2 *pts = voxworld_spawn_points_ffa;
+        int count = (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2));
+        int idx = slot % count;
+        *out_x = pts[idx].x;
+        *out_z = pts[idx].y;
+        *out_y = voxworld_height_at(*out_x, *out_z) + 6.0f;
         return;
     }
     if (slot % 2 == 0) {
@@ -293,10 +489,33 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
     }
 }
 
+static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *out_y, float *out_z) {
+    if (p->scene_id != SCENE_VOXWORLD) {
+        scene_spawn_point(p->scene_id, p->id, out_x, out_y, out_z);
+        return;
+    }
+    const Vec2 *pts = voxworld_spawn_points_ffa;
+    int count = (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2));
+    int team_mode = (g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF);
+    int team = p->team_id;
+    if (team_mode && (team != 0 && team != 1)) team = (p->id % 2);
+    if (team_mode && team == 0) {
+        pts = voxworld_spawn_points_red;
+        count = (int)(sizeof(voxworld_spawn_points_red) / sizeof(Vec2));
+    } else if (team_mode && team == 1) {
+        pts = voxworld_spawn_points_blue;
+        count = (int)(sizeof(voxworld_spawn_points_blue) / sizeof(Vec2));
+    }
+    int idx = (p->id + (int)(p->deaths * 3)) % count;
+    *out_x = pts[idx].x;
+    *out_z = pts[idx].y;
+    *out_y = voxworld_height_at(*out_x, *out_z) + 6.0f;
+}
+
 static inline void scene_force_spawn(PlayerState *p) {
     float sx = 0.0f, sy = 0.0f, sz = 0.0f;
     phys_set_scene(p->scene_id);
-    scene_spawn_point(p->scene_id, p->id, &sx, &sy, &sz);
+    scene_spawn_for_player(p, &sx, &sy, &sz);
     p->x = sx; p->y = sy; p->z = sz;
     p->vx = 0.0f; p->vy = 0.0f; p->vz = 0.0f;
 }
@@ -398,8 +617,23 @@ static inline const VehiclePad *scene_vehicle_pads(int scene_id, int *out_count)
         if (out_count) *out_count = (int)(sizeof(garage_vehicle_pads) / sizeof(VehiclePad));
         return garage_vehicle_pads;
     }
+    if (scene_id == SCENE_VOXWORLD) {
+        if (out_count) *out_count = (int)(sizeof(voxworld_vehicle_pads) / sizeof(VehiclePad));
+        return voxworld_vehicle_pads;
+    }
     if (out_count) *out_count = 0;
     return NULL;
+}
+
+static inline const Vec2 *voxworld_get_flag_homes(int *out_count) {
+    static const Vec2 homes[2] = { {voxworld_flag_home_red.x, voxworld_flag_home_red.y}, {voxworld_flag_home_blue.x, voxworld_flag_home_blue.y} };
+    if (out_count) *out_count = 2;
+    return homes;
+}
+
+static inline const VoxRouteAnchor *voxworld_get_route_anchors(int *out_count) {
+    if (out_count) *out_count = (int)(sizeof(voxworld_route_anchors) / sizeof(VoxRouteAnchor));
+    return voxworld_route_anchors;
 }
 
 static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
@@ -804,7 +1038,7 @@ void phys_respawn(PlayerState *p, unsigned int now) {
     if (p->scene_id != SCENE_GARAGE_OSAKA && p->scene_id != SCENE_STADIUM && p->scene_id != SCENE_VOXWORLD) {
         p->scene_id = SCENE_GARAGE_OSAKA;
     }
-    scene_spawn_point(p->scene_id, p->id, &p->x, &p->y, &p->z);
+    scene_spawn_for_player(p, &p->x, &p->y, &p->z);
     p->current_weapon = WPN_MAGNUM;
     for(int i=0; i<MAX_WEAPONS; i++) p->ammo[i] = WPN_STATS[i].ammo_max;
     p->storm_charges = 0;

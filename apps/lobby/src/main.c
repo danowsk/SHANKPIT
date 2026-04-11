@@ -81,6 +81,7 @@ static int vehicle_underglow_enabled = 1;
 static int vehicle_worklights_enabled = 1;
 static int terrain_wireframe_debug = 0;
 static int terrain_normals_debug = 0;
+static int voxworld_points_debug = 0;
 static unsigned int terrain_debug_last_log_ms = 0;
 static ProcTexture g_vehicle_noise_tex = {0};
 static ProcTexture g_vehicle_glitch_tex = {0};
@@ -681,15 +682,21 @@ void draw_terrain() {
             float z1 = t->origin_z + (gz + 1) * t->cell_size;
             float h0 = terrain_get_height(t, gx, gz);
             float h1 = terrain_get_height(t, gx, gz + 1);
-            float shade0 = 0.14f + 0.02f * sinf((x + z0) * 0.01f) + h0 * 0.0015f;
-            float shade1 = 0.14f + 0.02f * sinf((x + z1) * 0.01f) + h1 * 0.0015f;
-            if (shade0 < 0.06f) shade0 = 0.06f;
-            if (shade1 < 0.06f) shade1 = 0.06f;
-            if (shade0 > 0.26f) shade0 = 0.26f;
-            if (shade1 > 0.26f) shade1 = 0.26f;
-            glColor3f(shade0 * 0.4f, shade0, shade0 * 0.5f);
+            float nx0 = 0.0f, ny0 = 1.0f, nz0 = 0.0f;
+            float nx1 = 0.0f, ny1 = 1.0f, nz1 = 0.0f;
+            terrain_sample_normal(t, x, z0, &nx0, &ny0, &nz0);
+            terrain_sample_normal(t, x, z1, &nx1, &ny1, &nz1);
+            float slope0 = 1.0f - ny0;
+            float slope1 = 1.0f - ny1;
+            float shade0 = 0.48f + h0 * 0.0016f - slope0 * 0.35f;
+            float shade1 = 0.48f + h1 * 0.0016f - slope1 * 0.35f;
+            if (shade0 < 0.26f) shade0 = 0.26f;
+            if (shade1 < 0.26f) shade1 = 0.26f;
+            if (shade0 > 0.84f) shade0 = 0.84f;
+            if (shade1 > 0.84f) shade1 = 0.84f;
+            glColor3f(shade0 * 0.92f, shade0 * 0.70f, shade0 * 0.48f);
             glVertex3f(x, h0, z0);
-            glColor3f(shade1 * 0.4f, shade1, shade1 * 0.5f);
+            glColor3f(shade1 * 0.92f, shade1 * 0.70f, shade1 * 0.48f);
             glVertex3f(x, h1, z1);
         }
         glEnd();
@@ -734,6 +741,30 @@ void draw_terrain() {
                 glVertex3f(x, y + 0.4f, z);
                 glVertex3f(x + nx * 5.0f, y + 0.4f + ny * 5.0f, z + nz * 5.0f);
             }
+        }
+        glEnd();
+    }
+
+    if (voxworld_points_debug && local_state.scene_id == SCENE_VOXWORLD) {
+        int pad_count = 0;
+        const VehiclePad *pads = scene_vehicle_pads(SCENE_VOXWORLD, &pad_count);
+        glPointSize(8.0f);
+        glBegin(GL_POINTS);
+        glColor3f(0.1f, 1.0f, 0.2f);
+        for (int i = 0; i < pad_count; i++) {
+            glVertex3f(pads[i].x, terrain_sample_height(t, pads[i].x, pads[i].z) + 1.5f, pads[i].z);
+        }
+        int flag_count = 0;
+        const Vec2 *flags = voxworld_get_flag_homes(&flag_count);
+        glColor3f(1.0f, 0.95f, 0.1f);
+        for (int i = 0; i < flag_count; i++) {
+            glVertex3f(flags[i].x, terrain_sample_height(t, flags[i].x, flags[i].y) + 1.5f, flags[i].y);
+        }
+        int anchor_count = 0;
+        const VoxRouteAnchor *anchors = voxworld_get_route_anchors(&anchor_count);
+        glColor3f(0.5f, 0.8f, 1.0f);
+        for (int i = 0; i < anchor_count; i++) {
+            glVertex3f(anchors[i].x, terrain_sample_height(t, anchors[i].x, anchors[i].z) + 1.5f, anchors[i].z);
         }
         glEnd();
     }
@@ -1212,6 +1243,8 @@ void draw_hud(PlayerState *p) {
     draw_string(terrain_wireframe_debug ? "F6 TERRAIN WIRE:ON" : "F6 TERRAIN WIRE:OFF", 50, 26, 5);
     glColor3f(0.9f, 0.4f, 0.95f);
     draw_string(terrain_normals_debug ? "F7 TERRAIN NORMALS:ON" : "F7 TERRAIN NORMALS:OFF", 220, 26, 5);
+    glColor3f(1.0f, 0.8f, 0.3f);
+    draw_string(voxworld_points_debug ? "F11 VOX DEBUG:ON" : "F11 VOX DEBUG:OFF", 430, 26, 5);
 
     if (p->current_weapon == WPN_KATANA) {
         char katana_buf[64];
@@ -2270,6 +2303,9 @@ int main(int argc, char* argv[]) {
                         vehicle_underglow_enabled = !vehicle_underglow_enabled;
                     } else if (e.key.keysym.sym == SDLK_F10) {
                         vehicle_worklights_enabled = !vehicle_worklights_enabled;
+                    } else if (e.key.keysym.sym == SDLK_F11) {
+                        voxworld_points_debug = !voxworld_points_debug;
+                        printf("[VOXWORLD] points_debug=%s\n", voxworld_points_debug ? "on" : "off");
                     }
                 }
                 if(e.type == SDL_MOUSEMOTION) {

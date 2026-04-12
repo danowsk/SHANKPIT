@@ -117,6 +117,9 @@ static int map_geo_voxworld_init = 0;
 static Box map_geo_dust[CITY_MAX_BOXES];
 static int map_geo_dust_count = 0;
 static int map_geo_dust_init = 0;
+static Box map_geo_tanker[CITY_MAX_BOXES];
+static int map_geo_tanker_count = 0;
+static int map_geo_tanker_init = 0;
 
 static const Box *map_geo = map_geo_stadium;
 static int map_count = 0;
@@ -167,6 +170,10 @@ static int map_count = 0;
 #define DUST_BRIDGE_X 20.0f
 #define DUST_BRIDGE_Z -20.0f
 
+#define TANKER_KILL_Y -70.0f
+#define TANKER_BOUNDS_X 360.0f
+#define TANKER_BOUNDS_Z 240.0f
+
 #define GARAGE_PORTAL_X 0.0f
 #define GARAGE_PORTAL_Y 6.0f
 #define GARAGE_PORTAL_Z 56.0f
@@ -179,6 +186,10 @@ static int map_count = 0;
 #define GARAGE_DUST_PORTAL_Y 6.0f
 #define GARAGE_DUST_PORTAL_Z -12.0f
 #define GARAGE_DUST_PORTAL_RADIUS 6.0f
+#define GARAGE_TANKER_PORTAL_X -48.0f
+#define GARAGE_TANKER_PORTAL_Y 6.0f
+#define GARAGE_TANKER_PORTAL_Z 0.0f
+#define GARAGE_TANKER_PORTAL_RADIUS 6.0f
 #define STADIUM_PORTAL_X 0.0f
 #define STADIUM_PORTAL_Y 2.0f
 #define STADIUM_PORTAL_Z 0.0f
@@ -198,12 +209,18 @@ static int map_count = 0;
 #define DUST_PORTAL_Y 6.0f
 #define DUST_PORTAL_Z -210.0f
 #define DUST_PORTAL_RADIUS 14.0f
+#define TANKER_PORTAL_X 292.0f
+#define TANKER_PORTAL_Y 6.0f
+#define TANKER_PORTAL_Z 0.0f
+#define TANKER_PORTAL_RADIUS 13.0f
 #define PORTAL_ID_GARAGE_EXIT 0
 #define PORTAL_ID_STADIUM_TO_VOXWORLD 1
 #define PORTAL_ID_VOXWORLD_TO_STADIUM 2
 #define PORTAL_ID_GARAGE_TO_VOXWORLD 3
 #define PORTAL_ID_GARAGE_TO_DUST 4
 #define PORTAL_ID_DUST_TO_GARAGE 5
+#define PORTAL_ID_GARAGE_TO_TANKER 6
+#define PORTAL_ID_TANKER_TO_GARAGE 7
 
 typedef struct {
     float x;
@@ -271,6 +288,11 @@ static const Vec2 dust_spawn_points_dm[] = {
     {-430.0f, -210.0f}, {-290.0f, -150.0f}, {-180.0f, -190.0f}, {-90.0f, -70.0f},
     {40.0f, -210.0f}, {120.0f, -20.0f}, {210.0f, -140.0f}, {290.0f, -10.0f},
     {-210.0f, 180.0f}, {-60.0f, 140.0f}, {110.0f, 200.0f}, {260.0f, 170.0f}
+};
+static const Vec2 tanker_spawn_points_dm[] = {
+    {-260.0f, 0.0f}, {-210.0f, -90.0f}, {-205.0f, 92.0f}, {-120.0f, -140.0f},
+    {-110.0f, 140.0f}, {-30.0f, -72.0f}, {-20.0f, 82.0f}, {80.0f, -155.0f},
+    {90.0f, 155.0f}, {150.0f, -30.0f}, {155.0f, 35.0f}, {220.0f, 0.0f}
 };
 static const VoxRouteAnchor dust_route_anchors[] = {
     {DUST_MID_X, DUST_MID_Z, "MID"},
@@ -507,6 +529,50 @@ static inline void init_dust_compound_geo(void) {
     printf("[DUST] authored geo boxes=%d ramp_steps=%d\n", map_geo_dust_count, 23);
 }
 
+
+static inline void tanker_add_box(float x, float y, float z, float w, float h, float d) {
+    if (map_geo_tanker_count >= CITY_MAX_BOXES) return;
+    map_geo_tanker[map_geo_tanker_count++] = (Box){x, y, z, w, h, d};
+}
+
+static inline void init_oil_tanker_geo(void) {
+    if (map_geo_tanker_init) return;
+    map_geo_tanker_init = 1;
+    map_geo_tanker_count = 0;
+
+    tanker_add_box(0.0f, -3.0f, 0.0f, 620.0f, 6.0f, 420.0f);
+    tanker_add_box(0.0f, 2.0f, 0.0f, 560.0f, 4.0f, 220.0f);
+    tanker_add_box(0.0f, 2.0f, -145.0f, 520.0f, 4.0f, 44.0f);
+    tanker_add_box(0.0f, 2.0f, 145.0f, 520.0f, 4.0f, 44.0f);
+
+    tanker_add_box(-190.0f, 8.0f, 0.0f, 170.0f, 4.0f, 72.0f);
+    tanker_add_box(-100.0f, 8.0f, 0.0f, 24.0f, 4.0f, 72.0f);
+    tanker_add_box(-145.0f, 11.0f, 0.0f, 18.0f, 2.0f, 72.0f);
+
+    tanker_add_box(190.0f, 11.0f, 0.0f, 120.0f, 6.0f, 96.0f);
+    tanker_add_box(210.0f, 17.0f, 0.0f, 70.0f, 6.0f, 54.0f);
+    tanker_add_box(225.0f, 22.0f, 0.0f, 34.0f, 4.0f, 30.0f);
+
+    tanker_add_box(-260.0f, 2.0f, -110.0f, 58.0f, 4.0f, 58.0f);
+    tanker_add_box(-230.0f, 2.0f, 120.0f, 58.0f, 4.0f, 58.0f);
+    tanker_add_box(-90.0f, 2.0f, -100.0f, 66.0f, 4.0f, 40.0f);
+    tanker_add_box(-40.0f, 2.0f, 105.0f, 66.0f, 4.0f, 40.0f);
+    tanker_add_box(70.0f, 2.0f, -112.0f, 58.0f, 4.0f, 58.0f);
+    tanker_add_box(95.0f, 2.0f, 98.0f, 58.0f, 4.0f, 58.0f);
+
+    tanker_add_box(0.0f, 4.0f, -195.0f, 620.0f, 8.0f, 6.0f);
+    tanker_add_box(0.0f, 4.0f, 195.0f, 620.0f, 8.0f, 6.0f);
+    tanker_add_box(-305.0f, 4.0f, 0.0f, 6.0f, 8.0f, 420.0f);
+    tanker_add_box(305.0f, 4.0f, 0.0f, 6.0f, 8.0f, 420.0f);
+
+    tanker_add_box(-260.0f, 7.0f, -65.0f, 16.0f, 8.0f, 50.0f);
+    tanker_add_box(-260.0f, 8.0f, -45.0f, 16.0f, 10.0f, 30.0f);
+    tanker_add_box(-230.0f, 7.0f, 65.0f, 16.0f, 8.0f, 50.0f);
+    tanker_add_box(-230.0f, 8.0f, 45.0f, 16.0f, 10.0f, 30.0f);
+
+    printf("[OIL_TANKER] authored geo boxes=%d\n", map_geo_tanker_count);
+}
+
 static int phys_scene_id = SCENE_STADIUM;
 static TerrainHeightfield g_scene_terrain = {0};
 static int g_last_ground_source_terrain = 0;
@@ -514,6 +580,7 @@ static int g_scene_terrain_scene_id = -1;
 static inline void init_voxworld_bloodgulch_terrain(void);
 static inline void init_dust_compound_terrain(void);
 static inline void init_dust_compound_geo(void);
+static inline void init_oil_tanker_geo(void);
 
 static inline void phys_set_scene(int scene_id) {
     phys_scene_id = scene_id;
@@ -527,6 +594,11 @@ static inline void phys_set_scene(int scene_id) {
         map_geo = map_geo_dust;
         map_count = map_geo_dust_count;
         g_scene_terrain.active = (g_scene_terrain.heights != NULL);
+    } else if (scene_id == SCENE_OIL_TANKER) {
+        init_oil_tanker_geo();
+        map_geo = map_geo_tanker;
+        map_count = map_geo_tanker_count;
+        g_scene_terrain.active = 0;
     } else if (scene_id == SCENE_VOXWORLD) {
         init_voxworld_bloodgulch_terrain();
         init_voxworld_bloodgulch_geo();
@@ -687,6 +759,14 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
         *out_y = dust_height_at(*out_x, *out_z) + 5.5f;
         return;
     }
+    if (scene_id == SCENE_OIL_TANKER) {
+        int count = (int)(sizeof(tanker_spawn_points_dm) / sizeof(Vec2));
+        int idx = slot % count;
+        *out_x = tanker_spawn_points_dm[idx].x;
+        *out_z = tanker_spawn_points_dm[idx].y;
+        *out_y = 6.0f;
+        return;
+    }
     if (slot % 2 == 0) {
         *out_x = 0.0f; *out_z = 0.0f; *out_y = 80.0f;
     } else {
@@ -698,14 +778,16 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
 }
 
 static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *out_y, float *out_z) {
-    if (p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND) {
+    if (p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND && p->scene_id != SCENE_OIL_TANKER) {
         scene_spawn_point(p->scene_id, p->id, out_x, out_y, out_z);
         return;
     }
-    const Vec2 *pts = (p->scene_id == SCENE_DUST_COMPOUND) ? dust_spawn_points_dm : voxworld_spawn_points_ffa;
+    const Vec2 *pts = (p->scene_id == SCENE_DUST_COMPOUND) ? dust_spawn_points_dm
+                    : (p->scene_id == SCENE_OIL_TANKER ? tanker_spawn_points_dm : voxworld_spawn_points_ffa);
     int count = (p->scene_id == SCENE_DUST_COMPOUND)
         ? (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2))
-        : (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2));
+        : (p->scene_id == SCENE_OIL_TANKER ? (int)(sizeof(tanker_spawn_points_dm) / sizeof(Vec2))
+                                           : (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2)));
     int team_mode = (g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF);
     int team = p->team_id;
     if (team_mode && (team != 0 && team != 1)) team = (p->id % 2);
@@ -731,7 +813,7 @@ static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *o
     *out_z = pts[idx].y;
     *out_y = (p->scene_id == SCENE_DUST_COMPOUND)
         ? (dust_height_at(*out_x, *out_z) + 5.5f)
-        : (voxworld_height_at(*out_x, *out_z) + 6.0f);
+        : (p->scene_id == SCENE_OIL_TANKER ? 6.0f : (voxworld_height_at(*out_x, *out_z) + 6.0f));
 }
 
 static inline void scene_force_spawn(PlayerState *p) {
@@ -777,12 +859,20 @@ static inline void scene_safety_check(PlayerState *p) {
             p->z < -DUST_BOUNDS_Z || p->z > DUST_BOUNDS_Z) {
             scene_force_spawn(p);
         }
+        return;
+    }
+    if (p->scene_id == SCENE_OIL_TANKER) {
+        if (p->y < TANKER_KILL_Y ||
+            p->x < -TANKER_BOUNDS_X || p->x > TANKER_BOUNDS_X ||
+            p->z < -TANKER_BOUNDS_Z || p->z > TANKER_BOUNDS_Z) {
+            scene_force_spawn(p);
+        }
     }
 }
 
 static inline int scene_portal_active(int scene_id) {
     return scene_id == SCENE_GARAGE_OSAKA || scene_id == SCENE_STADIUM ||
-           scene_id == SCENE_VOXWORLD || scene_id == SCENE_DUST_COMPOUND;
+           scene_id == SCENE_VOXWORLD || scene_id == SCENE_DUST_COMPOUND || scene_id == SCENE_OIL_TANKER;
 }
 
 static inline int portal_resolve_destination(int current_scene, int portal_id, int slot,
@@ -812,6 +902,13 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
         *out_z = DUST_ATTACK_SPAWN_Z;
         return 1;
     }
+    if (current_scene == SCENE_GARAGE_OSAKA && portal_id == PORTAL_ID_GARAGE_TO_TANKER) {
+        *out_scene = SCENE_OIL_TANKER;
+        *out_x = -265.0f;
+        *out_y = 6.0f;
+        *out_z = 0.0f;
+        return 1;
+    }
     if (current_scene == SCENE_STADIUM && portal_id == PORTAL_ID_STADIUM_TO_VOXWORLD) {
         *out_scene = SCENE_VOXWORLD;
         *out_x = STADIUM_EDGE_TELEPORT_X;
@@ -831,6 +928,13 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
         *out_x = GARAGE_DUST_PORTAL_X + 10.0f;
         *out_y = GARAGE_DUST_PORTAL_Y;
         *out_z = GARAGE_DUST_PORTAL_Z;
+        return 1;
+    }
+    if (current_scene == SCENE_OIL_TANKER && portal_id == PORTAL_ID_TANKER_TO_GARAGE) {
+        *out_scene = SCENE_GARAGE_OSAKA;
+        *out_x = GARAGE_TANKER_PORTAL_X + 10.0f;
+        *out_y = GARAGE_TANKER_PORTAL_Y;
+        *out_z = GARAGE_TANKER_PORTAL_Z;
         return 1;
     }
     return 0;
@@ -857,6 +961,11 @@ static inline void scene_portal_info(int scene_id, float *out_x, float *out_y, f
         *out_y = DUST_PORTAL_Y;
         *out_z = DUST_PORTAL_Z;
         *out_radius = DUST_PORTAL_RADIUS;
+    } else if (scene_id == SCENE_OIL_TANKER) {
+        *out_x = TANKER_PORTAL_X;
+        *out_y = TANKER_PORTAL_Y;
+        *out_z = TANKER_PORTAL_Z;
+        *out_radius = TANKER_PORTAL_RADIUS;
     } else {
         *out_x = 0.0f; *out_y = 0.0f; *out_z = 0.0f; *out_radius = 0.0f;
     }
@@ -922,6 +1031,13 @@ static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
             if (out_portal_id) *out_portal_id = PORTAL_ID_GARAGE_TO_VOXWORLD;
             return 1;
         }
+        float dx_tanker = p->x - GARAGE_TANKER_PORTAL_X;
+        float dz_tanker = p->z - GARAGE_TANKER_PORTAL_Z;
+        float dist_sq_tanker = dx_tanker * dx_tanker + dz_tanker * dz_tanker;
+        if (dist_sq_tanker <= (GARAGE_TANKER_PORTAL_RADIUS * GARAGE_TANKER_PORTAL_RADIUS)) {
+            if (out_portal_id) *out_portal_id = PORTAL_ID_GARAGE_TO_TANKER;
+            return 1;
+        }
         float dx_dust = p->x - GARAGE_DUST_PORTAL_X;
         float dz_dust = p->z - GARAGE_DUST_PORTAL_Z;
         float dist_sq_dust = dx_dust * dx_dust + dz_dust * dz_dust;
@@ -960,7 +1076,7 @@ static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
         if (out_portal_id) {
             *out_portal_id = (p->scene_id == SCENE_VOXWORLD)
                 ? PORTAL_ID_VOXWORLD_TO_STADIUM
-                : (p->scene_id == SCENE_DUST_COMPOUND ? PORTAL_ID_DUST_TO_GARAGE : PORTAL_ID_GARAGE_EXIT);
+                : (p->scene_id == SCENE_DUST_COMPOUND ? PORTAL_ID_DUST_TO_GARAGE : (p->scene_id == SCENE_OIL_TANKER ? PORTAL_ID_TANKER_TO_GARAGE : PORTAL_ID_GARAGE_EXIT));
         }
         return 1;
     }

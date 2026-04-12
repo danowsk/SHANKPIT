@@ -12,6 +12,7 @@
 #define SCENE_VOXWORLD 2
 #define SCENE_DUST_COMPOUND 3
 #define SCENE_CITY 4
+#define SCENE_OIL_TANKER 5
 
 #define PACKET_CONNECT 0
 #define PACKET_USERCMD 1
@@ -108,6 +109,8 @@ typedef struct {
     unsigned char in_vehicle;
     unsigned char hit_feedback; 
     unsigned char storm_charges;
+    unsigned short kills;
+    unsigned short deaths;
 } NetPlayer;
 
 typedef struct {

@@ -55,6 +55,13 @@ typedef struct {
 static RecorderState recorder = {0};
 
 #define SERVER_SNAPSHOT_INTERVAL_TICKS 3
+#define SERVER_DM_FRAG_LIMIT 25
+#define SERVER_DM_ROUND_MS (6 * 60 * 1000)
+
+static const int g_dm_rotation[] = { SCENE_STADIUM, SCENE_VOXWORLD, SCENE_OIL_TANKER };
+static int g_dm_rotation_idx = 0;
+static int g_server_match_scene = SCENE_GARAGE_OSAKA;
+static unsigned int g_round_start_ms = 0;
 
 #define RECORDER_SHAKE_POS 0.08f
 #define RECORDER_SHAKE_ANGLE 0.35f
@@ -72,6 +79,27 @@ unsigned int get_server_time() {
 
 static double now_seconds(void) {
     return (double)get_server_time() / 1000.0;
+}
+
+static int server_scene_is_dm_map(int scene_id) {
+    return scene_id == SCENE_STADIUM || scene_id == SCENE_VOXWORLD || scene_id == SCENE_OIL_TANKER;
+}
+
+static void server_advance_dm_rotation(unsigned int now_ms) {
+    g_dm_rotation_idx = (g_dm_rotation_idx + 1) % (int)(sizeof(g_dm_rotation) / sizeof(g_dm_rotation[0]));
+    g_server_match_scene = g_dm_rotation[g_dm_rotation_idx];
+    scene_load(g_server_match_scene);
+    g_round_start_ms = now_ms;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        PlayerState *p = &local_state.players[i];
+        if (!p->active) continue;
+        p->kills = 0;
+        p->deaths = 0;
+        p->state = STATE_ALIVE;
+        p->health = 100;
+        p->shield = 100;
+    }
+    printf("[ROUND] next_map=%d rotation_idx=%d\n", g_server_match_scene, g_dm_rotation_idx);
 }
 
 static int addr_equal(const struct sockaddr_in *a, const struct sockaddr_in *b) {
@@ -92,7 +120,7 @@ static int alloc_slot(const struct sockaddr_in *addr) {
         if (!slots[i].active) {
             memset(&local_state.players[i], 0, sizeof(PlayerState));
             local_state.players[i].id = i;
-            local_state.players[i].scene_id = SCENE_GARAGE_OSAKA;
+            local_state.players[i].scene_id = g_server_match_scene;
             local_state.players[i].active = 0;
             phys_respawn(&local_state.players[i], get_server_time());
             local_state.players[i].yaw = 0.0f;
@@ -434,6 +462,8 @@ void server_broadcast() {
             np.in_vehicle = (unsigned char)p->in_vehicle;
             np.hit_feedback = (unsigned char)p->hit_feedback;
             np.storm_charges = (unsigned char)p->storm_charges;
+            np.kills = (unsigned short)(p->kills < 0 ? 0 : p->kills);
+            np.deaths = (unsigned short)(p->deaths < 0 ? 0 : p->deaths);
 
             p->accumulated_reward = 0;
             memcpy(buffer + cursor, &np, sizeof(NetPlayer)); cursor += (int)sizeof(NetPlayer);
@@ -497,6 +527,13 @@ int main(int argc, char *argv[]) {
     server_net_init();
     int mode = parse_server_mode(argc, argv);
     local_init_match(1, mode);
+    if (mode == MODE_DEATHMATCH || mode == MODE_TDM) {
+        g_server_match_scene = g_dm_rotation[g_dm_rotation_idx];
+        scene_load(g_server_match_scene);
+        g_round_start_ms = get_server_time();
+    } else {
+        g_server_match_scene = SCENE_GARAGE_OSAKA;
+    }
     local_state.players[0].active = 0;
     local_state.players[0].health = 0;
     local_state.players[0].state = STATE_DEAD;
@@ -616,6 +653,18 @@ int main(int argc, char *argv[]) {
                 occ->x = h->x; occ->y = h->y; occ->z = h->z;
                 occ->yaw = h->yaw;
                 occ->vx = occ->vy = occ->vz = 0.0f;
+            }
+        }
+
+        if ((mode == MODE_DEATHMATCH || mode == MODE_TDM) && server_scene_is_dm_map(g_server_match_scene)) {
+            int top_frags = 0;
+            for (int i = 1; i < MAX_CLIENTS; i++) {
+                PlayerState *p = &local_state.players[i];
+                if (!p->active || p->scene_id != g_server_match_scene) continue;
+                if (p->kills > top_frags) top_frags = p->kills;
+            }
+            if ((now - g_round_start_ms) >= SERVER_DM_ROUND_MS || top_frags >= SERVER_DM_FRAG_LIMIT) {
+                server_advance_dm_rotation(now);
             }
         }
 

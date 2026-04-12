@@ -93,13 +93,15 @@ static ProcTexture g_vehicle_glitch_tex = {0};
 typedef enum {
     SKIN_BAT = 0,
     SKIN_MAYRICE,
+    SKIN_CYBORG,
     SKIN_COUNT
 } PlayerSkin;
 
 static int g_selected_skin = SKIN_BAT;
 static const char *SKIN_LABELS[SKIN_COUNT] = {
     "BAT",
-    "MAYRICE"
+    "MAYRICE",
+    "CYBORG"
 };
 static const char *SKIN_CONFIG_PATH = "shankpit_skin.cfg";
 
@@ -1357,6 +1359,112 @@ static void draw_mayrice_body(void) {
     glPushMatrix(); glTranslatef(0.24f, -0.06f, 0.0f); draw_box(0.42f, 1.44f, 0.42f); draw_box_outline(0.42f, 1.44f, 0.42f); glPopMatrix();
 }
 
+static void draw_cyborg_hair(void) {
+    glColor3f(0.08f, 0.08f, 0.10f);
+    glPushMatrix(); glTranslatef(0.00f, 0.30f, -0.04f); draw_box(0.86f, 0.34f, 0.72f); draw_box_outline(0.86f, 0.34f, 0.72f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.52f, -0.12f); draw_box(0.62f, 0.26f, 0.54f); draw_box_outline(0.62f, 0.26f, 0.54f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.06f, 0.72f, -0.20f); draw_box(0.34f, 0.20f, 0.34f); draw_box_outline(0.34f, 0.20f, 0.34f); glPopMatrix();
+}
+
+static void draw_cyborg_faceplate(void) {
+    glColor3f(0.17f, 0.19f, 0.23f);
+    glPushMatrix(); glTranslatef(-0.18f, 0.02f, 0.39f); draw_box(0.40f, 0.66f, 0.08f); draw_box_outline(0.40f, 0.66f, 0.08f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.02f, 0.23f, 0.39f); draw_box(0.07f, 0.16f, 0.08f); draw_box_outline(0.07f, 0.16f, 0.08f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.13f, 0.22f, 0.40f); draw_box(0.14f, 0.06f, 0.05f); draw_box_outline(0.14f, 0.06f, 0.05f); glPopMatrix();
+
+    glColor3f(0.98f, 0.10f, 0.08f);
+    glPushMatrix(); glTranslatef(-0.19f, 0.07f, 0.43f); draw_box(0.11f, 0.11f, 0.03f); glPopMatrix();
+
+    glColor3f(0.42f, 0.06f, 0.08f);
+    glPushMatrix(); glTranslatef(-0.19f, 0.07f, 0.41f); draw_box(0.12f, 0.12f, 0.02f); glPopMatrix();
+}
+
+static void draw_cyborg_head(void) {
+    glColor3f(0.76f, 0.81f, 0.74f);
+    glPushMatrix(); glTranslatef(0.14f, 0.00f, 0.00f); draw_box(0.48f, 0.88f, 0.72f); draw_box_outline(0.48f, 0.88f, 0.72f); glPopMatrix();
+
+    glColor3f(0.24f, 0.27f, 0.31f);
+    glPushMatrix(); glTranslatef(-0.14f, 0.00f, -0.02f); draw_box(0.50f, 0.88f, 0.72f); draw_box_outline(0.50f, 0.88f, 0.72f); glPopMatrix();
+
+    glColor3f(0.22f, 0.25f, 0.28f);
+    glPushMatrix(); glTranslatef(0.00f, -0.28f, 0.06f); draw_box(0.70f, 0.22f, 0.56f); draw_box_outline(0.70f, 0.22f, 0.56f); glPopMatrix();
+
+    glColor3f(0.32f, 0.21f, 0.24f);
+    glPushMatrix(); glTranslatef(0.18f, 0.10f, 0.38f); draw_box(0.14f, 0.04f, 0.06f); draw_box_outline(0.14f, 0.04f, 0.06f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.18f, -0.03f, 0.39f); draw_box(0.04f, 0.12f, 0.05f); draw_box_outline(0.04f, 0.12f, 0.05f); glPopMatrix();
+
+    draw_cyborg_faceplate();
+    draw_cyborg_hair();
+}
+
+static void draw_cyborg_cape(void) {
+    glColor3f(0.33f, 0.12f, 0.43f);
+    glPushMatrix(); glTranslatef(-0.40f, 0.98f, -0.28f); glRotatef(6.0f, 0, 1, 0); draw_box(0.50f, 1.26f, 0.24f); draw_box_outline(0.50f, 1.26f, 0.24f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.22f, 1.22f, -0.26f); draw_box(0.62f, 0.52f, 0.20f); draw_box_outline(0.62f, 0.52f, 0.20f); glPopMatrix();
+
+    glColor3f(0.19f, 0.07f, 0.25f);
+    glPushMatrix(); glTranslatef(-0.38f, 0.90f, -0.38f); glRotatef(6.0f, 0, 1, 0); draw_box(0.42f, 1.04f, 0.14f); draw_box_outline(0.42f, 1.04f, 0.14f); glPopMatrix();
+}
+
+static void draw_cyborg_torso(void) {
+    glColor3f(0.16f, 0.18f, 0.22f);
+    glPushMatrix(); glTranslatef(0.0f, 0.88f, 0.0f); draw_box(1.18f, 1.52f, 0.72f); draw_box_outline(1.18f, 1.52f, 0.72f); glPopMatrix();
+
+    glColor3f(0.12f, 0.13f, 0.16f);
+    glPushMatrix(); glTranslatef(0.0f, 1.28f, 0.20f); draw_box(0.84f, 0.38f, 0.26f); draw_box_outline(0.84f, 0.38f, 0.26f); glPopMatrix();
+
+    glColor3f(0.30f, 0.08f, 0.38f);
+    glPushMatrix(); glTranslatef(0.36f, 1.14f, 0.28f); draw_box(0.20f, 0.56f, 0.18f); draw_box_outline(0.20f, 0.56f, 0.18f); glPopMatrix();
+
+    glColor3f(0.28f, 0.42f, 0.50f);
+    glPushMatrix(); glTranslatef(0.00f, 1.31f, 0.35f); draw_box(0.12f, 0.12f, 0.03f); draw_box_outline(0.12f, 0.12f, 0.03f); glPopMatrix();
+}
+
+static void draw_cyborg_arm_left(void) {
+    glColor3f(0.14f, 0.16f, 0.20f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.88f, 0.0f); draw_box(0.30f, 1.28f, 0.36f); draw_box_outline(0.30f, 1.28f, 0.36f); glPopMatrix();
+    glColor3f(0.15f, 0.17f, 0.23f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.16f, 0.12f); draw_box(0.26f, 0.24f, 0.20f); draw_box_outline(0.26f, 0.24f, 0.20f); glPopMatrix();
+}
+
+static void draw_cyborg_arm_right(void) {
+    glColor3f(0.20f, 0.22f, 0.26f);
+    glPushMatrix(); glTranslatef(0.72f, 0.88f, 0.0f); draw_box(0.30f, 1.28f, 0.36f); draw_box_outline(0.30f, 1.28f, 0.36f); glPopMatrix();
+    glColor3f(0.78f, 0.82f, 0.74f);
+    glPushMatrix(); glTranslatef(0.72f, 0.16f, 0.12f); draw_box(0.26f, 0.24f, 0.20f); draw_box_outline(0.26f, 0.24f, 0.20f); glPopMatrix();
+}
+
+static void draw_cyborg_leg_left(void) {
+    glColor3f(0.13f, 0.14f, 0.17f);
+    glPushMatrix(); glTranslatef(-0.24f, -0.06f, 0.0f); draw_box(0.42f, 1.44f, 0.42f); draw_box_outline(0.42f, 1.44f, 0.42f); glPopMatrix();
+}
+
+static void draw_cyborg_leg_right(void) {
+    glColor3f(0.18f, 0.19f, 0.22f);
+    glPushMatrix(); glTranslatef(0.24f, -0.06f, 0.0f); draw_box(0.42f, 1.44f, 0.42f); draw_box_outline(0.42f, 1.44f, 0.42f); glPopMatrix();
+}
+
+static void draw_player_skin_cyborg(PlayerState *p, float draw_pitch, float draw_recoil) {
+    draw_cyborg_cape();
+    draw_cyborg_torso();
+    draw_cyborg_arm_left();
+    draw_cyborg_arm_right();
+    draw_cyborg_leg_left();
+    draw_cyborg_leg_right();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.95f, 0.04f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    draw_cyborg_head();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.05f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
 static void draw_player_skin_bat(PlayerState *p, float draw_pitch, float draw_recoil) {
     (void)p;
     draw_ronin_shell();
@@ -1440,7 +1548,11 @@ void draw_player_3rd(PlayerState *p) {
     if (p->in_vehicle) {
         draw_buggy_model(p);
     } else {
+        // TODO(net): replicate skin on player state (e.g. p->skin) so remote players can use per-player skins.
         switch (clamp_skin_id(g_selected_skin)) {
+            case SKIN_CYBORG:
+                draw_player_skin_cyborg(p, draw_pitch, draw_recoil);
+                break;
             case SKIN_MAYRICE:
                 draw_player_skin_mayrice(p, draw_pitch, draw_recoil);
                 break;

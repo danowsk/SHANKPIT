@@ -463,6 +463,10 @@ static void lobby_apply_scene_id(const char *scene_id) {
         scene_load(SCENE_GARAGE_OSAKA);
     } else if (strcmp(scene_id, "STADIUM") == 0) {
         scene_load(SCENE_STADIUM);
+    } else if (strcmp(scene_id, "VOXWORLD") == 0) {
+        scene_load(SCENE_VOXWORLD);
+    } else if (strcmp(scene_id, "OIL_TANKER") == 0) {
+        scene_load(SCENE_OIL_TANKER);
     }
 }
 
@@ -1438,6 +1442,83 @@ void draw_hud(PlayerState *p) {
     glEnable(GL_DEPTH_TEST); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
 }
 
+static const char *scene_name_ui(int scene_id) {
+    switch (scene_id) {
+        case SCENE_GARAGE_OSAKA: return "GARAGE_OSAKA";
+        case SCENE_STADIUM: return "STADIUM";
+        case SCENE_VOXWORLD: return "VOXWORLD";
+        case SCENE_DUST_COMPOUND: return "DUST_COMPOUND";
+        case SCENE_OIL_TANKER: return "OIL_TANKER";
+        default: return "UNKNOWN";
+    }
+}
+
+typedef struct {
+    int id;
+    int kills;
+    int deaths;
+} ScoreRow;
+
+static int score_row_cmp_desc(const void *a, const void *b) {
+    const ScoreRow *ra = (const ScoreRow*)a;
+    const ScoreRow *rb = (const ScoreRow*)b;
+    if (ra->kills != rb->kills) return rb->kills - ra->kills;
+    if (ra->deaths != rb->deaths) return ra->deaths - rb->deaths;
+    return ra->id - rb->id;
+}
+
+static void draw_tab_scoreboard(PlayerState *self) {
+    const Uint8 *keys = SDL_GetKeyboardState(NULL);
+    if (!keys[SDL_SCANCODE_TAB]) return;
+
+    ScoreRow rows[MAX_CLIENTS];
+    int row_count = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (!local_state.players[i].active) continue;
+        rows[row_count].id = i;
+        rows[row_count].kills = local_state.players[i].kills;
+        rows[row_count].deaths = local_state.players[i].deaths;
+        row_count++;
+    }
+    qsort(rows, (size_t)row_count, sizeof(rows[0]), score_row_cmp_desc);
+
+    glDisable(GL_DEPTH_TEST);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 1280, 0, 720);
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+
+    glColor4f(0.05f, 0.07f, 0.10f, 0.82f);
+    glBegin(GL_QUADS);
+    glVertex2f(290.0f, 150.0f); glVertex2f(990.0f, 150.0f); glVertex2f(990.0f, 600.0f); glVertex2f(290.0f, 600.0f);
+    glEnd();
+
+    char header[128];
+    snprintf(header, sizeof(header), "SCOREBOARD - %s", scene_name_ui(local_state.scene_id));
+    glColor3f(0.95f, 0.95f, 0.2f);
+    draw_string(header, 330, 566, 8);
+    glColor3f(0.75f, 0.9f, 1.0f);
+    draw_string("PLAYER", 330, 536, 6);
+    draw_string("K", 760, 536, 6);
+    draw_string("D", 860, 536, 6);
+
+    float y = 510.0f;
+    for (int i = 0; i < row_count && i < 16; i++) {
+        PlayerState *row_p = &local_state.players[rows[i].id];
+        int is_self = (row_p == self);
+        glColor3f(is_self ? 1.0f : 0.82f, is_self ? 0.95f : 0.82f, is_self ? 0.35f : 0.90f);
+        char name_buf[64];
+        snprintf(name_buf, sizeof(name_buf), "%s%02d", is_self ? "YOU-" : "P", rows[i].id);
+        draw_string(name_buf, 330, y, 6);
+        char score_buf[64];
+        snprintf(score_buf, sizeof(score_buf), "%d", rows[i].kills);
+        draw_string(score_buf, 760, y, 6);
+        snprintf(score_buf, sizeof(score_buf), "%d", rows[i].deaths);
+        draw_string(score_buf, 860, y, 6);
+        y -= 24.0f;
+    }
+
+    glEnable(GL_DEPTH_TEST); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
+}
+
 static int target_in_view(PlayerState *p, float tx, float ty, float tz, float max_dist, float min_dot) {
     float rad_yaw = cam_yaw * 0.0174533f;
     float rad_pitch = cam_pitch * 0.0174533f;
@@ -1490,6 +1571,18 @@ static void draw_garage_portal_frame() {
         glPopMatrix();
 
         glPushMatrix();
+        glTranslatef(GARAGE_TANKER_PORTAL_X, GARAGE_TANKER_PORTAL_Y, GARAGE_TANKER_PORTAL_Z);
+        glColor3f(1.0f, 0.55f, 0.15f);
+        glLineWidth(3.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex3f(-GARAGE_TANKER_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_TANKER_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_TANKER_PORTAL_RADIUS, 6.0f, 0.0f);
+        glVertex3f(-GARAGE_TANKER_PORTAL_RADIUS, 6.0f, 0.0f);
+        glEnd();
+        glPopMatrix();
+
+        glPushMatrix();
         glTranslatef(GARAGE_DUST_PORTAL_X, GARAGE_DUST_PORTAL_Y, GARAGE_DUST_PORTAL_Z);
         glColor3f(1.0f, 0.82f, 0.35f);
         glLineWidth(3.0f);
@@ -1534,7 +1627,7 @@ static void draw_garage_overlay(PlayerState *p) {
     glColor3f(0.9f, 0.9f, 0.9f);
     draw_string("PORTAL -> STADIUM", 40, 640, 6);
     draw_string("PORTAL -> VOXWORLD TERRAIN", 40, 620, 6);
-    draw_string("PORTAL -> DUST COMPOUND", 40, 600, 6);
+    draw_string("PORTAL -> OIL TANKER", 40, 600, 6);
 
     int pad_count = 0;
     const VehiclePad *pads = scene_vehicle_pads(local_state.scene_id, &pad_count);
@@ -1562,6 +1655,7 @@ static void draw_garage_overlay(PlayerState *p) {
     scene_portal_info(local_state.scene_id, &portal_x, &portal_y, &portal_z, &portal_r);
     int portal_target = target_in_view(p, portal_x, portal_y, portal_z, 30.0f, 0.75f);
     int vox_portal_target = target_in_view(p, GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z, 30.0f, 0.75f);
+    int tanker_portal_target = target_in_view(p, GARAGE_TANKER_PORTAL_X, GARAGE_TANKER_PORTAL_Y, GARAGE_TANKER_PORTAL_Z, 30.0f, 0.75f);
     int dust_portal_target = target_in_view(p, GARAGE_DUST_PORTAL_X, GARAGE_DUST_PORTAL_Y, GARAGE_DUST_PORTAL_Z, 30.0f, 0.75f);
     int pad_target = 0;
     int heli_target = 0;
@@ -1584,7 +1678,7 @@ static void draw_garage_overlay(PlayerState *p) {
     }
 
     glColor3f(1.0f, 1.0f, 0.0f);
-    if (portal_target || vox_portal_target || dust_portal_target) {
+    if (portal_target || vox_portal_target || tanker_portal_target || dust_portal_target) {
         draw_string("TRAVEL", 600, 350, 8);
     } else if (heli_target || (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER)) {
         draw_string(p->in_vehicle ? "PRESS F TO EXIT HELICOPTER" : "PRESS F TO ENTER HELICOPTER", 460, 350, 8);
@@ -1712,7 +1806,7 @@ void draw_scene(PlayerState *render_p) {
         if (p == render_p) continue;
         draw_player_3rd(p);
     }
-    draw_weapon_p(render_p); draw_hud(render_p); draw_garage_overlay(render_p);
+    draw_weapon_p(render_p); draw_hud(render_p); draw_garage_overlay(render_p); draw_tab_scoreboard(render_p);
     draw_travel_overlay();
 }
 
@@ -2148,6 +2242,8 @@ void net_process_snapshot(char *buffer, int len) {
         p->in_vehicle = np->in_vehicle;
         p->storm_charges = np->storm_charges;
         p->hit_feedback = np->hit_feedback;
+        p->kills = (int)np->kills;
+        p->deaths = (int)np->deaths;
         p->ammo[p->current_weapon] = np->ammo;
 
         if (now_shooting && !was_shooting) p->recoil_anim = 1.0f;

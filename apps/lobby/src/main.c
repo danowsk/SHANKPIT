@@ -767,6 +767,34 @@ void draw_terrain() {
             glVertex3f(anchors[i].x, terrain_sample_height(t, anchors[i].x, anchors[i].z) + 1.5f, anchors[i].z);
         }
         glEnd();
+    } else if (voxworld_points_debug && local_state.scene_id == SCENE_DUST_COMPOUND) {
+        glPointSize(8.0f);
+        glBegin(GL_POINTS);
+        int atk_count = 0;
+        const Vec2 *atk = dust_get_spawn_points_attack(&atk_count);
+        glColor3f(1.0f, 0.55f, 0.15f);
+        for (int i = 0; i < atk_count; i++) {
+            glVertex3f(atk[i].x, terrain_sample_height(t, atk[i].x, atk[i].y) + 1.5f, atk[i].y);
+        }
+        int def_count = 0;
+        const Vec2 *def = dust_get_spawn_points_defend(&def_count);
+        glColor3f(0.25f, 0.8f, 1.0f);
+        for (int i = 0; i < def_count; i++) {
+            glVertex3f(def[i].x, terrain_sample_height(t, def[i].x, def[i].y) + 1.5f, def[i].y);
+        }
+        int obj_count = 0;
+        const Vec2 *obj = dust_get_objective_anchors(&obj_count);
+        glColor3f(1.0f, 1.0f, 0.1f);
+        for (int i = 0; i < obj_count; i++) {
+            glVertex3f(obj[i].x, terrain_sample_height(t, obj[i].x, obj[i].y) + 2.0f, obj[i].y);
+        }
+        int route_count = 0;
+        const VoxRouteAnchor *routes = dust_get_route_anchors(&route_count);
+        glColor3f(0.8f, 1.0f, 0.45f);
+        for (int i = 0; i < route_count; i++) {
+            glVertex3f(routes[i].x, terrain_sample_height(t, routes[i].x, routes[i].z) + 2.0f, routes[i].z);
+        }
+        glEnd();
     }
 }
 
@@ -1244,7 +1272,7 @@ void draw_hud(PlayerState *p) {
     glColor3f(0.9f, 0.4f, 0.95f);
     draw_string(terrain_normals_debug ? "F7 TERRAIN NORMALS:ON" : "F7 TERRAIN NORMALS:OFF", 220, 26, 5);
     glColor3f(1.0f, 0.8f, 0.3f);
-    draw_string(voxworld_points_debug ? "F11 VOX DEBUG:ON" : "F11 VOX DEBUG:OFF", 430, 26, 5);
+    draw_string(voxworld_points_debug ? "F11 SCENE DEBUG:ON" : "F11 SCENE DEBUG:OFF", 430, 26, 5);
 
     if (p->current_weapon == WPN_KATANA) {
         char katana_buf[64];
@@ -1324,6 +1352,18 @@ static void draw_garage_portal_frame() {
         glVertex3f(-GARAGE_VOX_PORTAL_RADIUS, 6.0f, 0.0f);
         glEnd();
         glPopMatrix();
+
+        glPushMatrix();
+        glTranslatef(GARAGE_DUST_PORTAL_X, GARAGE_DUST_PORTAL_Y, GARAGE_DUST_PORTAL_Z);
+        glColor3f(1.0f, 0.7f, 0.2f);
+        glLineWidth(3.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex3f(-GARAGE_DUST_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_DUST_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_DUST_PORTAL_RADIUS, 6.0f, 0.0f);
+        glVertex3f(-GARAGE_DUST_PORTAL_RADIUS, 6.0f, 0.0f);
+        glEnd();
+        glPopMatrix();
     }
 }
 
@@ -1358,6 +1398,7 @@ static void draw_garage_overlay(PlayerState *p) {
     glColor3f(0.9f, 0.9f, 0.9f);
     draw_string("PORTAL -> STADIUM", 40, 640, 6);
     draw_string("PORTAL -> VOXWORLD TERRAIN", 40, 620, 6);
+    draw_string("PORTAL -> DUST COMPOUND", 40, 600, 6);
 
     int pad_count = 0;
     const VehiclePad *pads = scene_vehicle_pads(local_state.scene_id, &pad_count);
@@ -1385,6 +1426,7 @@ static void draw_garage_overlay(PlayerState *p) {
     scene_portal_info(local_state.scene_id, &portal_x, &portal_y, &portal_z, &portal_r);
     int portal_target = target_in_view(p, portal_x, portal_y, portal_z, 30.0f, 0.75f);
     int vox_portal_target = target_in_view(p, GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z, 30.0f, 0.75f);
+    int dust_portal_target = target_in_view(p, GARAGE_DUST_PORTAL_X, GARAGE_DUST_PORTAL_Y, GARAGE_DUST_PORTAL_Z, 30.0f, 0.75f);
     int pad_target = 0;
     int heli_target = 0;
     if (scene_near_vehicle_pad(local_state.scene_id, p->x, p->z, 12.0f, NULL)) {
@@ -1406,7 +1448,7 @@ static void draw_garage_overlay(PlayerState *p) {
     }
 
     glColor3f(1.0f, 1.0f, 0.0f);
-    if (portal_target || vox_portal_target) {
+    if (portal_target || vox_portal_target || dust_portal_target) {
         draw_string("TRAVEL", 600, 350, 8);
     } else if (heli_target || (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER)) {
         draw_string(p->in_vehicle ? "PRESS F TO EXIT HELICOPTER" : "PRESS F TO ENTER HELICOPTER", 460, 350, 8);
@@ -2305,7 +2347,7 @@ int main(int argc, char* argv[]) {
                         vehicle_worklights_enabled = !vehicle_worklights_enabled;
                     } else if (e.key.keysym.sym == SDLK_F11) {
                         voxworld_points_debug = !voxworld_points_debug;
-                        printf("[VOXWORLD] points_debug=%s\n", voxworld_points_debug ? "on" : "off");
+                        printf("[SCENE] points_debug=%s\n", voxworld_points_debug ? "on" : "off");
                     }
                 }
                 if(e.type == SDL_MOUSEMOTION) {

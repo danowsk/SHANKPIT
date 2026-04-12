@@ -49,6 +49,8 @@ int app_state = STATE_LOBBY;
 int wpn_req = 1; 
 int my_client_id = -1;
 int lobby_selection = 0;
+int skin_menu_selection = 0;
+int skin_menu_open = 0;
 
 UiState ui_state;
 int ui_use_server = 0;
@@ -86,6 +88,19 @@ static int voxworld_points_debug = 0;
 static unsigned int terrain_debug_last_log_ms = 0;
 static ProcTexture g_vehicle_noise_tex = {0};
 static ProcTexture g_vehicle_glitch_tex = {0};
+
+typedef enum {
+    SKIN_BAT = 0,
+    SKIN_MAYRICE,
+    SKIN_COUNT
+} PlayerSkin;
+
+static int g_selected_skin = SKIN_BAT;
+static const char *SKIN_LABELS[SKIN_COUNT] = {
+    "BAT",
+    "MAYRICE"
+};
+static const char *SKIN_CONFIG_PATH = "shankpit_skin.cfg";
 
 static float clamp01f(float v) {
     if (v < 0.0f) return 0.0f;
@@ -407,14 +422,45 @@ static void lobby_init_labels() {
     }
 }
 
+static int clamp_skin_id(int skin_id) {
+    if (skin_id < SKIN_BAT || skin_id >= SKIN_COUNT) return SKIN_BAT;
+    return skin_id;
+}
+
+static void save_skin_selection() {
+    FILE *f = fopen(SKIN_CONFIG_PATH, "w");
+    if (!f) return;
+    fprintf(f, "%d\n", clamp_skin_id(g_selected_skin));
+    fclose(f);
+}
+
+static void load_skin_selection() {
+    FILE *f = fopen(SKIN_CONFIG_PATH, "r");
+    if (!f) {
+        g_selected_skin = SKIN_BAT;
+        return;
+    }
+    int parsed = SKIN_BAT;
+    if (fscanf(f, "%d", &parsed) == 1) {
+        g_selected_skin = clamp_skin_id(parsed);
+    } else {
+        g_selected_skin = SKIN_BAT;
+    }
+    fclose(f);
+}
+
 static int lobby_menu_count() {
     if (ui_use_server && ui_state.entry_count > 0) {
-        return ui_state.entry_count;
+        return ui_state.entry_count + 1;
     }
-    return LOBBY_COUNT;
+    return LOBBY_COUNT + 1;
 }
 
 static const char *lobby_menu_label(int idx) {
+    int skins_idx = lobby_menu_count() - 1;
+    if (idx == skins_idx) {
+        return "SKINS";
+    }
     if (ui_use_server && idx >= 0 && idx < ui_state.entry_count) {
         return ui_state.entries[idx].label;
     }
@@ -422,6 +468,10 @@ static const char *lobby_menu_label(int idx) {
 }
 
 static const char *lobby_menu_entry_id(int idx) {
+    int skins_idx = lobby_menu_count() - 1;
+    if (idx == skins_idx) {
+        return "menu.skins";
+    }
     if (ui_use_server && idx >= 0 && idx < ui_state.entry_count) {
         return ui_state.entries[idx].id;
     }
@@ -430,6 +480,7 @@ static const char *lobby_menu_entry_id(int idx) {
 
 static void lobby_commit_edit(int index) {
     if (index < 0) return;
+    if (index == lobby_menu_count() - 1) return;
     if (ui_edit_len <= 0) return;
     ui_edit_buffer[ui_edit_len] = '\0';
     if (ui_use_server && index < ui_state.entry_count) {
@@ -520,6 +571,11 @@ static void setup_lobby_2d() {
 }
 
 static void lobby_start_action(int action) {
+    if (action == lobby_menu_count() - 1) {
+        skin_menu_open = 1;
+        skin_menu_selection = clamp_skin_id(g_selected_skin);
+        return;
+    }
     if (ui_use_server) {
         const char *entry_id = lobby_menu_entry_id(action);
         if (entry_id) {
@@ -1248,6 +1304,89 @@ static void draw_storm_mask(void) {
     glPushMatrix(); glTranslatef(RONIN_HORN_OFFSET_X, 0.52f, 0.05f); draw_box(RONIN_HORN_W, RONIN_HORN_H, RONIN_HORN_D); draw_box_outline(RONIN_HORN_W, RONIN_HORN_H, RONIN_HORN_D); glPopMatrix();
 }
 
+static void draw_mayrice_beard(void) {
+    glColor3f(0.30f, 0.21f, 0.14f);
+    glPushMatrix(); glTranslatef(0.0f, -0.14f, 0.38f); draw_box(0.62f, 0.32f, 0.10f); draw_box_outline(0.62f, 0.32f, 0.10f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, -0.27f, 0.33f); draw_box(0.34f, 0.12f, 0.12f); draw_box_outline(0.34f, 0.12f, 0.12f); glPopMatrix();
+}
+
+static void draw_mayrice_hair(void) {
+    glColor3f(0.43f, 0.30f, 0.19f);
+    glPushMatrix(); glTranslatef(0.0f, 0.34f, -0.04f); draw_box(0.95f, 0.30f, 0.84f); draw_box_outline(0.95f, 0.30f, 0.84f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.12f, -0.27f); draw_box(0.86f, 0.26f, 0.34f); draw_box_outline(0.86f, 0.26f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.54f, 0.00f, 0.03f); glRotatef(28.0f, 0, 0, 1); draw_box(0.22f, 0.76f, 0.24f); draw_box_outline(0.22f, 0.76f, 0.24f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.54f, 0.00f, 0.03f); glRotatef(-28.0f, 0, 0, 1); draw_box(0.22f, 0.76f, 0.24f); draw_box_outline(0.22f, 0.76f, 0.24f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.30f, 0.37f, 0.34f); glRotatef(-26.0f, 0, 0, 1); draw_box(0.26f, 0.22f, 0.12f); draw_box_outline(0.26f, 0.22f, 0.12f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.30f, 0.37f, 0.34f); glRotatef(26.0f, 0, 0, 1); draw_box(0.26f, 0.22f, 0.12f); draw_box_outline(0.26f, 0.22f, 0.12f); glPopMatrix();
+}
+
+static void draw_mayrice_head(void) {
+    glColor3f(0.95f, 0.86f, 0.76f);
+    draw_box(0.78f, 0.86f, 0.72f);
+    draw_box_outline(0.78f, 0.86f, 0.72f);
+
+    glColor3f(0.33f, 0.21f, 0.15f);
+    glPushMatrix(); glTranslatef(-0.18f, 0.08f, 0.38f); draw_box(0.16f, 0.04f, 0.06f); draw_box_outline(0.16f, 0.04f, 0.06f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.18f, 0.08f, 0.38f); draw_box(0.16f, 0.04f, 0.06f); draw_box_outline(0.16f, 0.04f, 0.06f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.18f, -0.03f, 0.39f); draw_box(0.05f, 0.16f, 0.05f); draw_box_outline(0.05f, 0.16f, 0.05f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.18f, -0.03f, 0.39f); draw_box(0.05f, 0.16f, 0.05f); draw_box_outline(0.05f, 0.16f, 0.05f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, -0.02f, 0.40f); draw_box(0.05f, 0.22f, 0.05f); draw_box_outline(0.05f, 0.22f, 0.05f); glPopMatrix();
+    draw_mayrice_beard();
+    draw_mayrice_hair();
+}
+
+static void draw_mayrice_body(void) {
+    glColor3f(0.24f, 0.50f, 0.78f);
+    glPushMatrix();
+    glTranslatef(0.0f, 0.88f, 0.0f);
+    draw_box(1.18f, 1.52f, 0.72f);
+    draw_box_outline(1.18f, 1.52f, 0.72f);
+    glPopMatrix();
+
+    glColor3f(0.20f, 0.44f, 0.70f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.88f, 0.0f); draw_box(0.30f, 1.28f, 0.36f); draw_box_outline(0.30f, 1.28f, 0.36f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.72f, 0.88f, 0.0f); draw_box(0.30f, 1.28f, 0.36f); draw_box_outline(0.30f, 1.28f, 0.36f); glPopMatrix();
+
+    glColor3f(0.94f, 0.86f, 0.77f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.16f, 0.12f); draw_box(0.26f, 0.24f, 0.20f); draw_box_outline(0.26f, 0.24f, 0.20f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.72f, 0.16f, 0.12f); draw_box(0.26f, 0.24f, 0.20f); draw_box_outline(0.26f, 0.24f, 0.20f); glPopMatrix();
+
+    glColor3f(0.58f, 0.44f, 0.27f);
+    glPushMatrix(); glTranslatef(-0.24f, -0.06f, 0.0f); draw_box(0.42f, 1.44f, 0.42f); draw_box_outline(0.42f, 1.44f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.24f, -0.06f, 0.0f); draw_box(0.42f, 1.44f, 0.42f); draw_box_outline(0.42f, 1.44f, 0.42f); glPopMatrix();
+}
+
+static void draw_player_skin_bat(PlayerState *p, float draw_pitch, float draw_recoil) {
+    (void)p;
+    draw_ronin_shell();
+    glPushMatrix();
+    glTranslatef(0.0f, 1.85f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    draw_storm_mask();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.6f, 1.1f, 0.55f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
+static void draw_player_skin_mayrice(PlayerState *p, float draw_pitch, float draw_recoil) {
+    draw_mayrice_body();
+    glPushMatrix();
+    glTranslatef(0.0f, 1.95f, 0.04f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    draw_mayrice_head();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.05f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
 void draw_weapon_p(PlayerState *p) {
     if (p->in_vehicle) return; 
     glPushMatrix();
@@ -1300,17 +1439,15 @@ void draw_player_3rd(PlayerState *p) {
     if (p->in_vehicle) {
         draw_buggy_model(p);
     } else {
-        draw_ronin_shell();
-        glPushMatrix();
-        glTranslatef(0.0f, 1.85f, 0.0f);
-        glRotatef(draw_pitch, 1, 0, 0);
-        draw_storm_mask();
-        glPopMatrix();
-        glPushMatrix(); glTranslatef(0.6f, 1.1f, 0.55f);
-        glRotatef(draw_pitch, 1, 0, 0);
-        glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
-        glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
-        glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix(); 
+        switch (clamp_skin_id(g_selected_skin)) {
+            case SKIN_MAYRICE:
+                draw_player_skin_mayrice(p, draw_pitch, draw_recoil);
+                break;
+            case SKIN_BAT:
+            default:
+                draw_player_skin_bat(p, draw_pitch, draw_recoil);
+                break;
+        }
     }
     glPopMatrix();
 }
@@ -1858,6 +1995,84 @@ static int lobby_hit_test(float mx, float my, int menu_count, float base_x, floa
         }
     }
     return -1;
+}
+
+static int skin_hit_test(float mx, float my, float base_x, float base_y, float w, float h, float gap) {
+    for (int i = 0; i < SKIN_COUNT + 1; i++) {
+        float y = base_y - gap * i;
+        if (mx >= base_x && mx <= base_x + w && my >= y && my <= y + h) return i;
+    }
+    return -1;
+}
+
+static void draw_skin_chooser_overlay() {
+    float panel_x = 770.0f;
+    float panel_y = 545.0f;
+    float panel_w = 330.0f;
+    float panel_h = 275.0f;
+    float item_h = 50.0f;
+    float item_gap = 60.0f;
+    float item_x = panel_x + 20.0f;
+    float item_w = panel_w - 40.0f;
+    float item_top = panel_y - 90.0f;
+
+    glColor4f(0.05f, 0.08f, 0.12f, 0.92f);
+    glBegin(GL_QUADS);
+    glVertex2f(panel_x, panel_y);
+    glVertex2f(panel_x + panel_w, panel_y);
+    glVertex2f(panel_x + panel_w, panel_y - panel_h);
+    glVertex2f(panel_x, panel_y - panel_h);
+    glEnd();
+
+    glColor3f(0.42f, 0.78f, 0.92f);
+    glLineWidth(2.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panel_x, panel_y);
+    glVertex2f(panel_x + panel_w, panel_y);
+    glVertex2f(panel_x + panel_w, panel_y - panel_h);
+    glVertex2f(panel_x, panel_y - panel_h);
+    glEnd();
+
+    glColor3f(0.85f, 0.95f, 1.0f);
+    draw_string("CHOOSE SKIN", panel_x + 30.0f, panel_y - 30.0f, 5);
+
+    for (int i = 0; i < SKIN_COUNT; i++) {
+        float y = item_top - item_gap * i;
+        int is_active = (clamp_skin_id(g_selected_skin) == i);
+        int is_cursor = (skin_menu_selection == i);
+        glColor3f(is_active ? 0.35f : 0.16f, is_active ? 0.65f : 0.22f, is_active ? 0.88f : 0.28f);
+        glRectf(item_x, y, item_x + item_w, y + item_h);
+        if (is_cursor) {
+            glColor3f(0.95f, 0.95f, 0.95f);
+            glBegin(GL_LINE_LOOP);
+            glVertex2f(item_x, y);
+            glVertex2f(item_x + item_w, y);
+            glVertex2f(item_x + item_w, y + item_h);
+            glVertex2f(item_x, y + item_h);
+            glEnd();
+        }
+        glColor3f(0.05f, 0.05f, 0.06f);
+        draw_string(SKIN_LABELS[i], item_x + 12.0f, y + 29.0f, 5);
+        if (is_active) {
+            draw_string("< ACTIVE >", item_x + item_w - 120.0f, y + 29.0f, 4);
+        }
+    }
+
+    float back_y = item_top - item_gap * SKIN_COUNT;
+    int back_selected = (skin_menu_selection == SKIN_COUNT);
+    glColor3f(0.34f, 0.30f, 0.34f);
+    glRectf(item_x, back_y, item_x + item_w, back_y + item_h);
+    if (back_selected) {
+        glColor3f(0.95f, 0.95f, 0.95f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(item_x, back_y);
+        glVertex2f(item_x + item_w, back_y);
+        glVertex2f(item_x + item_w, back_y + item_h);
+        glVertex2f(item_x, back_y + item_h);
+        glEnd();
+    }
+    glColor3f(0.05f, 0.05f, 0.06f);
+    draw_string("BACK", item_x + 12.0f, back_y + 29.0f, 5);
 }
 
 void net_init() {
@@ -2441,6 +2656,7 @@ int main(int argc, char* argv[]) {
     net_init();
     
     local_init_match(1, 0);
+    load_skin_selection();
     lobby_init_labels();
     ui_bridge_init("127.0.0.1", 17777);
     if (ui_bridge_fetch_state(&ui_state)) {
@@ -2483,50 +2699,87 @@ int main(int argc, char* argv[]) {
                         }
                         continue;
                     }
-                    if (e.key.keysym.sym == SDLK_UP) {
-                        int count = lobby_menu_count();
-                        lobby_selection = (lobby_selection + count - 1) % count;
-                    }
-                    if (e.key.keysym.sym == SDLK_DOWN) {
-                        int count = lobby_menu_count();
-                        lobby_selection = (lobby_selection + 1) % count;
-                    }
-                    // P0: no single-click or single-key activation in Emily UI.
-                }
-                if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-                    int menu_count = lobby_menu_count();
-                    float base_x = 360.0f;
-                    float base_y = 520.0f;
-                    float size = 70.0f;
-                    float gap = 85.0f;
-                    float mx = (float)e.button.x;
-                    float my = 720.0f - (float)e.button.y;
-                    int hit = lobby_hit_test(mx, my, menu_count, base_x, base_y, gap, size);
-                    if (hit >= 0) {
-                        unsigned int now = SDL_GetTicks();
-                        if (ui_last_click_index == hit && ui_last_click_ms > 0) {
-                            unsigned int delta = now - ui_last_click_ms;
-                            if (delta <= 250) {
-                                lobby_selection = hit;
-                                lobby_start_action(hit);
-                                ui_last_click_ms = 0;
-                                ui_last_click_index = -1;
-                            } else if (delta <= 700) {
-                                lobby_selection = hit;
-                                lobby_start_edit(hit);
-                                ui_last_click_ms = 0;
-                                ui_last_click_index = -1;
+                    if (skin_menu_open) {
+                        if (e.key.keysym.sym == SDLK_UP) {
+                            skin_menu_selection = (skin_menu_selection + SKIN_COUNT) % (SKIN_COUNT + 1);
+                        } else if (e.key.keysym.sym == SDLK_DOWN) {
+                            skin_menu_selection = (skin_menu_selection + 1) % (SKIN_COUNT + 1);
+                        } else if (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_BACKSPACE) {
+                            skin_menu_open = 0;
+                        } else if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) {
+                            if (skin_menu_selection < SKIN_COUNT) {
+                                g_selected_skin = clamp_skin_id(skin_menu_selection);
+                                save_skin_selection();
                             } else {
-                                ui_last_click_ms = now;
-                                ui_last_click_index = hit;
+                                skin_menu_open = 0;
                             }
-                        } else {
-                            ui_last_click_ms = now;
-                            ui_last_click_index = hit;
+                        }
+                    } else {
+                        if (e.key.keysym.sym == SDLK_UP) {
+                            int count = lobby_menu_count();
+                            lobby_selection = (lobby_selection + count - 1) % count;
+                        }
+                        if (e.key.keysym.sym == SDLK_DOWN) {
+                            int count = lobby_menu_count();
+                            lobby_selection = (lobby_selection + 1) % count;
+                        }
+                        if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) {
+                            lobby_start_action(lobby_selection);
                         }
                     }
                 }
                 if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
+                    float mx = (float)e.button.x;
+                    float my = 720.0f - (float)e.button.y;
+                    if (skin_menu_open) {
+                        int hit = skin_hit_test(mx, my, 790.0f, 455.0f, 290.0f, 50.0f, 60.0f);
+                        if (hit >= 0) {
+                            skin_menu_selection = hit;
+                            if (hit < SKIN_COUNT) {
+                                g_selected_skin = clamp_skin_id(hit);
+                                save_skin_selection();
+                            } else {
+                                skin_menu_open = 0;
+                            }
+                        }
+                    } else {
+                        int menu_count = lobby_menu_count();
+                        float base_x = 360.0f;
+                        float base_y = 520.0f;
+                        float size = 70.0f;
+                        float gap = 85.0f;
+                        int hit = lobby_hit_test(mx, my, menu_count, base_x, base_y, gap, size);
+                        if (hit >= 0) {
+                            unsigned int now = SDL_GetTicks();
+                            if (ui_last_click_index == hit && ui_last_click_ms > 0) {
+                                unsigned int delta = now - ui_last_click_ms;
+                                if (delta <= 250) {
+                                    lobby_selection = hit;
+                                    lobby_start_action(hit);
+                                    ui_last_click_ms = 0;
+                                    ui_last_click_index = -1;
+                                } else if (delta <= 700) {
+                                    lobby_selection = hit;
+                                    if (hit != lobby_menu_count() - 1) {
+                                        lobby_start_edit(hit);
+                                    } else {
+                                        lobby_start_action(hit);
+                                    }
+                                    ui_last_click_ms = 0;
+                                    ui_last_click_index = -1;
+                                } else {
+                                    ui_last_click_ms = now;
+                                    ui_last_click_index = hit;
+                                }
+                            } else {
+                                ui_last_click_ms = now;
+                                ui_last_click_index = hit;
+                            }
+                        }
+                    }
+                }
+                if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
+                    if (skin_menu_open) continue;
                     int menu_count = lobby_menu_count();
                     float base_x = 360.0f;
                     float base_y = 520.0f;
@@ -2545,8 +2798,12 @@ int main(int argc, char* argv[]) {
                                 ui_last_click_ms = 0;
                                 ui_last_click_index = -1;
                             } else if (delta <= 700) {
-                                lobby_selection = hit;
-                                lobby_start_edit(hit);
+                                    lobby_selection = hit;
+                                if (hit != lobby_menu_count() - 1) {
+                                    lobby_start_edit(hit);
+                                } else {
+                                    lobby_start_action(hit);
+                                }
                                 ui_last_click_ms = 0;
                                 ui_last_click_index = -1;
                             } else {
@@ -2612,7 +2869,7 @@ int main(int argc, char* argv[]) {
              glColor3f(0, 1, 1); // CYAN TEXT
              draw_string("SHANKPIT", 430, 560, 12);
              glColor3f(0.5f, 0.8f, 0.9f);
-             draw_string("SELECT MODE", 500, 520, 6);
+             draw_string("SELECT MODE / SKIN", 430, 520, 6);
 
              float base_x = 360.0f;
              float base_y = 520.0f;
@@ -2620,6 +2877,9 @@ int main(int argc, char* argv[]) {
              float gap = 85.0f;
              int menu_count = lobby_menu_count();
              draw_lobby_buttons(menu_count, base_x, base_y, gap, size);
+             if (skin_menu_open) {
+                 draw_skin_chooser_overlay();
+             }
 
              glColor3f(0.4f, 0.6f, 0.7f);
              draw_string("DOUBLE-CLICK: FAST=OPEN / SLOW=RENAME", 320, 140, 5);

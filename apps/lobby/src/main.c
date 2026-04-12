@@ -2310,9 +2310,22 @@ void net_process_snapshot(char *buffer, int len) {
         }
     }
 
-    for (int hi = 0; hi < MAX_HELICOPTERS; hi++) local_state.helicopters[hi].active = 0;
+    static int heli_diag_throttle = 0;
+    int snapshot_scene = local_state.players[my_client_id].scene_id;
+    unsigned char heli_seen[MAX_HELICOPTERS];
+    memset(heli_seen, 0, sizeof(heli_seen));
+
+    for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
+        HelicopterState *h = &local_state.helicopters[hi];
+        if (h->active && h->scene_id == snapshot_scene) {
+            h->active = 0;
+            h->occupant_player_id = -1;
+        }
+    }
+
+    unsigned char heli_count = 0;
     if (cursor < len) {
-        unsigned char heli_count = *(unsigned char *)(buffer + cursor);
+        heli_count = *(unsigned char *)(buffer + cursor);
         cursor++;
         for (int hi = 0; hi < heli_count; hi++) {
             if (cursor + (int)sizeof(NetHelicopter) > len) break;
@@ -2333,12 +2346,25 @@ void net_process_snapshot(char *buffer, int len) {
             h->rotor_speed = nh->rotor_speed;
             h->health = nh->health;
             h->occupant_player_id = nh->occupant_player_id;
+            heli_seen[nh->id] = 1;
             if (h->occupant_player_id > 0 && h->occupant_player_id < MAX_CLIENTS) {
                 PlayerState *occ = &local_state.players[h->occupant_player_id];
                 occ->in_vehicle = 1;
                 occ->vehicle_type = VEH_HELICOPTER;
             }
         }
+    }
+
+    for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
+        HelicopterState *h = &local_state.helicopters[hi];
+        if (h->active && h->scene_id == snapshot_scene && !heli_seen[hi]) {
+            h->active = 0;
+            h->occupant_player_id = -1;
+        }
+    }
+
+    if ((heli_diag_throttle++ % 120) == 0) {
+        printf("[HELI_NET][C] scene=%d heli_count=%u\n", snapshot_scene, heli_count);
     }
     for (int i = 1; i < MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];

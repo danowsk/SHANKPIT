@@ -426,85 +426,103 @@ void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
 }
 
 void server_broadcast() {
-    char buffer[4096];
-    int cursor = 0;
-    NetHeader head;
-    head.type = PACKET_SNAPSHOT;
-    head.client_id = 0;
-    head.sequence = local_state.server_tick;
-    head.timestamp = get_server_time();
-    head.scene_id = 0;
+    static int heli_diag_throttle = 0;
 
-    unsigned char count = 0;
-    for(int i=1; i<MAX_CLIENTS; i++) if (slots[i].active && slots[i].welcomed && slots[i].cmd_seen && local_state.players[i].active) count++;
-    head.entity_count = count;
+    for (int slot = 1; slot < MAX_CLIENTS; slot++) {
+        if (!slots[slot].active) continue;
 
-    memcpy(buffer + cursor, &head, sizeof(NetHeader)); cursor += (int)sizeof(NetHeader);
-    memcpy(buffer + cursor, &count, 1); cursor += 1;
+        char buffer[4096];
+        int cursor = 0;
 
-    for(int i=1; i<MAX_CLIENTS; i++) {
-        PlayerState *p = &local_state.players[i];
-        if (slots[i].active && slots[i].welcomed && slots[i].cmd_seen && p->active) {
-            NetPlayer np;
-            np.id = (unsigned char)i;
-            np.scene_id = (unsigned char)p->scene_id;
-            np.last_seq = client_last_seq[i];
-            np.x = p->x; np.y = p->y; np.z = p->z;
-            np.yaw = norm_yaw_deg(p->yaw); np.pitch = clamp_pitch_deg(p->pitch);
-            np.current_weapon = (unsigned char)p->current_weapon;
-            np.state = (unsigned char)p->state;
-            np.health = (unsigned char)p->health;
-            np.shield = (unsigned char)p->shield;
-            np.is_shooting = (unsigned char)p->is_shooting;
-            np.crouching = (unsigned char)p->crouching;
-            np.reward_feedback = p->accumulated_reward;
-            np.ammo = (unsigned char)p->ammo[p->current_weapon];
-            np.in_vehicle = (unsigned char)p->in_vehicle;
-            np.hit_feedback = (unsigned char)p->hit_feedback;
-            np.storm_charges = (unsigned char)p->storm_charges;
-            np.kills = (unsigned short)(p->kills < 0 ? 0 : p->kills);
-            np.deaths = (unsigned short)(p->deaths < 0 ? 0 : p->deaths);
+        NetHeader head;
+        head.type = PACKET_SNAPSHOT;
+        head.client_id = 0;
+        head.sequence = local_state.server_tick;
+        head.timestamp = get_server_time();
+        head.scene_id = 0;
 
-            p->accumulated_reward = 0;
-            memcpy(buffer + cursor, &np, sizeof(NetPlayer)); cursor += (int)sizeof(NetPlayer);
+        unsigned char count = 0;
+        for (int i = 1; i < MAX_CLIENTS; i++) {
+            if (slots[i].active && slots[i].welcomed && slots[i].cmd_seen && local_state.players[i].active) count++;
+        }
+        head.entity_count = count;
+
+        memcpy(buffer + cursor, &head, sizeof(NetHeader)); cursor += (int)sizeof(NetHeader);
+        memcpy(buffer + cursor, &count, 1); cursor += 1;
+
+        for (int i = 1; i < MAX_CLIENTS; i++) {
+            PlayerState *p = &local_state.players[i];
+            if (slots[i].active && slots[i].welcomed && slots[i].cmd_seen && p->active) {
+                NetPlayer np;
+                np.id = (unsigned char)i;
+                np.scene_id = (unsigned char)p->scene_id;
+                np.last_seq = client_last_seq[i];
+                np.x = p->x; np.y = p->y; np.z = p->z;
+                np.yaw = norm_yaw_deg(p->yaw); np.pitch = clamp_pitch_deg(p->pitch);
+                np.current_weapon = (unsigned char)p->current_weapon;
+                np.state = (unsigned char)p->state;
+                np.health = (unsigned char)p->health;
+                np.shield = (unsigned char)p->shield;
+                np.is_shooting = (unsigned char)p->is_shooting;
+                np.crouching = (unsigned char)p->crouching;
+                np.reward_feedback = p->accumulated_reward;
+                np.ammo = (unsigned char)p->ammo[p->current_weapon];
+                np.in_vehicle = (unsigned char)p->in_vehicle;
+                np.hit_feedback = (unsigned char)p->hit_feedback;
+                np.storm_charges = (unsigned char)p->storm_charges;
+                np.kills = (unsigned short)(p->kills < 0 ? 0 : p->kills);
+                np.deaths = (unsigned short)(p->deaths < 0 ? 0 : p->deaths);
+
+                memcpy(buffer + cursor, &np, sizeof(NetPlayer)); cursor += (int)sizeof(NetPlayer);
+            }
+        }
+
+        int target_scene = local_state.players[slot].scene_id;
+        unsigned char heli_count = 0;
+        for (int i = 0; i < MAX_HELICOPTERS; i++) {
+            HelicopterState *h = &local_state.helicopters[i];
+            if (!h->active) continue;
+            if (h->scene_id != target_scene) continue;
+            heli_count++;
+        }
+        memcpy(buffer + cursor, &heli_count, 1); cursor += 1;
+
+        for (int i = 0; i < MAX_HELICOPTERS; i++) {
+            HelicopterState *h = &local_state.helicopters[i];
+            if (!h->active || h->scene_id != target_scene) continue;
+            NetHelicopter nh;
+            memset(&nh, 0, sizeof(nh));
+            nh.id = (unsigned char)h->id;
+            nh.scene_id = (unsigned char)h->scene_id;
+            nh.active = (unsigned char)h->active;
+            nh.grounded = (unsigned char)h->grounded;
+            nh.x = h->x; nh.y = h->y; nh.z = h->z;
+            nh.vx = h->vx; nh.vy = h->vy; nh.vz = h->vz;
+            nh.yaw = h->yaw;
+            nh.pitch_visual = h->pitch_visual;
+            nh.roll_visual = h->roll_visual;
+            nh.rotor_angle = h->rotor_angle;
+            nh.rotor_speed = h->rotor_speed;
+            nh.health = (unsigned char)(h->health < 0 ? 0 : (h->health > 255 ? 255 : h->health));
+            nh.occupant_player_id = (signed char)h->occupant_player_id;
+            memcpy(buffer + cursor, &nh, sizeof(NetHelicopter)); cursor += (int)sizeof(NetHelicopter);
+        }
+
+        sendto(sock, buffer, cursor, 0, (struct sockaddr*)&slots[slot].addr, sizeof(struct sockaddr_in));
+
+        if ((heli_diag_throttle++ % 120) == 0) {
+            printf("[HELI_NET][S] slot=%d scene=%d heli_count=%u\n", slot, target_scene, heli_count);
         }
     }
 
-    unsigned char heli_count = 0;
-    for (int i = 0; i < MAX_HELICOPTERS; i++) {
-        HelicopterState *h = &local_state.helicopters[i];
-        if (h->active) heli_count++;
-    }
-    memcpy(buffer + cursor, &heli_count, 1); cursor += 1;
-    for (int i = 0; i < MAX_HELICOPTERS; i++) {
-        HelicopterState *h = &local_state.helicopters[i];
-        if (!h->active) continue;
-        NetHelicopter nh;
-        memset(&nh, 0, sizeof(nh));
-        nh.id = (unsigned char)h->id;
-        nh.scene_id = (unsigned char)h->scene_id;
-        nh.active = (unsigned char)h->active;
-        nh.grounded = (unsigned char)h->grounded;
-        nh.x = h->x; nh.y = h->y; nh.z = h->z;
-        nh.vx = h->vx; nh.vy = h->vy; nh.vz = h->vz;
-        nh.yaw = h->yaw;
-        nh.pitch_visual = h->pitch_visual;
-        nh.roll_visual = h->roll_visual;
-        nh.rotor_angle = h->rotor_angle;
-        nh.rotor_speed = h->rotor_speed;
-        nh.health = (unsigned char)(h->health < 0 ? 0 : (h->health > 255 ? 255 : h->health));
-        nh.occupant_player_id = (signed char)h->occupant_player_id;
-        memcpy(buffer + cursor, &nh, sizeof(NetHelicopter)); cursor += (int)sizeof(NetHelicopter);
-    }
-
-    for(int i=1; i<MAX_CLIENTS; i++) {
-        if (slots[i].active) {
-            sendto(sock, buffer, cursor, 0,
-                   (struct sockaddr*)&slots[i].addr,
-                   sizeof(struct sockaddr_in));
+    for (int i = 1; i < MAX_CLIENTS; i++) {
+        PlayerState *p = &local_state.players[i];
+        if (slots[i].active && slots[i].welcomed && slots[i].cmd_seen && p->active) {
+            p->accumulated_reward = 0.0f;
         }
     }
 }
+
 
 int main(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {

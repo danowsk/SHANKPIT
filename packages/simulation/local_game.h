@@ -4,6 +4,7 @@
 #include "../common/protocol.h"
 #include "../common/physics.h"
 #include "../common/shared_movement.h"
+#include <stdio.h>
 #include <string.h>
 
 ServerState local_state;
@@ -47,17 +48,7 @@ PlayerState* get_best_bot() {
     return best;
 }
 
-static inline void scene_load(int scene_id) {
-    local_state.scene_id = scene_id;
-    phys_set_scene(scene_id);
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (!local_state.players[i].active) continue;
-        local_state.players[i].scene_id = scene_id;
-        scene_force_spawn(&local_state.players[i]);
-    }
-}
-
-static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z) {
+static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z, float yaw) {
     memset(h, 0, sizeof(*h));
     h->active = 1;
     h->id = id;
@@ -66,7 +57,43 @@ static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id,
     h->health = 250;
     h->occupant_player_id = -1;
     h->rotor_speed = 8.0f;
-    h->yaw = 180.0f;
+    h->yaw = yaw;
+    h->grounded = 1;
+}
+
+static inline void scene_init_helicopters(int scene_id) {
+    for (int i = 0; i < MAX_HELICOPTERS; i++) {
+        memset(&local_state.helicopters[i], 0, sizeof(local_state.helicopters[i]));
+        local_state.helicopters[i].occupant_player_id = -1;
+    }
+
+    if (scene_id != SCENE_VOXWORLD) return;
+
+    phys_set_scene(scene_id);
+    const float skid_offset = g_heli_tuning.collider_height * 0.5f + 0.05f;
+    const float red_ground = phys_sample_ground_height(VOXWORLD_HELI_RED_X, VOXWORLD_HELI_RED_Z, NULL);
+    const float blue_ground = phys_sample_ground_height(VOXWORLD_HELI_BLUE_X, VOXWORLD_HELI_BLUE_Z, NULL);
+
+    heli_spawn_defaults(&local_state.helicopters[0], 0, scene_id,
+                       VOXWORLD_HELI_RED_X, red_ground + skid_offset, VOXWORLD_HELI_RED_Z, 270.0f);
+    heli_spawn_defaults(&local_state.helicopters[1], 1, scene_id,
+                       VOXWORLD_HELI_BLUE_X, blue_ground + skid_offset, VOXWORLD_HELI_BLUE_Z, 90.0f);
+
+    printf("[HELI_INIT] scene=%d count=2 red=(%.1f,%.1f,%.1f) blue=(%.1f,%.1f,%.1f)\n",
+           scene_id,
+           local_state.helicopters[0].x, local_state.helicopters[0].y, local_state.helicopters[0].z,
+           local_state.helicopters[1].x, local_state.helicopters[1].y, local_state.helicopters[1].z);
+}
+
+static inline void scene_load(int scene_id) {
+    local_state.scene_id = scene_id;
+    phys_set_scene(scene_id);
+    scene_init_helicopters(scene_id);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (!local_state.players[i].active) continue;
+        local_state.players[i].scene_id = scene_id;
+        scene_force_spawn(&local_state.players[i]);
+    }
 }
 
 static inline HelicopterState *heli_find_nearby(int scene_id, float x, float y, float z, float radius) {
@@ -394,6 +421,6 @@ void local_init_match(int num_players, int mode) {
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);
     }
-    heli_spawn_defaults(&local_state.helicopters[0], 0, local_state.scene_id, 16.0f, 4.0f, 12.0f);
+    scene_init_helicopters(local_state.scene_id);
 }
 #endif

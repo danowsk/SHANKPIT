@@ -147,6 +147,10 @@ static int map_count = 0;
 #define VOXWORLD_BASE_RED_X -1040.0f
 #define VOXWORLD_BASE_BLUE_X 1040.0f
 #define VOXWORLD_BASE_Z 0.0f
+#define VOXWORLD_HELI_RED_X -1170.0f
+#define VOXWORLD_HELI_RED_Z -165.0f
+#define VOXWORLD_HELI_BLUE_X (-(VOXWORLD_HELI_RED_X))
+#define VOXWORLD_HELI_BLUE_Z (-(VOXWORLD_HELI_RED_Z))
 #define DUST_KILL_Y -90.0f
 #define DUST_TERRAIN_W 92
 #define DUST_TERRAIN_H 92
@@ -683,6 +687,8 @@ static inline void init_voxworld_bloodgulch_terrain(void) {
     vox_terrain_stamp(&g_scene_terrain, VOXWORLD_BASE_BLUE_X, 0.0f, 220.0f, 20.0f, 1.0f);
     vox_terrain_stamp(&g_scene_terrain, VOXWORLD_BASE_RED_X + 130.0f, 0.0f, 140.0f, 14.0f, 1.0f);
     vox_terrain_stamp(&g_scene_terrain, VOXWORLD_BASE_BLUE_X - 130.0f, 0.0f, 140.0f, 14.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, VOXWORLD_HELI_RED_X, VOXWORLD_HELI_RED_Z, 58.0f, 18.0f, 0.9f);
+    vox_terrain_stamp(&g_scene_terrain, VOXWORLD_HELI_BLUE_X, VOXWORLD_HELI_BLUE_Z, 58.0f, 18.0f, 0.9f);
     vox_terrain_stamp(&g_scene_terrain, -260.0f, -500.0f, 130.0f, -6.0f, 0.75f);
     vox_terrain_stamp(&g_scene_terrain, 260.0f, -500.0f, 130.0f, -6.0f, 0.75f);
     vox_terrain_stamp(&g_scene_terrain, -260.0f, 480.0f, 140.0f, 28.0f, 0.75f);

@@ -53,6 +53,7 @@ typedef struct {
 } RecorderState;
 
 static RecorderState recorder = {0};
+#define HELI_NET_DEBUG 0
 
 #define SERVER_SNAPSHOT_INTERVAL_TICKS 3
 #define SERVER_DM_FRAG_LIMIT 25
@@ -85,6 +86,14 @@ static int server_scene_is_dm_map(int scene_id) {
     return scene_id == SCENE_STADIUM || scene_id == SCENE_VOXWORLD || scene_id == SCENE_OIL_TANKER;
 }
 
+static int server_scene_heli_count(int scene_id) {
+    int count = 0;
+    for (int i = 0; i < MAX_HELICOPTERS; i++) {
+        if (local_state.helicopters[i].active && local_state.helicopters[i].scene_id == scene_id) count++;
+    }
+    return count;
+}
+
 static void server_advance_dm_rotation(unsigned int now_ms) {
     g_dm_rotation_idx = (g_dm_rotation_idx + 1) % (int)(sizeof(g_dm_rotation) / sizeof(g_dm_rotation[0]));
     g_server_match_scene = g_dm_rotation[g_dm_rotation_idx];
@@ -98,6 +107,9 @@ static void server_advance_dm_rotation(unsigned int now_ms) {
         p->state = STATE_ALIVE;
         p->health = 100;
         p->shield = 100;
+    }
+    if (g_server_match_scene == SCENE_VOXWORLD) {
+        printf("[HELI] authoritative voxworld spawn count=%d\n", server_scene_heli_count(SCENE_VOXWORLD));
     }
     printf("[ROUND] next_map=%d rotation_idx=%d\n", g_server_match_scene, g_dm_rotation_idx);
 }
@@ -427,28 +439,40 @@ void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
 
 void server_broadcast() {
     char buffer[4096];
-    int cursor = 0;
-    NetHeader head;
-    head.type = PACKET_SNAPSHOT;
-    head.client_id = 0;
-    head.sequence = local_state.server_tick;
-    head.timestamp = get_server_time();
-    head.scene_id = 0;
+    for (int i = 1; i < MAX_CLIENTS; i++) {
+        if (!slots[i].active || !slots[i].welcomed) continue;
+        int recipient_scene = local_state.players[i].scene_id;
+        int cursor = 0;
+        unsigned char count = 0;
 
-    unsigned char count = 0;
-    for(int i=1; i<MAX_CLIENTS; i++) if (slots[i].active && slots[i].welcomed && slots[i].cmd_seen && local_state.players[i].active) count++;
-    head.entity_count = count;
+        for (int pi = 1; pi < MAX_CLIENTS; pi++) {
+            if (!(slots[pi].active && slots[pi].welcomed && slots[pi].cmd_seen)) continue;
+            if (!local_state.players[pi].active) continue;
+            if (local_state.players[pi].scene_id != recipient_scene) continue;
+            count++;
+        }
 
-    memcpy(buffer + cursor, &head, sizeof(NetHeader)); cursor += (int)sizeof(NetHeader);
-    memcpy(buffer + cursor, &count, 1); cursor += 1;
+        NetHeader head;
+        head.type = PACKET_SNAPSHOT;
+        head.client_id = 0;
+        head.sequence = local_state.server_tick;
+        head.timestamp = get_server_time();
+        head.scene_id = (unsigned char)(recipient_scene < 0 ? 0 : recipient_scene);
+        head.entity_count = count;
 
-    for(int i=1; i<MAX_CLIENTS; i++) {
-        PlayerState *p = &local_state.players[i];
-        if (slots[i].active && slots[i].welcomed && slots[i].cmd_seen && p->active) {
+        memcpy(buffer + cursor, &head, sizeof(NetHeader)); cursor += (int)sizeof(NetHeader);
+        memcpy(buffer + cursor, &count, 1); cursor += 1;
+
+        for (int pi = 1; pi < MAX_CLIENTS; pi++) {
+            PlayerState *p = &local_state.players[pi];
+            if (!(slots[pi].active && slots[pi].welcomed && slots[pi].cmd_seen && p->active)) continue;
+            if (p->scene_id != recipient_scene) continue;
+
+            if (cursor + (int)sizeof(NetPlayer) + 1 > (int)sizeof(buffer)) break;
             NetPlayer np;
-            np.id = (unsigned char)i;
+            np.id = (unsigned char)pi;
             np.scene_id = (unsigned char)p->scene_id;
-            np.last_seq = client_last_seq[i];
+            np.last_seq = client_last_seq[pi];
             np.x = p->x; np.y = p->y; np.z = p->z;
             np.yaw = norm_yaw_deg(p->yaw); np.pitch = clamp_pitch_deg(p->pitch);
             np.current_weapon = (unsigned char)p->current_weapon;
@@ -464,40 +488,43 @@ void server_broadcast() {
             np.storm_charges = (unsigned char)p->storm_charges;
             np.kills = (unsigned short)(p->kills < 0 ? 0 : p->kills);
             np.deaths = (unsigned short)(p->deaths < 0 ? 0 : p->deaths);
-
             p->accumulated_reward = 0;
             memcpy(buffer + cursor, &np, sizeof(NetPlayer)); cursor += (int)sizeof(NetPlayer);
         }
-    }
 
-    unsigned char heli_count = 0;
-    for (int i = 0; i < MAX_HELICOPTERS; i++) {
-        HelicopterState *h = &local_state.helicopters[i];
-        if (h->active) heli_count++;
-    }
-    memcpy(buffer + cursor, &heli_count, 1); cursor += 1;
-    for (int i = 0; i < MAX_HELICOPTERS; i++) {
-        HelicopterState *h = &local_state.helicopters[i];
-        if (!h->active) continue;
-        NetHelicopter nh;
-        memset(&nh, 0, sizeof(nh));
-        nh.id = (unsigned char)h->id;
-        nh.scene_id = (unsigned char)h->scene_id;
-        nh.active = (unsigned char)h->active;
-        nh.grounded = (unsigned char)h->grounded;
-        nh.x = h->x; nh.y = h->y; nh.z = h->z;
-        nh.vx = h->vx; nh.vy = h->vy; nh.vz = h->vz;
-        nh.yaw = h->yaw;
-        nh.pitch_visual = h->pitch_visual;
-        nh.roll_visual = h->roll_visual;
-        nh.rotor_angle = h->rotor_angle;
-        nh.rotor_speed = h->rotor_speed;
-        nh.health = (unsigned char)(h->health < 0 ? 0 : (h->health > 255 ? 255 : h->health));
-        nh.occupant_player_id = (signed char)h->occupant_player_id;
-        memcpy(buffer + cursor, &nh, sizeof(NetHelicopter)); cursor += (int)sizeof(NetHelicopter);
-    }
+        unsigned char heli_count = 0;
+        for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
+            HelicopterState *h = &local_state.helicopters[hi];
+            if (!h->active || h->scene_id != recipient_scene) continue;
+            heli_count++;
+        }
 
-    for(int i=1; i<MAX_CLIENTS; i++) {
+        if (cursor + 1 > (int)sizeof(buffer)) continue;
+        memcpy(buffer + cursor, &heli_count, 1); cursor += 1;
+        for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
+            HelicopterState *h = &local_state.helicopters[hi];
+            if (!h->active || h->scene_id != recipient_scene) continue;
+            if (cursor + (int)sizeof(NetHelicopter) > (int)sizeof(buffer)) break;
+            NetHelicopter nh;
+            memset(&nh, 0, sizeof(nh));
+            nh.id = (unsigned char)h->id;
+            nh.scene_id = (unsigned char)h->scene_id;
+            nh.active = (unsigned char)h->active;
+            nh.grounded = (unsigned char)h->grounded;
+            nh.x = h->x; nh.y = h->y; nh.z = h->z;
+            nh.vx = h->vx; nh.vy = h->vy; nh.vz = h->vz;
+            nh.yaw = h->yaw;
+            nh.pitch_visual = h->pitch_visual;
+            nh.roll_visual = h->roll_visual;
+            nh.rotor_angle = h->rotor_angle;
+            nh.rotor_speed = h->rotor_speed;
+            nh.health = (unsigned char)(h->health < 0 ? 0 : (h->health > 255 ? 255 : h->health));
+            nh.occupant_player_id = (signed char)h->occupant_player_id;
+            memcpy(buffer + cursor, &nh, sizeof(NetHelicopter)); cursor += (int)sizeof(NetHelicopter);
+        }
+#if HELI_NET_DEBUG
+        printf("[HELI SNAPSHOT][TX] client=%d scene=%d heli_count=%u players=%u\n", i, recipient_scene, heli_count, count);
+#endif
         if (slots[i].active) {
             sendto(sock, buffer, cursor, 0,
                    (struct sockaddr*)&slots[i].addr,
@@ -531,6 +558,9 @@ int main(int argc, char *argv[]) {
         g_server_match_scene = g_dm_rotation[g_dm_rotation_idx];
         scene_load(g_server_match_scene);
         g_round_start_ms = get_server_time();
+        if (g_server_match_scene == SCENE_VOXWORLD) {
+            printf("[HELI] authoritative voxworld spawn count=%d\n", server_scene_heli_count(SCENE_VOXWORLD));
+        }
     } else {
         g_server_match_scene = SCENE_GARAGE_OSAKA;
     }

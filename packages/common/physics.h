@@ -147,6 +147,11 @@ static int map_count = 0;
 #define VOXWORLD_BASE_RED_X -1040.0f
 #define VOXWORLD_BASE_BLUE_X 1040.0f
 #define VOXWORLD_BASE_Z 0.0f
+#define VOXWORLD_HELI_RED_X (VOXWORLD_BASE_RED_X - 24.0f)
+#define VOXWORLD_HELI_RED_Z 34.0f
+#define VOXWORLD_HELI_BLUE_X (-VOXWORLD_HELI_RED_X)
+#define VOXWORLD_HELI_BLUE_Z (-VOXWORLD_HELI_RED_Z)
+#define VOXWORLD_HELI_GROUNDED_OFFSET 1.3f
 #define DUST_KILL_Y -90.0f
 #define DUST_TERRAIN_W 92
 #define DUST_TERRAIN_H 92
@@ -386,6 +391,36 @@ static inline float voxworld_height_at(float x, float z) {
     return 0.0f;
 }
 
+static inline float voxworld_base_roof_top_y(float base_x) {
+    return voxworld_height_at(base_x, 0.0f) + 62.0f;
+}
+
+static inline float voxworld_heli_spawn_y(float base_x) {
+    return voxworld_base_roof_top_y(base_x) + VOXWORLD_HELI_GROUNDED_OFFSET;
+}
+
+static inline void voxworld_add_stair_ramp(float x0, float z0, float x1, float z1,
+                                           float width, float base_y, float rise, int steps) {
+    if (steps < 2) steps = 2;
+    float dx = x1 - x0;
+    float dz = z1 - z0;
+    float len = sqrtf(dx * dx + dz * dz);
+    if (len < 0.1f) return;
+    float dir_x = dx / len;
+    float dir_z = dz / len;
+    float step_len = len / (float)steps;
+    float step_h = rise / (float)steps;
+    for (int i = 0; i < steps; i++) {
+        float t = ((float)i + 0.5f) / (float)steps;
+        float cx = x0 + dir_x * (len * t);
+        float cz = z0 + dir_z * (len * t);
+        float cy = base_y + step_h * ((float)i + 0.5f);
+        float box_w = (fabsf(dir_x) > fabsf(dir_z)) ? step_len : width;
+        float box_d = (fabsf(dir_x) > fabsf(dir_z)) ? width : step_len;
+        voxworld_add_box(cx, cy, cz, box_w + 1.0f, step_h + 0.5f, box_d + 1.0f);
+    }
+}
+
 static inline void voxworld_build_base_geo(float base_x, int team_sign) {
     float front_x = base_x + (float)team_sign * 110.0f;
     float shell_h = voxworld_height_at(base_x, 0.0f);
@@ -409,6 +444,31 @@ static inline void voxworld_build_base_geo(float base_x, int team_sign) {
     voxworld_add_box(base_x - (float)team_sign * 24.0f, shell_h + 44.0f, -10.0f, 14.0f, 26.0f, 44.0f);
     voxworld_add_box(base_x - (float)team_sign * 18.0f, shell_h + 53.0f, 0.0f, 42.0f, 8.0f, 34.0f);
     voxworld_add_box(base_x - (float)team_sign * 122.0f, shell_h + 22.0f, (float)team_sign * 165.0f, 34.0f, 20.0f, 52.0f);
+
+    float back_x = base_x - (float)team_sign * 170.0f;
+    float side_x = base_x - (float)team_sign * 114.0f;
+    float rear_ground_h = voxworld_height_at(back_x, (float)team_sign * 128.0f);
+    float side_mid_h = shell_h + 20.0f;
+    float roof_edge_h = shell_h + 56.0f;
+
+    voxworld_add_stair_ramp(back_x, (float)team_sign * 128.0f,
+                            side_x, (float)team_sign * 128.0f,
+                            28.0f,
+                            rear_ground_h + 2.0f,
+                            side_mid_h - (rear_ground_h + 2.0f),
+                            5);
+    voxworld_add_stair_ramp(side_x, (float)team_sign * 128.0f,
+                            base_x - (float)team_sign * 62.0f, (float)team_sign * 78.0f,
+                            24.0f,
+                            side_mid_h,
+                            (roof_edge_h - side_mid_h),
+                            5);
+    voxworld_add_stair_ramp(base_x - (float)team_sign * 62.0f, (float)team_sign * 78.0f,
+                            base_x - (float)team_sign * 28.0f, (float)team_sign * 42.0f,
+                            20.0f,
+                            roof_edge_h,
+                            (voxworld_base_roof_top_y(base_x) - roof_edge_h),
+                            3);
 }
 
 static inline void init_voxworld_bloodgulch_geo(void) {

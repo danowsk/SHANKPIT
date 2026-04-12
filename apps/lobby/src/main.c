@@ -81,6 +81,7 @@ static VehicleStyle g_vehicle_style = {0.85f, 0.15f, 0.25f, 0.45f, 0.2f, 0.18f, 
 static int vehicle_style_enabled = 1;
 static int vehicle_underglow_enabled = 1;
 static int vehicle_worklights_enabled = 1;
+#define HELI_NET_DEBUG 0
 static int vs0_art_direction_enabled = 1;
 static int terrain_wireframe_debug = 0;
 static int terrain_normals_debug = 0;
@@ -1852,6 +1853,10 @@ static void client_apply_scene_id(int scene_id, unsigned int now_ms) {
         for (int i = 0; i < MAX_PROJECTILES; i++) {
             local_state.projectiles[i].active = 0;
         }
+        for (int i = 0; i < MAX_HELICOPTERS; i++) {
+            local_state.helicopters[i].active = 0;
+            local_state.helicopters[i].occupant_player_id = -1;
+        }
     }
 }
 
@@ -2525,9 +2530,13 @@ void net_process_snapshot(char *buffer, int len) {
         }
     }
 
-    for (int hi = 0; hi < MAX_HELICOPTERS; hi++) local_state.helicopters[hi].active = 0;
+    for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
+        local_state.helicopters[hi].active = 0;
+        local_state.helicopters[hi].occupant_player_id = -1;
+    }
+    unsigned char heli_count = 0;
     if (cursor < len) {
-        unsigned char heli_count = *(unsigned char *)(buffer + cursor);
+        heli_count = *(unsigned char *)(buffer + cursor);
         cursor++;
         for (int hi = 0; hi < heli_count; hi++) {
             if (cursor + (int)sizeof(NetHelicopter) > len) break;
@@ -2555,6 +2564,10 @@ void net_process_snapshot(char *buffer, int len) {
             }
         }
     }
+#if HELI_NET_DEBUG
+    printf("[HELI SNAPSHOT][RX] scene=%d heli_count=%u cursor=%d len=%d\n",
+           (int)head->scene_id, heli_count, cursor, len);
+#endif
     for (int i = 1; i < MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
         if (!p->active) continue;

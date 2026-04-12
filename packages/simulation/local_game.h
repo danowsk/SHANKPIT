@@ -8,9 +8,11 @@
 
 ServerState local_state;
 int was_holding_jump = 0;
+#define SHANKPIT_HELI_DEBUG 0
 
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time);
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time);
+static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z);
 void local_init_match(int num_players, int mode);
 
 float rand_weight() { return ((float)(rand()%2000)/1000.0f) - 1.0f; } 
@@ -54,6 +56,30 @@ static inline void scene_load(int scene_id) {
         if (!local_state.players[i].active) continue;
         local_state.players[i].scene_id = scene_id;
         scene_force_spawn(&local_state.players[i]);
+    }
+    for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
+        memset(&local_state.helicopters[hi], 0, sizeof(local_state.helicopters[hi]));
+        local_state.helicopters[hi].id = hi;
+        local_state.helicopters[hi].occupant_player_id = -1;
+    }
+
+    if (scene_id == SCENE_VOXWORLD) {
+        float red_y = voxworld_height_at(VOXWORLD_HELI_RED_X, VOXWORLD_HELI_RED_Z) + VOXWORLD_HELI_GROUNDED_OFFSET;
+        float blue_y = voxworld_height_at(VOXWORLD_HELI_BLUE_X, VOXWORLD_HELI_BLUE_Z) + VOXWORLD_HELI_GROUNDED_OFFSET;
+        heli_spawn_defaults(&local_state.helicopters[0], 0, SCENE_VOXWORLD, VOXWORLD_HELI_RED_X, red_y, VOXWORLD_HELI_RED_Z);
+        heli_spawn_defaults(&local_state.helicopters[1], 1, SCENE_VOXWORLD, VOXWORLD_HELI_BLUE_X, blue_y, VOXWORLD_HELI_BLUE_Z);
+        local_state.helicopters[0].yaw = 90.0f;
+        local_state.helicopters[1].yaw = 270.0f;
+        local_state.helicopters[0].grounded = 1;
+        local_state.helicopters[1].grounded = 1;
+        local_state.helicopters[0].rotor_speed = 14.0f;
+        local_state.helicopters[1].rotor_speed = 14.0f;
+#if SHANKPIT_HELI_DEBUG
+        printf("[HELI] scene=%d spawned=2 red=(%.1f,%.1f,%.1f) blue=(%.1f,%.1f,%.1f)\n",
+               scene_id,
+               local_state.helicopters[0].x, local_state.helicopters[0].y, local_state.helicopters[0].z,
+               local_state.helicopters[1].x, local_state.helicopters[1].y, local_state.helicopters[1].z);
+#endif
     }
 }
 
@@ -394,6 +420,6 @@ void local_init_match(int num_players, int mode) {
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);
     }
-    heli_spawn_defaults(&local_state.helicopters[0], 0, local_state.scene_id, 16.0f, 4.0f, 12.0f);
+    scene_load(local_state.scene_id);
 }
 #endif

@@ -4,6 +4,44 @@
 
 SHANKPIT is a fast-paced 3D multiplayer first-person shooter built with C, SDL2, and OpenGL. The game features physics-based movement, multiple weapons, shield mechanics, and support for both human players and AI bots (including neural network-powered agents).
 
+## Controls (Player + Vehicles)
+
+### Core movement & combat
+- `W / S`: move forward/back.
+- `A / D`: strafe left/right on foot.
+- `Mouse`: look (yaw/pitch).
+- `Left Mouse`: fire weapon.
+- `Right Mouse`: ADS/zoom (sniper narrows FOV).
+- `Space`: jump.
+- `Left Ctrl`: crouch.
+- `R`: reload (on foot).
+- `1..6`: weapon select.
+- `F`: use/interact (portal use, enter/exit vehicles).
+- `E`: ability 1.
+
+### Helicopter controls
+- `F`: enter/exit helicopter when in range.
+- `W / S`: helicopter forward/back thrust.
+- `A / D`: helicopter yaw (turn left/right).
+- `Space`: ascend.
+- `Left Ctrl`: descend.
+- `E`: strafe left.
+- `Q`: strafe right.
+
+### Ground vehicle controls
+- `F`: toggle enter/exit ground vehicle pads where available (ex: garage pads).
+- `W / A / S / D`: drive/steer with the standard movement axes.
+
+### Debug / client toggles
+- `F6`: terrain wireframe debug.
+- `F7`: terrain normals debug.
+- `F8`: vehicle style toggle.
+- `F9`: vehicle underglow toggle.
+- `F10`: vehicle worklights toggle.
+- `F11`: scene points debug.
+- `F12`: VS0 art direction toggle.
+- `Esc`: return to lobby (or quit focused session state).
+
 ## System Architecture
 
 ### High-Level Components

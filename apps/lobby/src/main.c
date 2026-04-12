@@ -386,6 +386,7 @@ typedef enum {
     LOBBY_TDM,
     LOBBY_CTF,
     LOBBY_EVOLUTION,
+    LOBBY_COW_RUSH,
     LOBBY_JOIN,
     LOBBY_COUNT
 } LobbyAction;
@@ -398,6 +399,7 @@ static const char *LOBBY_LABELS[LOBBY_COUNT] = {
     "TEAM DM (BOTS)",
     "LAN CTF",
     "EVOLUTION",
+    "COW RUSH (MINIGAME)",
     "JOIN S.FARTHQ.COM"
 };
 
@@ -490,6 +492,9 @@ static void lobby_apply_ui_state() {
     } else if (strcmp(ui_state.active_mode_id, "mode.evolution") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(8, MODE_EVOLUTION);
+    } else if (strcmp(ui_state.active_mode_id, "mode.cow_rush") == 0) {
+        app_state = STATE_GAME_LOCAL;
+        local_init_match(24, MODE_COW_RUSH);
     } else if (strcmp(ui_state.active_mode_id, "mode.training") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(1, MODE_DEATHMATCH);
@@ -546,6 +551,9 @@ static void lobby_start_action(int action) {
                 break;
             case LOBBY_EVOLUTION:
                 local_init_match(8, MODE_EVOLUTION);
+                break;
+            case LOBBY_COW_RUSH:
+                local_init_match(24, MODE_COW_RUSH);
                 break;
             default:
                 break;

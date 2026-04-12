@@ -16,6 +16,16 @@ void local_init_match(int num_players, int mode);
 float rand_weight() { return ((float)(rand()%2000)/1000.0f) - 1.0f; } 
 float rand_pos() { return ((float)(rand()%1000)/1000.0f); } 
 
+static inline int is_cow_rush_mode(void) {
+    return local_state.game_mode == MODE_COW_RUSH;
+}
+
+static inline void cow_rush_configure_cow(PlayerState *p) {
+    p->current_weapon = WPN_KNIFE;
+    p->shield = 0;
+    if (p->health > 35) p->health = 35;
+}
+
 void init_genome(BotGenome *g) {
     g->version = 1;
     g->w_aggro = 0.5f + rand_weight() * 0.5f;
@@ -283,6 +293,7 @@ static void update_projectiles(unsigned int now_ms) {
 
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time) {
     PlayerState *p0 = &local_state.players[0];
+    int cow_rush = is_cow_rush_mode();
     scene_tick_transition();
     if (local_state.transition_timer > 0) {
         fwd = 0.0f;
@@ -297,14 +308,15 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     if (weapon_req >= 0 && weapon_req < MAX_WEAPONS) p0->current_weapon = weapon_req;
     if (!(p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER)) {
         MoveIntent move_intent = {
-            .forward = fwd,
-            .strafe = str,
+            .forward = cow_rush ? (fwd * 1.3f) : fwd,
+            .strafe = cow_rush ? (str * 1.3f) : str,
             .control_yaw_deg = yaw,
             .wants_jump = jump,
             .wants_sprint = 0
         };
         MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
-        accelerate(p0, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, ACCEL);
+        float move_speed = MAX_SPEED * (cow_rush ? 1.35f : 1.0f);
+        accelerate(p0, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * move_speed, ACCEL);
     }
     
     int fresh_jump_press = (jump && !was_holding_jump);
@@ -324,6 +336,9 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     p0->in_shoot = shoot; p0->in_reload = reload; p0->crouching = crouch;
     p0->in_jump = jump; 
     p0->in_ability = ability;
+    if (cow_rush) {
+        p0->current_weapon = WPN_SHOTGUN;
+    }
     was_holding_jump = jump;
     
     for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
@@ -356,18 +371,36 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         if (i > 0 && p->active && p->state != STATE_DEAD) {
             float b_fwd=0, b_yaw=p->yaw;
             int b_btns=0;
-            bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
-            p->yaw = b_yaw;
-            float brad = b_yaw * 3.14159f / 180.0f;
-            float bx = sinf(brad) * b_fwd;
-            float bz = cosf(brad) * b_fwd;
-            accelerate(p, bx, bz, MAX_SPEED, ACCEL);
-            p->in_shoot = (b_btns & BTN_ATTACK);
-            p->in_jump = (b_btns & BTN_JUMP);
-            p->in_reload = (b_btns & BTN_RELOAD);
-            p->crouching = (b_btns & BTN_CROUCH);
-            p->in_ability = 0;
-            if ((b_btns & BTN_JUMP) && p->on_ground) { p->y += 0.1f; p->vy += JUMP_FORCE; }
+            if (cow_rush) {
+                cow_rush_configure_cow(p);
+                float dx = p->x - p0->x;
+                float dz = p->z - p0->z;
+                float dist_sq = dx * dx + dz * dz;
+                float flee_yaw = atan2f(dx, dz) * (180.0f / 3.14159f);
+                p->yaw = flee_yaw + rand_weight() * 35.0f;
+                float flee_boost = (dist_sq < (24.0f * 24.0f)) ? 1.45f : 1.1f;
+                float brad = p->yaw * 3.14159f / 180.0f;
+                accelerate(p, sinf(brad), cosf(brad), MAX_SPEED * flee_boost, ACCEL * 1.2f);
+                p->in_shoot = 0;
+                p->in_jump = (p->on_ground && dist_sq < (16.0f * 16.0f)) ? 1 : 0;
+                p->in_reload = 0;
+                p->crouching = 0;
+                p->in_ability = 0;
+                if (p->in_jump) { p->y += 0.1f; p->vy += JUMP_FORCE; }
+            } else {
+                bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
+                p->yaw = b_yaw;
+                float brad = b_yaw * 3.14159f / 180.0f;
+                float bx = sinf(brad) * b_fwd;
+                float bz = cosf(brad) * b_fwd;
+                accelerate(p, bx, bz, MAX_SPEED, ACCEL);
+                p->in_shoot = (b_btns & BTN_ATTACK);
+                p->in_jump = (b_btns & BTN_JUMP);
+                p->in_reload = (b_btns & BTN_RELOAD);
+                p->crouching = (b_btns & BTN_CROUCH);
+                p->in_ability = 0;
+                if ((b_btns & BTN_JUMP) && p->on_ground) { p->y += 0.1f; p->vy += JUMP_FORCE; }
+            }
         }
         phys_set_scene(p->scene_id);
         update_entity(p, 0.016f, server_context, cmd_time);
@@ -387,12 +420,18 @@ void local_init_match(int num_players, int mode) {
     local_state.players[0].team_id = 0;
     local_state.players[0].scene_id = local_state.scene_id;
     phys_respawn(&local_state.players[0], 0);
+    if (mode == MODE_COW_RUSH) {
+        local_state.players[0].current_weapon = WPN_SHOTGUN;
+    }
     for(int i=1; i<num_players; i++) {
         local_state.players[i].active = 1;
         local_state.players[i].team_id = (mode == MODE_TDM || mode == MODE_CTF) ? (i % 2) : -1;
         local_state.players[i].scene_id = local_state.scene_id;
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);
+        if (mode == MODE_COW_RUSH) {
+            cow_rush_configure_cow(&local_state.players[i]);
+        }
     }
     heli_spawn_defaults(&local_state.helicopters[0], 0, local_state.scene_id, 16.0f, 4.0f, 12.0f);
 }

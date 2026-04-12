@@ -208,7 +208,7 @@ typedef struct {
     HeliInputState input;
 } HelicopterState;
 
-typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100 } GameMode;
+typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_COW_RUSH=5, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100 } GameMode;
 
 typedef struct {
     PlayerState players[MAX_CLIENTS];

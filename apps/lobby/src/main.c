@@ -82,6 +82,7 @@ static int vehicle_worklights_enabled = 1;
 static int terrain_wireframe_debug = 0;
 static int terrain_normals_debug = 0;
 static int voxworld_points_debug = 0;
+static int vs0_art_direction_enabled = 1;
 static unsigned int terrain_debug_last_log_ms = 0;
 static ProcTexture g_vehicle_noise_tex = {0};
 static ProcTexture g_vehicle_glitch_tex = {0};
@@ -89,6 +90,16 @@ static ProcTexture g_vehicle_glitch_tex = {0};
 #define Z_FAR 8000.0f
 
 static void draw_box(float w, float h, float d);
+
+static float clampf(float v, float lo, float hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+static float lerpf(float a, float b, float t) {
+    return a + (b - a) * t;
+}
 
 int sock = -1;
 struct sockaddr_in server_addr;
@@ -601,63 +612,82 @@ void draw_grid() {
 
 // --- NEON BRUTALIST BLOCK RENDERER ---
 void draw_map() {
-    // Enable blending for that glassy look if we wanted, but solid matte is cleaner for now
-    // glDisable(GL_BLEND);
-
     for(int i=1; i<map_count; i++) {
         Box b = map_geo[i];
-        
-        // 1. PROCEDURAL NEON COLOR
-        // Generate a color based on world position. 
-        // This creates gradients across the city.
-        float nr = 0.5f + 0.5f * sinf(b.x * 0.005f + b.y * 0.01f);
-        float ng = 0.5f + 0.5f * sinf(b.z * 0.005f + 2.0f);
-        float nb = 0.5f + 0.5f * sinf(b.x * 0.005f + 4.0f);
-        
-        // Boost brightness for the "Neon" effect
-        if(nr > 0.8f) nr = 1.0f;
-        if(ng > 0.8f) ng = 1.0f;
-        if(nb > 0.8f) nb = 1.0f;
 
-        glPushMatrix(); 
-        glTranslatef(b.x, b.y, b.z); 
+        glPushMatrix();
+        glTranslatef(b.x, b.y, b.z);
         glScalef(b.w, b.h, b.d);
-        
-        // 2. THE SOLID CORE (Deep Matte Black)
-        // We render the faces dark so the edges pop.
-        glBegin(GL_QUADS); 
-        glColor3f(0.02f, 0.02f, 0.02f); // Almost black
-        
-        // Top
-        glVertex3f(-0.5,0.5,0.5); glVertex3f(0.5,0.5,0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(-0.5,0.5,-0.5);
-        // Bottom
-        glVertex3f(-0.5,-0.5,0.5); glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(-0.5,-0.5,-0.5);
-        // Front
-        glVertex3f(-0.5,-0.5,0.5); glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,0.5,0.5); glVertex3f(-0.5,0.5,0.5);
-        // Back
-        glVertex3f(-0.5,-0.5,-0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(-0.5,0.5,-0.5);
-        // Left
-        glVertex3f(-0.5,-0.5,-0.5); glVertex3f(-0.5,-0.5,0.5); glVertex3f(-0.5,0.5,0.5); glVertex3f(-0.5,0.5,-0.5);
-        // Right
-        glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(0.5,0.5,0.5);
-        glEnd();
-        
-        // 3. THE NEON CAGE (Wireframe)
-        glLineWidth(2.0f); 
-        glColor3f(nr, ng, nb); 
-        
-        // Using LINE_LOOP for top/bottom and LINES for pillars is efficient enough
-        // Top Loop
+
+        if (!vs0_art_direction_enabled) {
+            float nr = 0.5f + 0.5f * sinf(b.x * 0.005f + b.y * 0.01f);
+            float ng = 0.5f + 0.5f * sinf(b.z * 0.005f + 2.0f);
+            float nb = 0.5f + 0.5f * sinf(b.x * 0.005f + 4.0f);
+            if(nr > 0.8f) nr = 1.0f;
+            if(ng > 0.8f) ng = 1.0f;
+            if(nb > 0.8f) nb = 1.0f;
+
+            glBegin(GL_QUADS);
+            glColor3f(0.02f, 0.02f, 0.02f);
+            glVertex3f(-0.5,0.5,0.5); glVertex3f(0.5,0.5,0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(-0.5,0.5,-0.5);
+            glVertex3f(-0.5,-0.5,0.5); glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(-0.5,-0.5,-0.5);
+            glVertex3f(-0.5,-0.5,0.5); glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,0.5,0.5); glVertex3f(-0.5,0.5,0.5);
+            glVertex3f(-0.5,-0.5,-0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(-0.5,0.5,-0.5);
+            glVertex3f(-0.5,-0.5,-0.5); glVertex3f(-0.5,-0.5,0.5); glVertex3f(-0.5,0.5,0.5); glVertex3f(-0.5,0.5,-0.5);
+            glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(0.5,0.5,0.5);
+            glEnd();
+
+            glLineWidth(2.0f);
+            glColor3f(nr, ng, nb);
+        } else {
+            const float sky_r = 0.09f, sky_g = 0.14f, sky_b = 0.20f;
+            const float sun_x = -0.35f, sun_y = 0.82f, sun_z = 0.45f;
+            float dist = sqrtf(b.x * b.x + b.z * b.z);
+            float haze_t = clampf((dist - 900.0f) / 2600.0f, 0.0f, 0.45f);
+
+            float seed = fabsf(sinf(b.x * 0.0033f + b.z * 0.0021f + b.y * 0.01f));
+            float base_r = lerpf(0.33f, 0.44f, seed);
+            float base_g = lerpf(0.37f, 0.46f, seed * 0.8f);
+            float base_b = lerpf(0.42f, 0.54f, 1.0f - seed * 0.5f);
+            float front = clampf(0.5f + 0.5f * sun_z, 0.0f, 1.0f);
+            float side = clampf(0.5f + 0.5f * sun_x, 0.0f, 1.0f);
+
+            float top_l = 1.10f;
+            float bot_l = 0.72f;
+            float front_l = 0.90f + front * 0.16f;
+            float back_l = 0.72f;
+            float right_l = 0.84f + side * 0.10f;
+            float left_l = 0.78f;
+
+            glBegin(GL_QUADS);
+#define FACE_COL(LIT, COOL)             glColor3f(lerpf(base_r * (LIT), sky_r, haze_t), lerpf(base_g * (LIT), sky_g, haze_t), lerpf((base_b + (COOL)) * (LIT), sky_b, haze_t))
+            FACE_COL(top_l, 0.03f);
+            glVertex3f(-0.5,0.5,0.5); glVertex3f(0.5,0.5,0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(-0.5,0.5,-0.5);
+            FACE_COL(bot_l, -0.02f);
+            glVertex3f(-0.5,-0.5,0.5); glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(-0.5,-0.5,-0.5);
+            FACE_COL(front_l, 0.0f);
+            glVertex3f(-0.5,-0.5,0.5); glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,0.5,0.5); glVertex3f(-0.5,0.5,0.5);
+            FACE_COL(back_l, -0.01f);
+            glVertex3f(-0.5,-0.5,-0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(-0.5,0.5,-0.5);
+            FACE_COL(left_l, 0.02f);
+            glVertex3f(-0.5,-0.5,-0.5); glVertex3f(-0.5,-0.5,0.5); glVertex3f(-0.5,0.5,0.5); glVertex3f(-0.5,0.5,-0.5);
+            FACE_COL(right_l, 0.01f);
+            glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(0.5,0.5,0.5);
+#undef FACE_COL
+            glEnd();
+
+            glLineWidth(1.0f);
+            glColor3f(0.17f, 0.22f, 0.27f);
+        }
+
         glBegin(GL_LINE_LOOP);
         glVertex3f(-0.5, 0.5, 0.5); glVertex3f(0.5, 0.5, 0.5); glVertex3f(0.5, 0.5, -0.5); glVertex3f(-0.5, 0.5, -0.5);
         glEnd();
-        
-        // Bottom Loop
+
         glBegin(GL_LINE_LOOP);
         glVertex3f(-0.5, -0.5, 0.5); glVertex3f(0.5, -0.5, 0.5); glVertex3f(0.5, -0.5, -0.5); glVertex3f(-0.5, -0.5, -0.5);
         glEnd();
-        
-        // Vertical Pillars
+
         glBegin(GL_LINES);
         glVertex3f(-0.5, -0.5, 0.5); glVertex3f(-0.5, 0.5, 0.5);
         glVertex3f(0.5, -0.5, 0.5); glVertex3f(0.5, 0.5, 0.5);
@@ -688,15 +718,45 @@ void draw_terrain() {
             terrain_sample_normal(t, x, z1, &nx1, &ny1, &nz1);
             float slope0 = 1.0f - ny0;
             float slope1 = 1.0f - ny1;
-            float shade0 = 0.48f + h0 * 0.0016f - slope0 * 0.35f;
-            float shade1 = 0.48f + h1 * 0.0016f - slope1 * 0.35f;
-            if (shade0 < 0.26f) shade0 = 0.26f;
-            if (shade1 < 0.26f) shade1 = 0.26f;
-            if (shade0 > 0.84f) shade0 = 0.84f;
-            if (shade1 > 0.84f) shade1 = 0.84f;
-            glColor3f(shade0 * 0.92f, shade0 * 0.70f, shade0 * 0.48f);
+            if (!vs0_art_direction_enabled) {
+                float shade0 = 0.48f + h0 * 0.0016f - slope0 * 0.35f;
+                shade0 = clampf(shade0, 0.26f, 0.84f);
+                glColor3f(shade0 * 0.92f, shade0 * 0.70f, shade0 * 0.48f);
+            } else {
+                const float sun_x = -0.35f, sun_y = 0.82f, sun_z = 0.45f;
+                float sun0 = clampf(nx0 * sun_x + ny0 * sun_y + nz0 * sun_z, -1.0f, 1.0f);
+                float lit0 = clampf(0.72f + sun0 * 0.22f - slope0 * 0.22f + h0 * 0.0005f, 0.46f, 1.0f);
+                float high0 = clampf((h0 - 40.0f) / 120.0f, 0.0f, 1.0f);
+                float steep0 = clampf((slope0 - 0.22f) * 1.9f, 0.0f, 1.0f);
+                float low0 = clampf((28.0f - h0) / 80.0f, 0.0f, 1.0f);
+                float w_mid0 = clampf(steep0 + low0 * 0.45f, 0.0f, 1.0f);
+                float w_grass0 = clampf((1.0f - w_mid0) * (0.75f + high0 * 0.25f), 0.0f, 1.0f);
+                float w_dark0 = clampf(1.0f - (w_grass0 + w_mid0), 0.0f, 1.0f);
+                float base_r0 = 0.57f * w_grass0 + 0.56f * w_mid0 + 0.33f * w_dark0;
+                float base_g0 = 0.62f * w_grass0 + 0.47f * w_mid0 + 0.29f * w_dark0;
+                float base_b0 = 0.34f * w_grass0 + 0.32f * w_mid0 + 0.24f * w_dark0;
+                glColor3f(base_r0 * lit0, base_g0 * lit0, base_b0 * lit0);
+            }
             glVertex3f(x, h0, z0);
-            glColor3f(shade1 * 0.92f, shade1 * 0.70f, shade1 * 0.48f);
+            if (!vs0_art_direction_enabled) {
+                float shade1 = 0.48f + h1 * 0.0016f - slope1 * 0.35f;
+                shade1 = clampf(shade1, 0.26f, 0.84f);
+                glColor3f(shade1 * 0.92f, shade1 * 0.70f, shade1 * 0.48f);
+            } else {
+                const float sun_x = -0.35f, sun_y = 0.82f, sun_z = 0.45f;
+                float sun1 = clampf(nx1 * sun_x + ny1 * sun_y + nz1 * sun_z, -1.0f, 1.0f);
+                float lit1 = clampf(0.72f + sun1 * 0.22f - slope1 * 0.22f + h1 * 0.0005f, 0.46f, 1.0f);
+                float high1 = clampf((h1 - 40.0f) / 120.0f, 0.0f, 1.0f);
+                float steep1 = clampf((slope1 - 0.22f) * 1.9f, 0.0f, 1.0f);
+                float low1 = clampf((28.0f - h1) / 80.0f, 0.0f, 1.0f);
+                float w_mid1 = clampf(steep1 + low1 * 0.45f, 0.0f, 1.0f);
+                float w_grass1 = clampf((1.0f - w_mid1) * (0.75f + high1 * 0.25f), 0.0f, 1.0f);
+                float w_dark1 = clampf(1.0f - (w_grass1 + w_mid1), 0.0f, 1.0f);
+                float base_r1 = 0.57f * w_grass1 + 0.56f * w_mid1 + 0.33f * w_dark1;
+                float base_g1 = 0.62f * w_grass1 + 0.47f * w_mid1 + 0.29f * w_dark1;
+                float base_b1 = 0.34f * w_grass1 + 0.32f * w_mid1 + 0.24f * w_dark1;
+                glColor3f(base_r1 * lit1, base_g1 * lit1, base_b1 * lit1);
+            }
             glVertex3f(x, h1, z1);
         }
         glEnd();
@@ -996,11 +1056,11 @@ void draw_gun_model(int weapon_id) {
         return;
     }
     switch(weapon_id) {
-        case WPN_KNIFE:   glColor3f(0.8f, 0.8f, 0.9f); glScalef(0.05f, 0.05f, 0.8f); break;
-        case WPN_MAGNUM:  glColor3f(0.4f, 0.4f, 0.4f); glScalef(0.15f, 0.2f, 0.5f); break;
-        case WPN_AR:      glColor3f(0.2f, 0.3f, 0.2f); glScalef(0.1f, 0.15f, 1.2f); break;
-        case WPN_SHOTGUN: glColor3f(0.5f, 0.3f, 0.2f); glScalef(0.25f, 0.15f, 0.8f); break;
-        case WPN_SNIPER:  glColor3f(0.1f, 0.1f, 0.15f); glScalef(0.08f, 0.12f, 2.0f); break;
+        case WPN_KNIFE:   glColor3f(vs0_art_direction_enabled ? 0.45f : 0.8f, vs0_art_direction_enabled ? 0.48f : 0.8f, vs0_art_direction_enabled ? 0.52f : 0.9f); glScalef(0.05f, 0.05f, 0.8f); break;
+        case WPN_MAGNUM:  glColor3f(vs0_art_direction_enabled ? 0.18f : 0.4f, vs0_art_direction_enabled ? 0.20f : 0.4f, vs0_art_direction_enabled ? 0.24f : 0.4f); glScalef(0.15f, 0.2f, 0.5f); break;
+        case WPN_AR:      glColor3f(vs0_art_direction_enabled ? 0.19f : 0.2f, vs0_art_direction_enabled ? 0.23f : 0.3f, vs0_art_direction_enabled ? 0.20f : 0.2f); glScalef(0.1f, 0.15f, 1.2f); break;
+        case WPN_SHOTGUN: glColor3f(vs0_art_direction_enabled ? 0.26f : 0.5f, vs0_art_direction_enabled ? 0.23f : 0.3f, vs0_art_direction_enabled ? 0.21f : 0.2f); glScalef(0.25f, 0.15f, 0.8f); break;
+        case WPN_SNIPER:  glColor3f(vs0_art_direction_enabled ? 0.14f : 0.1f, vs0_art_direction_enabled ? 0.16f : 0.1f, vs0_art_direction_enabled ? 0.21f : 0.15f); glScalef(0.08f, 0.12f, 2.0f); break;
     }
     glBegin(GL_QUADS); 
     glVertex3f(-1,1,1);
@@ -1012,7 +1072,7 @@ void draw_gun_model(int weapon_id) {
     glEnd();
     
     // Wireframe Gun
-    glLineWidth(1.0f); glColor3f(1.0f, 1.0f, 1.0f);
+    glLineWidth(1.0f); glColor3f(vs0_art_direction_enabled ? 0.42f : 1.0f, vs0_art_direction_enabled ? 0.44f : 1.0f, vs0_art_direction_enabled ? 0.48f : 1.0f);
     glBegin(GL_LINES);
     glVertex3f(-1,1,1); glVertex3f(1,1,1);
     glVertex3f(1,1,1); glVertex3f(1,1,-1);
@@ -1043,8 +1103,8 @@ static void draw_box(float w, float h, float d) {
 static void draw_box_outline(float w, float h, float d) {
     glPushMatrix();
     glScalef(w, h, d);
-    glLineWidth(2.0f);
-    glColor3f(1.0f, 1.0f, 0.0f);
+    glLineWidth(vs0_art_direction_enabled ? 1.0f : 2.0f);
+    glColor3f(vs0_art_direction_enabled ? 0.16f : 1.0f, vs0_art_direction_enabled ? 0.19f : 1.0f, vs0_art_direction_enabled ? 0.22f : 0.0f);
 
     glBegin(GL_LINE_LOOP);
     glVertex3f(-0.5f, 0.5f, 0.5f); glVertex3f(0.5f, 0.5f, 0.5f);
@@ -1068,7 +1128,7 @@ static void draw_box_outline(float w, float h, float d) {
 
 static void draw_ronin_shell(void) {
     // Jacket core (cropped waist, broad shoulders)
-    glColor3f(0.1f, 0.1f, 0.1f); // Matte black
+    glColor3f(vs0_art_direction_enabled ? 0.20f : 0.1f, vs0_art_direction_enabled ? 0.23f : 0.1f, vs0_art_direction_enabled ? 0.27f : 0.1f);
     glPushMatrix();
     glTranslatef(0.0f, 0.9f, 0.0f);
     draw_box(RONIN_TORSO_W, RONIN_TORSO_H, RONIN_TORSO_D);
@@ -1080,7 +1140,7 @@ static void draw_ronin_shell(void) {
     glPushMatrix(); glTranslatef(-RONIN_SLEEVE_OFFSET, -0.25f, 0.0f); draw_box(RONIN_SLEEVE_W, RONIN_SLEEVE_H, RONIN_SLEEVE_D); draw_box_outline(RONIN_SLEEVE_W, RONIN_SLEEVE_H, RONIN_SLEEVE_D); glPopMatrix();
     glPushMatrix(); glTranslatef(RONIN_SLEEVE_OFFSET, -0.25f, 0.0f); draw_box(RONIN_SLEEVE_W, RONIN_SLEEVE_H, RONIN_SLEEVE_D); draw_box_outline(RONIN_SLEEVE_W, RONIN_SLEEVE_H, RONIN_SLEEVE_D); glPopMatrix();
     // Red satin lining at hem
-    glColor3f(0.6f, 0.0f, 0.0f);
+    glColor3f(vs0_art_direction_enabled ? 0.32f : 0.6f, 0.0f, 0.0f);
     glBegin(GL_QUADS);
     glVertex3f(-0.68f, RONIN_LINING_Y_BOTTOM, 0.39f); glVertex3f(0.68f, RONIN_LINING_Y_BOTTOM, 0.39f);
     glVertex3f(0.68f, RONIN_LINING_Y_TOP, 0.39f); glVertex3f(-0.68f, RONIN_LINING_Y_TOP, 0.39f);
@@ -1088,25 +1148,25 @@ static void draw_ronin_shell(void) {
     glPopMatrix();
 
     // Tech cargo pants (baggy)
-    glColor3f(0.18f, 0.18f, 0.2f); // Charcoal
+    glColor3f(vs0_art_direction_enabled ? 0.22f : 0.18f, vs0_art_direction_enabled ? 0.24f : 0.18f, vs0_art_direction_enabled ? 0.27f : 0.2f);
     glPushMatrix(); glTranslatef(-RONIN_PANTS_OFFSET, 0.0f, 0.0f); draw_box(RONIN_PANTS_W, RONIN_PANTS_H, RONIN_PANTS_D); draw_box_outline(RONIN_PANTS_W, RONIN_PANTS_H, RONIN_PANTS_D); glPopMatrix();
     glPushMatrix(); glTranslatef(RONIN_PANTS_OFFSET, 0.0f, 0.0f); draw_box(RONIN_PANTS_W, RONIN_PANTS_H, RONIN_PANTS_D); draw_box_outline(RONIN_PANTS_W, RONIN_PANTS_H, RONIN_PANTS_D); glPopMatrix();
 }
 
 static void draw_storm_mask(void) {
     // Head base
-    glColor3f(0.06f, 0.06f, 0.06f);
+    glColor3f(vs0_art_direction_enabled ? 0.20f : 0.06f, vs0_art_direction_enabled ? 0.22f : 0.06f, vs0_art_direction_enabled ? 0.26f : 0.06f);
     draw_box(RONIN_HEAD_W, RONIN_HEAD_H, RONIN_HEAD_D);
     draw_box_outline(RONIN_HEAD_W, RONIN_HEAD_H, RONIN_HEAD_D);
     // Faceplate
-    glColor3f(0.2f, 0.2f, 0.22f);
+    glColor3f(vs0_art_direction_enabled ? 0.33f : 0.2f, vs0_art_direction_enabled ? 0.35f : 0.2f, vs0_art_direction_enabled ? 0.39f : 0.22f);
     glPushMatrix(); glTranslatef(0.0f, -0.05f, 0.37f); draw_box(RONIN_FACEPLATE_W, RONIN_FACEPLATE_H, RONIN_FACEPLATE_D); draw_box_outline(RONIN_FACEPLATE_W, RONIN_FACEPLATE_H, RONIN_FACEPLATE_D); glPopMatrix();
     // Cyan vents
-    glColor3f(0.0f, 1.0f, 1.0f);
+    glColor3f(vs0_art_direction_enabled ? 0.25f : 0.0f, vs0_art_direction_enabled ? 0.85f : 1.0f, 1.0f);
     glPushMatrix(); glTranslatef(RONIN_VENT_OFFSET_X, -0.08f, 0.42f); draw_box(RONIN_VENT_W, RONIN_VENT_H, RONIN_VENT_D); draw_box_outline(RONIN_VENT_W, RONIN_VENT_H, RONIN_VENT_D); glPopMatrix();
     glPushMatrix(); glTranslatef(-RONIN_VENT_OFFSET_X, -0.08f, 0.42f); draw_box(RONIN_VENT_W, RONIN_VENT_H, RONIN_VENT_D); draw_box_outline(RONIN_VENT_W, RONIN_VENT_H, RONIN_VENT_D); glPopMatrix();
     // Broken horn silhouette (single jagged horn)
-    glColor3f(0.08f, 0.08f, 0.08f);
+    glColor3f(vs0_art_direction_enabled ? 0.18f : 0.08f, vs0_art_direction_enabled ? 0.19f : 0.08f, vs0_art_direction_enabled ? 0.21f : 0.08f);
     glPushMatrix(); glTranslatef(RONIN_HORN_OFFSET_X, 0.52f, 0.05f); draw_box(RONIN_HORN_W, RONIN_HORN_H, RONIN_HORN_D); draw_box_outline(RONIN_HORN_W, RONIN_HORN_H, RONIN_HORN_D); glPopMatrix();
 }
 
@@ -1132,10 +1192,10 @@ void draw_weapon_p(PlayerState *p) {
 void draw_head(int weapon_id) {
     switch(weapon_id) {
         case WPN_KNIFE:   glColor3f(0.8f, 0.8f, 0.9f); break;
-        case WPN_MAGNUM:  glColor3f(0.4f, 0.4f, 0.4f); break;
-        case WPN_AR:      glColor3f(0.2f, 0.3f, 0.2f); break;
-        case WPN_SHOTGUN: glColor3f(0.5f, 0.3f, 0.2f); break;
-        case WPN_SNIPER:  glColor3f(0.1f, 0.1f, 0.15f); break;
+        case WPN_MAGNUM:  glColor3f(vs0_art_direction_enabled ? 0.44f : 0.4f, vs0_art_direction_enabled ? 0.46f : 0.4f, vs0_art_direction_enabled ? 0.5f : 0.4f); break;
+        case WPN_AR:      glColor3f(vs0_art_direction_enabled ? 0.30f : 0.2f, vs0_art_direction_enabled ? 0.40f : 0.3f, vs0_art_direction_enabled ? 0.30f : 0.2f); break;
+        case WPN_SHOTGUN: glColor3f(vs0_art_direction_enabled ? 0.52f : 0.5f, vs0_art_direction_enabled ? 0.38f : 0.3f, vs0_art_direction_enabled ? 0.30f : 0.2f); break;
+        case WPN_SNIPER:  glColor3f(vs0_art_direction_enabled ? 0.24f : 0.1f, vs0_art_direction_enabled ? 0.26f : 0.1f, vs0_art_direction_enabled ? 0.32f : 0.15f); break;
         case WPN_KATANA:  glColor3f(0.0f, 0.85f, 1.0f); break;
     }
     glBegin(GL_QUADS);
@@ -1226,7 +1286,7 @@ void draw_hud(PlayerState *p) {
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
     glColor3f(0, 1, 0);
     if (current_fov < 50.0f) { glBegin(GL_LINES); glVertex2f(0, 360); glVertex2f(1280, 360); glVertex2f(640, 0); glVertex2f(640, 720); glEnd(); } 
-    else { glLineWidth(2.0f); glBegin(GL_LINES); glVertex2f(630, 360); glVertex2f(650, 360); glVertex2f(640, 350); glVertex2f(640, 370); glEnd(); }
+    else { glLineWidth(vs0_art_direction_enabled ? 1.0f : 2.0f); glBegin(GL_LINES); glVertex2f(634, 360); glVertex2f(646, 360); glVertex2f(640, 354); glVertex2f(640, 366); glEnd(); }
     
     // --- HIT INDICATORS ---
     if (p->hit_feedback > 0) {
@@ -1242,14 +1302,14 @@ void draw_hud(PlayerState *p) {
         }
     }
 
-    glColor3f(0.2f, 0, 0); glRectf(50, 50, 250, 70); glColor3f(1.0f, 0, 0);
+    glColor3f(0.16f, 0.06f, 0.06f); glRectf(50, 50, 250, 70); glColor3f(0.90f, 0.18f, 0.18f);
     glRectf(50, 50, 50 + (p->health * 2), 70);
-    glColor3f(0, 0, 0.2f); glRectf(50, 80, 250, 100); glColor3f(0.2f, 0.2f, 1.0f);
+    glColor3f(0.06f, 0.08f, 0.16f); glRectf(50, 80, 250, 100); glColor3f(0.30f, 0.46f, 0.95f);
     glRectf(50, 80, 50 + (p->shield * 2), 100);
     
     if (p->in_vehicle) {
         glColor3f(0.0f, 1.0f, 0.0f);
-        draw_string(p->vehicle_type == VEH_HELICOPTER ? "HELI ONLINE" : "BUGGY ONLINE", 50, 120, 12);
+        draw_string(p->vehicle_type == VEH_HELICOPTER ? "HELI ONLINE" : "BUGGY ONLINE", 50, 120, vs0_art_direction_enabled ? 8 : 12);
         char style_buf[96];
         if (p->vehicle_type == VEH_HELICOPTER) {
             snprintf(style_buf, sizeof(style_buf), "HP:%d ALT:%.1f", p->health, p->y);
@@ -1260,14 +1320,15 @@ void draw_hud(PlayerState *p) {
                      vehicle_worklights_enabled ? "ON" : "OFF");
         }
         glColor3f(0.95f, 0.55f, 0.1f);
-        draw_string(style_buf, 50, 108, 6);
+        draw_string(style_buf, 50, 106, vs0_art_direction_enabled ? 5 : 6);
     }
-    glColor3f(0.4f, 0.95f, 0.8f);
-    draw_string(terrain_wireframe_debug ? "F6 TERRAIN WIRE:ON" : "F6 TERRAIN WIRE:OFF", 50, 26, 5);
-    glColor3f(0.9f, 0.4f, 0.95f);
-    draw_string(terrain_normals_debug ? "F7 TERRAIN NORMALS:ON" : "F7 TERRAIN NORMALS:OFF", 220, 26, 5);
-    glColor3f(1.0f, 0.8f, 0.3f);
-    draw_string(voxworld_points_debug ? "F11 SCENE DEBUG:ON" : "F11 SCENE DEBUG:OFF", 430, 26, 5);
+    glColor3f(0.55f, 0.70f, 0.72f);
+    draw_string(vs0_art_direction_enabled ? "F5 VS0 ART:ON" : "F5 VS0 ART:OFF", 50, 24, 4);
+    draw_string(terrain_wireframe_debug ? "F6 TERRAIN WIRE:ON" : "F6 TERRAIN WIRE:OFF", 180, 24, 4);
+    glColor3f(0.72f, 0.56f, 0.75f);
+    draw_string(terrain_normals_debug ? "F7 TERRAIN NORMALS:ON" : "F7 TERRAIN NORMALS:OFF", 330, 24, 4);
+    glColor3f(0.75f, 0.68f, 0.46f);
+    draw_string(voxworld_points_debug ? "F11 SCENE DEBUG:ON" : "F11 SCENE DEBUG:OFF", 550, 24, 4);
 
     if (p->current_weapon == WPN_KATANA) {
         char katana_buf[64];
@@ -1279,20 +1340,20 @@ void draw_hud(PlayerState *p) {
             snprintf(katana_buf, sizeof(katana_buf), "BLADE DASH CD: %.1f", p->ability_cooldown / 60.0f);
         }
         glColor3f(0.0f, 0.85f, 1.0f);
-        draw_string(katana_buf, 50, 140, 8);
+        draw_string(katana_buf, 50, 138, vs0_art_direction_enabled ? 6 : 8);
     } else if (p->storm_charges > 0) {
         char storm_buf[32];
         sprintf(storm_buf, "STORM ARROWS: %d", p->storm_charges);
         glColor3f(1.0f, 0.2f, 0.2f);
-        draw_string(storm_buf, 50, 140, 8);
+        draw_string(storm_buf, 50, 138, vs0_art_direction_enabled ? 6 : 8);
     } else if (p->ability_cooldown == 0) {
         glColor3f(0.0f, 0.8f, 1.0f);
-        draw_string("E: STORM ARROWS READY", 50, 140, 8);
+        draw_string("E: STORM ARROWS READY", 50, 138, vs0_art_direction_enabled ? 6 : 8);
     }
     
     float raw_speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
     char vel_buf[32]; sprintf(vel_buf, "VEL: %.2f", raw_speed);
-    glColor3f(1.0f, 1.0f, 0.0f); draw_string(vel_buf, 1100, 50, 8); 
+    glColor3f(0.85f, 0.85f, 0.52f); draw_string(vel_buf, 1130, 48, vs0_art_direction_enabled ? 6 : 8); 
 
     glEnable(GL_DEPTH_TEST); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
 }
@@ -1500,7 +1561,8 @@ static void draw_travel_overlay() {
 }
 
 void draw_scene(PlayerState *render_p) {
-    glClearColor(0.02f, 0.02f, 0.05f, 1.0f); // DEEP SPACE BLUE BG
+    if (vs0_art_direction_enabled) glClearColor(0.09f, 0.14f, 0.20f, 1.0f);
+    else glClearColor(0.02f, 0.02f, 0.05f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); glLoadIdentity();
     local_state.scene_id = render_p->scene_id;
     phys_set_scene(render_p->scene_id);
@@ -2328,6 +2390,9 @@ int main(int argc, char* argv[]) {
                         app_state = STATE_LOBBY;
                         SDL_SetRelativeMouseMode(SDL_FALSE);
                         setup_lobby_2d();
+                    } else if (e.key.keysym.sym == SDLK_F5) {
+                        vs0_art_direction_enabled = !vs0_art_direction_enabled;
+                        printf("[VS0] art_direction=%s\n", vs0_art_direction_enabled ? "on" : "off");
                     } else if (e.key.keysym.sym == SDLK_F6) {
                         terrain_wireframe_debug = !terrain_wireframe_debug;
                         printf("[TERRAIN] wireframe=%s\n", terrain_wireframe_debug ? "on" : "off");

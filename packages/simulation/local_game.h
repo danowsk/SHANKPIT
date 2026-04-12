@@ -64,8 +64,8 @@ static inline void scene_load(int scene_id) {
     }
 
     if (scene_id == SCENE_VOXWORLD) {
-        float red_y = voxworld_height_at(VOXWORLD_HELI_RED_X, VOXWORLD_HELI_RED_Z) + VOXWORLD_HELI_GROUNDED_OFFSET;
-        float blue_y = voxworld_height_at(VOXWORLD_HELI_BLUE_X, VOXWORLD_HELI_BLUE_Z) + VOXWORLD_HELI_GROUNDED_OFFSET;
+        float red_y = voxworld_heli_spawn_y(VOXWORLD_BASE_RED_X);
+        float blue_y = voxworld_heli_spawn_y(VOXWORLD_BASE_BLUE_X);
         heli_spawn_defaults(&local_state.helicopters[0], 0, SCENE_VOXWORLD, VOXWORLD_HELI_RED_X, red_y, VOXWORLD_HELI_RED_Z);
         heli_spawn_defaults(&local_state.helicopters[1], 1, SCENE_VOXWORLD, VOXWORLD_HELI_BLUE_X, blue_y, VOXWORLD_HELI_BLUE_Z);
         local_state.helicopters[0].yaw = 90.0f;

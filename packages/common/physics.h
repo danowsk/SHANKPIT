@@ -114,6 +114,9 @@ static const Box map_geo_garage[] = {
 static Box map_geo_voxworld[CITY_MAX_BOXES];
 static int map_geo_voxworld_count = 0;
 static int map_geo_voxworld_init = 0;
+static Box map_geo_dust[CITY_MAX_BOXES];
+static int map_geo_dust_count = 0;
+static int map_geo_dust_init = 0;
 
 static const Box *map_geo = map_geo_stadium;
 static int map_count = 0;
@@ -141,6 +144,28 @@ static int map_count = 0;
 #define VOXWORLD_BASE_RED_X -1040.0f
 #define VOXWORLD_BASE_BLUE_X 1040.0f
 #define VOXWORLD_BASE_Z 0.0f
+#define DUST_KILL_Y -90.0f
+#define DUST_TERRAIN_W 92
+#define DUST_TERRAIN_H 92
+#define DUST_CELL 12.0f
+#define DUST_ORIGIN_X (-(DUST_TERRAIN_W * DUST_CELL * 0.5f))
+#define DUST_ORIGIN_Z (-(DUST_TERRAIN_H * DUST_CELL * 0.5f))
+#define DUST_BOUNDS_X 560.0f
+#define DUST_BOUNDS_Z 540.0f
+#define DUST_ATTACK_SPAWN_X -430.0f
+#define DUST_ATTACK_SPAWN_Z -210.0f
+#define DUST_DEFEND_SPAWN_X 420.0f
+#define DUST_DEFEND_SPAWN_Z 200.0f
+#define DUST_MID_X 0.0f
+#define DUST_MID_Z 0.0f
+#define DUST_UNDERPASS_X 10.0f
+#define DUST_UNDERPASS_Z -170.0f
+#define DUST_A_SITE_X 250.0f
+#define DUST_A_SITE_Z -140.0f
+#define DUST_B_SITE_X 270.0f
+#define DUST_B_SITE_Z 170.0f
+#define DUST_BRIDGE_X 20.0f
+#define DUST_BRIDGE_Z -20.0f
 
 #define GARAGE_PORTAL_X 0.0f
 #define GARAGE_PORTAL_Y 6.0f
@@ -150,6 +175,10 @@ static int map_count = 0;
 #define GARAGE_VOX_PORTAL_Y 6.0f
 #define GARAGE_VOX_PORTAL_Z 0.0f
 #define GARAGE_VOX_PORTAL_RADIUS 6.5f
+#define GARAGE_DUST_PORTAL_X -48.0f
+#define GARAGE_DUST_PORTAL_Y 6.0f
+#define GARAGE_DUST_PORTAL_Z -12.0f
+#define GARAGE_DUST_PORTAL_RADIUS 6.0f
 #define STADIUM_PORTAL_X 0.0f
 #define STADIUM_PORTAL_Y 2.0f
 #define STADIUM_PORTAL_Z 0.0f
@@ -165,10 +194,16 @@ static int map_count = 0;
 #define VOXWORLD_PORTAL_Y 2.0f
 #define VOXWORLD_PORTAL_Z 0.0f
 #define VOXWORLD_PORTAL_RADIUS 16.0f
+#define DUST_PORTAL_X -470.0f
+#define DUST_PORTAL_Y 6.0f
+#define DUST_PORTAL_Z -210.0f
+#define DUST_PORTAL_RADIUS 14.0f
 #define PORTAL_ID_GARAGE_EXIT 0
 #define PORTAL_ID_STADIUM_TO_VOXWORLD 1
 #define PORTAL_ID_VOXWORLD_TO_STADIUM 2
 #define PORTAL_ID_GARAGE_TO_VOXWORLD 3
+#define PORTAL_ID_GARAGE_TO_DUST 4
+#define PORTAL_ID_DUST_TO_GARAGE 5
 
 typedef struct {
     float x;
@@ -222,6 +257,31 @@ static const VoxRouteAnchor voxworld_route_anchors[] = {
     {0.0f, 500.0f, "RIGHT CLIFF SHELF"},
     {VOXWORLD_BASE_RED_X, 0.0f, "RED BASE"},
     {VOXWORLD_BASE_BLUE_X, 0.0f, "BLUE BASE"}
+};
+
+static const Vec2 dust_spawn_points_attack[] = {
+    {-455.0f, -250.0f}, {-445.0f, -190.0f}, {-390.0f, -225.0f},
+    {-360.0f, -165.0f}, {-330.0f, -260.0f}, {-300.0f, -200.0f}
+};
+static const Vec2 dust_spawn_points_defend[] = {
+    {470.0f, 250.0f}, {450.0f, 180.0f}, {390.0f, 210.0f},
+    {365.0f, 140.0f}, {330.0f, 260.0f}, {300.0f, 180.0f}
+};
+static const Vec2 dust_spawn_points_dm[] = {
+    {-430.0f, -210.0f}, {-290.0f, -150.0f}, {-180.0f, -190.0f}, {-90.0f, -70.0f},
+    {40.0f, -210.0f}, {120.0f, -20.0f}, {210.0f, -140.0f}, {290.0f, -10.0f},
+    {-210.0f, 180.0f}, {-60.0f, 140.0f}, {110.0f, 200.0f}, {260.0f, 170.0f}
+};
+static const VoxRouteAnchor dust_route_anchors[] = {
+    {DUST_MID_X, DUST_MID_Z, "MID"},
+    {DUST_UNDERPASS_X, DUST_UNDERPASS_Z, "UNDERPASS"},
+    {DUST_BRIDGE_X, DUST_BRIDGE_Z, "BRIDGE"},
+    {DUST_A_SITE_X, DUST_A_SITE_Z, "A SITE"},
+    {DUST_B_SITE_X, DUST_B_SITE_Z, "B SITE"}
+};
+static const VoxRouteAnchor dust_objective_anchors[] = {
+    {DUST_A_SITE_X, DUST_A_SITE_Z, "ALPHA"},
+    {DUST_B_SITE_X, DUST_B_SITE_Z, "BRAVO"}
 };
 
 float phys_rand_f() { return ((float)(rand()%1000)/500.0f) - 1.0f; }
@@ -359,10 +419,101 @@ static inline void init_voxworld_bloodgulch_geo(void) {
     printf("[VOXWORLD] authored geo boxes=%d\n", map_geo_voxworld_count);
 }
 
+static inline float dust_height_at(float x, float z) {
+    if (g_scene_terrain.active && g_scene_terrain.heights) {
+        return terrain_sample_height(&g_scene_terrain, x, z);
+    }
+    return 0.0f;
+}
+
+static inline void dust_add_box(float x, float y, float z, float w, float h, float d) {
+    if (map_geo_dust_count >= CITY_MAX_BOXES) return;
+    map_geo_dust[map_geo_dust_count++] = (Box){x, y, z, w, h, d};
+}
+
+static inline void add_geo_stair_ramp(float x0, float z0, float x1, float z1,
+                                      float width, float base_y, float rise, int steps) {
+    if (steps < 2) steps = 2;
+    float dx = x1 - x0;
+    float dz = z1 - z0;
+    float len = sqrtf(dx * dx + dz * dz);
+    if (len < 0.1f) return;
+    float dir_x = dx / len;
+    float dir_z = dz / len;
+    float step_len = len / (float)steps;
+    float step_h = rise / (float)steps;
+    for (int i = 0; i < steps; i++) {
+        float t = ((float)i + 0.5f) / (float)steps;
+        float cx = x0 + dir_x * (len * t);
+        float cz = z0 + dir_z * (len * t);
+        float cy = base_y + step_h * ((float)i + 0.5f);
+        float box_w = (fabsf(dir_x) > fabsf(dir_z)) ? step_len : width;
+        float box_d = (fabsf(dir_x) > fabsf(dir_z)) ? width : step_len;
+        dust_add_box(cx, cy, cz, box_w + 1.0f, step_h + 0.4f, box_d + 1.0f);
+    }
+}
+
+static inline void init_dust_compound_geo(void) {
+    if (map_geo_dust_init) return;
+    map_geo_dust_init = 1;
+    map_geo_dust_count = 0;
+
+    dust_add_box(0.0f, -10.0f, 0.0f, 1400.0f, 12.0f, 1400.0f);
+    dust_add_box(0.0f, 100.0f, DUST_BOUNDS_Z, 1400.0f, 220.0f, 14.0f);
+    dust_add_box(0.0f, 100.0f, -DUST_BOUNDS_Z, 1400.0f, 220.0f, 14.0f);
+    dust_add_box(DUST_BOUNDS_X, 100.0f, 0.0f, 14.0f, 220.0f, 1200.0f);
+    dust_add_box(-DUST_BOUNDS_X, 100.0f, 0.0f, 14.0f, 220.0f, 1200.0f);
+
+    float mid_h = dust_height_at(DUST_MID_X, DUST_MID_Z);
+    float under_h = dust_height_at(DUST_UNDERPASS_X, DUST_UNDERPASS_Z);
+    float a_h = dust_height_at(DUST_A_SITE_X, DUST_A_SITE_Z);
+    float b_h = dust_height_at(DUST_B_SITE_X, DUST_B_SITE_Z);
+    float bridge_h = dust_height_at(DUST_BRIDGE_X, DUST_BRIDGE_Z) + 24.0f;
+
+    dust_add_box(-120.0f, mid_h + 7.0f, 0.0f, 26.0f, 14.0f, 250.0f);
+    dust_add_box(120.0f, mid_h + 7.0f, -15.0f, 26.0f, 14.0f, 250.0f);
+    dust_add_box(0.0f, mid_h + 6.0f, 115.0f, 220.0f, 12.0f, 20.0f);
+    dust_add_box(-10.0f, mid_h + 8.0f, -98.0f, 210.0f, 16.0f, 20.0f);
+    dust_add_box(-30.0f, mid_h + 8.0f, -8.0f, 40.0f, 16.0f, 40.0f);
+
+    dust_add_box(20.0f, bridge_h, -20.0f, 240.0f, 10.0f, 46.0f);
+    dust_add_box(-95.0f, bridge_h + 10.0f, -20.0f, 26.0f, 20.0f, 46.0f);
+    dust_add_box(135.0f, bridge_h + 10.0f, -20.0f, 26.0f, 20.0f, 46.0f);
+    add_geo_stair_ramp(-230.0f, -20.0f, -95.0f, -20.0f, 46.0f, mid_h + 1.0f, bridge_h - (mid_h + 1.0f), 5);
+    add_geo_stair_ramp(260.0f, -20.0f, 135.0f, -20.0f, 46.0f, a_h + 2.0f, bridge_h - (a_h + 2.0f), 5);
+
+    dust_add_box(-10.0f, under_h + 3.0f, -170.0f, 120.0f, 7.0f, 150.0f);
+    dust_add_box(-85.0f, under_h + 13.0f, -170.0f, 14.0f, 28.0f, 130.0f);
+    dust_add_box(75.0f, under_h + 13.0f, -170.0f, 14.0f, 28.0f, 130.0f);
+    add_geo_stair_ramp(-35.0f, -240.0f, -35.0f, -98.0f, 34.0f, under_h + 1.0f, 17.0f, 5);
+    add_geo_stair_ramp(35.0f, -240.0f, 35.0f, -98.0f, 34.0f, under_h + 1.0f, 17.0f, 5);
+
+    dust_add_box(250.0f, a_h + 5.0f, -140.0f, 170.0f, 10.0f, 140.0f);
+    dust_add_box(320.0f, a_h + 14.0f, -115.0f, 32.0f, 22.0f, 32.0f);
+    dust_add_box(225.0f, a_h + 10.0f, -210.0f, 80.0f, 20.0f, 16.0f);
+    add_geo_stair_ramp(130.0f, -135.0f, 190.0f, -140.0f, 44.0f, mid_h + 1.0f, (a_h - mid_h) + 8.0f, 4);
+
+    dust_add_box(270.0f, b_h + 5.0f, 170.0f, 160.0f, 10.0f, 150.0f);
+    dust_add_box(340.0f, b_h + 17.0f, 210.0f, 22.0f, 32.0f, 70.0f);
+    dust_add_box(210.0f, b_h + 17.0f, 225.0f, 22.0f, 32.0f, 70.0f);
+    dust_add_box(285.0f, b_h + 13.0f, 88.0f, 90.0f, 26.0f, 14.0f);
+    add_geo_stair_ramp(135.0f, 105.0f, 190.0f, 145.0f, 36.0f, mid_h + 2.0f, (b_h - mid_h) + 7.0f, 4);
+
+    dust_add_box(-410.0f, dust_height_at(-410.0f, -210.0f) + 8.0f, -210.0f, 120.0f, 14.0f, 90.0f);
+    dust_add_box(410.0f, dust_height_at(410.0f, 190.0f) + 8.0f, 200.0f, 120.0f, 14.0f, 90.0f);
+    dust_add_box(-230.0f, dust_height_at(-230.0f, -55.0f) + 9.0f, -55.0f, 18.0f, 18.0f, 90.0f);
+    dust_add_box(240.0f, dust_height_at(240.0f, 35.0f) + 9.0f, 35.0f, 18.0f, 18.0f, 90.0f);
+
+    printf("[DUST] authored geo boxes=%d ramp_steps=%d\n", map_geo_dust_count, 23);
+}
+
 static int phys_scene_id = SCENE_STADIUM;
 static TerrainHeightfield g_scene_terrain = {0};
 static int g_last_ground_source_terrain = 0;
+static int g_scene_terrain_scene_id = -1;
 static inline void init_voxworld_bloodgulch_terrain(void);
+static inline void init_dust_compound_terrain(void);
+static inline void init_dust_compound_geo(void);
 
 static inline void phys_set_scene(int scene_id) {
     phys_scene_id = scene_id;
@@ -370,6 +521,12 @@ static inline void phys_set_scene(int scene_id) {
         map_geo = map_geo_garage;
         map_count = (int)(sizeof(map_geo_garage) / sizeof(Box));
         g_scene_terrain.active = 0;
+    } else if (scene_id == SCENE_DUST_COMPOUND) {
+        init_dust_compound_terrain();
+        init_dust_compound_geo();
+        map_geo = map_geo_dust;
+        map_count = map_geo_dust_count;
+        g_scene_terrain.active = (g_scene_terrain.heights != NULL);
     } else if (scene_id == SCENE_VOXWORLD) {
         init_voxworld_bloodgulch_terrain();
         init_voxworld_bloodgulch_geo();
@@ -396,7 +553,11 @@ static inline void scene_set_game_mode(int mode) {
 }
 
 static inline void init_voxworld_bloodgulch_terrain(void) {
-    if (g_scene_terrain.active) return;
+    if (g_scene_terrain_scene_id == SCENE_VOXWORLD && g_scene_terrain.heights) {
+        g_scene_terrain.active = 1;
+        return;
+    }
+    if (g_scene_terrain.heights) terrain_free(&g_scene_terrain);
     if (!terrain_init(&g_scene_terrain, VOXWORLD_TERRAIN_W, VOXWORLD_TERRAIN_H, VOXWORLD_CELL, VOXWORLD_ORIGIN_X, VOXWORLD_ORIGIN_Z)) return;
     terrain_clear(&g_scene_terrain, 0.0f);
 
@@ -459,6 +620,45 @@ static inline void init_voxworld_bloodgulch_terrain(void) {
     printf("[VOXWORLD] terrain initialized %dx%d cell=%.1f origin=(%.1f, %.1f)\n",
            g_scene_terrain.width, g_scene_terrain.height, g_scene_terrain.cell_size,
            g_scene_terrain.origin_x, g_scene_terrain.origin_z);
+    g_scene_terrain_scene_id = SCENE_VOXWORLD;
+}
+
+static inline void init_dust_compound_terrain(void) {
+    if (g_scene_terrain_scene_id == SCENE_DUST_COMPOUND && g_scene_terrain.heights) {
+        g_scene_terrain.active = 1;
+        return;
+    }
+    if (g_scene_terrain.heights) terrain_free(&g_scene_terrain);
+    if (!terrain_init(&g_scene_terrain, DUST_TERRAIN_W, DUST_TERRAIN_H, DUST_CELL, DUST_ORIGIN_X, DUST_ORIGIN_Z)) return;
+    terrain_clear(&g_scene_terrain, 2.0f);
+    for (int gz = 0; gz < g_scene_terrain.height; gz++) {
+        for (int gx = 0; gx < g_scene_terrain.width; gx++) {
+            float wx = g_scene_terrain.origin_x + gx * g_scene_terrain.cell_size;
+            float wz = g_scene_terrain.origin_z + gz * g_scene_terrain.cell_size;
+            float h = 5.0f;
+            h += 2.2f * sinf(wx * 0.0065f) + 1.8f * cosf(wz * 0.0072f);
+            h += 0.7f * sinf((wx + wz) * 0.015f);
+            h += 0.018f * wx;
+            float mid_shape = expf(-(wz * wz) / (2.0f * 190.0f * 190.0f));
+            h += 4.5f * mid_shape;
+            float underpass = expf(-((wx - 5.0f) * (wx - 5.0f)) / (2.0f * 120.0f * 120.0f)) * expf(-((wz + 170.0f) * (wz + 170.0f)) / (2.0f * 120.0f * 120.0f));
+            h -= 14.0f * underpass;
+            float a_terrace = expf(-((wx - DUST_A_SITE_X) * (wx - DUST_A_SITE_X)) / (2.0f * 180.0f * 180.0f)) * expf(-((wz - DUST_A_SITE_Z) * (wz - DUST_A_SITE_Z)) / (2.0f * 180.0f * 180.0f));
+            float b_terrace = expf(-((wx - DUST_B_SITE_X) * (wx - DUST_B_SITE_X)) / (2.0f * 170.0f * 170.0f)) * expf(-((wz - DUST_B_SITE_Z) * (wz - DUST_B_SITE_Z)) / (2.0f * 170.0f * 170.0f));
+            h += 7.0f * a_terrace;
+            h += 6.0f * b_terrace;
+            terrain_set_height(&g_scene_terrain, gx, gz, h);
+        }
+    }
+    vox_terrain_stamp(&g_scene_terrain, DUST_ATTACK_SPAWN_X, DUST_ATTACK_SPAWN_Z, 120.0f, 4.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, DUST_DEFEND_SPAWN_X, DUST_DEFEND_SPAWN_Z, 120.0f, 14.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, DUST_MID_X, DUST_MID_Z, 220.0f, 8.0f, 0.7f);
+    vox_terrain_stamp(&g_scene_terrain, DUST_UNDERPASS_X, DUST_UNDERPASS_Z, 130.0f, -9.0f, 1.0f);
+    vox_terrain_smooth(&g_scene_terrain, 2, 0.5f);
+    printf("[DUST] terrain initialized %dx%d cell=%.1f origin=(%.1f, %.1f)\n",
+           g_scene_terrain.width, g_scene_terrain.height, g_scene_terrain.cell_size,
+           g_scene_terrain.origin_x, g_scene_terrain.origin_z);
+    g_scene_terrain_scene_id = SCENE_DUST_COMPOUND;
 }
 
 static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float *out_y, float *out_z) {
@@ -479,6 +679,14 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
         *out_y = voxworld_height_at(*out_x, *out_z) + 6.0f;
         return;
     }
+    if (scene_id == SCENE_DUST_COMPOUND) {
+        int count = (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2));
+        int idx = slot % count;
+        *out_x = dust_spawn_points_dm[idx].x;
+        *out_z = dust_spawn_points_dm[idx].y;
+        *out_y = dust_height_at(*out_x, *out_z) + 5.5f;
+        return;
+    }
     if (slot % 2 == 0) {
         *out_x = 0.0f; *out_z = 0.0f; *out_y = 80.0f;
     } else {
@@ -490,26 +698,40 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
 }
 
 static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *out_y, float *out_z) {
-    if (p->scene_id != SCENE_VOXWORLD) {
+    if (p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND) {
         scene_spawn_point(p->scene_id, p->id, out_x, out_y, out_z);
         return;
     }
-    const Vec2 *pts = voxworld_spawn_points_ffa;
-    int count = (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2));
+    const Vec2 *pts = (p->scene_id == SCENE_DUST_COMPOUND) ? dust_spawn_points_dm : voxworld_spawn_points_ffa;
+    int count = (p->scene_id == SCENE_DUST_COMPOUND)
+        ? (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2))
+        : (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2));
     int team_mode = (g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF);
     int team = p->team_id;
     if (team_mode && (team != 0 && team != 1)) team = (p->id % 2);
-    if (team_mode && team == 0) {
-        pts = voxworld_spawn_points_red;
-        count = (int)(sizeof(voxworld_spawn_points_red) / sizeof(Vec2));
-    } else if (team_mode && team == 1) {
-        pts = voxworld_spawn_points_blue;
-        count = (int)(sizeof(voxworld_spawn_points_blue) / sizeof(Vec2));
+    if (team_mode && p->scene_id == SCENE_VOXWORLD) {
+        if (team == 0) {
+            pts = voxworld_spawn_points_red;
+            count = (int)(sizeof(voxworld_spawn_points_red) / sizeof(Vec2));
+        } else if (team == 1) {
+            pts = voxworld_spawn_points_blue;
+            count = (int)(sizeof(voxworld_spawn_points_blue) / sizeof(Vec2));
+        }
+    } else if (team_mode && p->scene_id == SCENE_DUST_COMPOUND) {
+        if (team == 0) {
+            pts = dust_spawn_points_attack;
+            count = (int)(sizeof(dust_spawn_points_attack) / sizeof(Vec2));
+        } else if (team == 1) {
+            pts = dust_spawn_points_defend;
+            count = (int)(sizeof(dust_spawn_points_defend) / sizeof(Vec2));
+        }
     }
     int idx = (p->id + (int)(p->deaths * 3)) % count;
     *out_x = pts[idx].x;
     *out_z = pts[idx].y;
-    *out_y = voxworld_height_at(*out_x, *out_z) + 6.0f;
+    *out_y = (p->scene_id == SCENE_DUST_COMPOUND)
+        ? (dust_height_at(*out_x, *out_z) + 5.5f)
+        : (voxworld_height_at(*out_x, *out_z) + 6.0f);
 }
 
 static inline void scene_force_spawn(PlayerState *p) {
@@ -547,11 +769,20 @@ static inline void scene_safety_check(PlayerState *p) {
             p->z < -VOXWORLD_BOUNDS_Z || p->z > VOXWORLD_BOUNDS_Z) {
             scene_force_spawn(p);
         }
+        return;
+    }
+    if (p->scene_id == SCENE_DUST_COMPOUND) {
+        if (p->y < DUST_KILL_Y ||
+            p->x < -DUST_BOUNDS_X || p->x > DUST_BOUNDS_X ||
+            p->z < -DUST_BOUNDS_Z || p->z > DUST_BOUNDS_Z) {
+            scene_force_spawn(p);
+        }
     }
 }
 
 static inline int scene_portal_active(int scene_id) {
-    return scene_id == SCENE_GARAGE_OSAKA || scene_id == SCENE_STADIUM || scene_id == SCENE_VOXWORLD;
+    return scene_id == SCENE_GARAGE_OSAKA || scene_id == SCENE_STADIUM ||
+           scene_id == SCENE_VOXWORLD || scene_id == SCENE_DUST_COMPOUND;
 }
 
 static inline int portal_resolve_destination(int current_scene, int portal_id, int slot,
@@ -574,6 +805,13 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
         *out_z = 180.0f;
         return 1;
     }
+    if (current_scene == SCENE_GARAGE_OSAKA && portal_id == PORTAL_ID_GARAGE_TO_DUST) {
+        *out_scene = SCENE_DUST_COMPOUND;
+        *out_x = DUST_ATTACK_SPAWN_X + 20.0f;
+        *out_y = 9.0f;
+        *out_z = DUST_ATTACK_SPAWN_Z;
+        return 1;
+    }
     if (current_scene == SCENE_STADIUM && portal_id == PORTAL_ID_STADIUM_TO_VOXWORLD) {
         *out_scene = SCENE_VOXWORLD;
         *out_x = STADIUM_EDGE_TELEPORT_X;
@@ -586,6 +824,13 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
         *out_x = STADIUM_EDGE_PORTAL_X - 20.0f;
         *out_y = STADIUM_EDGE_PORTAL_Y;
         *out_z = STADIUM_EDGE_PORTAL_Z;
+        return 1;
+    }
+    if (current_scene == SCENE_DUST_COMPOUND && portal_id == PORTAL_ID_DUST_TO_GARAGE) {
+        *out_scene = SCENE_GARAGE_OSAKA;
+        *out_x = GARAGE_DUST_PORTAL_X + 10.0f;
+        *out_y = GARAGE_DUST_PORTAL_Y;
+        *out_z = GARAGE_DUST_PORTAL_Z;
         return 1;
     }
     return 0;
@@ -607,6 +852,11 @@ static inline void scene_portal_info(int scene_id, float *out_x, float *out_y, f
         *out_y = VOXWORLD_PORTAL_Y;
         *out_z = VOXWORLD_PORTAL_Z;
         *out_radius = VOXWORLD_PORTAL_RADIUS;
+    } else if (scene_id == SCENE_DUST_COMPOUND) {
+        *out_x = DUST_PORTAL_X;
+        *out_y = DUST_PORTAL_Y;
+        *out_z = DUST_PORTAL_Z;
+        *out_radius = DUST_PORTAL_RADIUS;
     } else {
         *out_x = 0.0f; *out_y = 0.0f; *out_z = 0.0f; *out_radius = 0.0f;
     }
@@ -636,6 +886,31 @@ static inline const VoxRouteAnchor *voxworld_get_route_anchors(int *out_count) {
     return voxworld_route_anchors;
 }
 
+static inline const VoxRouteAnchor *dust_get_route_anchors(int *out_count) {
+    if (out_count) *out_count = (int)(sizeof(dust_route_anchors) / sizeof(VoxRouteAnchor));
+    return dust_route_anchors;
+}
+
+static inline const VoxRouteAnchor *dust_get_objective_anchors(int *out_count) {
+    if (out_count) *out_count = (int)(sizeof(dust_objective_anchors) / sizeof(VoxRouteAnchor));
+    return dust_objective_anchors;
+}
+
+static inline const Vec2 *dust_get_spawn_points_attack(int *out_count) {
+    if (out_count) *out_count = (int)(sizeof(dust_spawn_points_attack) / sizeof(Vec2));
+    return dust_spawn_points_attack;
+}
+
+static inline const Vec2 *dust_get_spawn_points_defend(int *out_count) {
+    if (out_count) *out_count = (int)(sizeof(dust_spawn_points_defend) / sizeof(Vec2));
+    return dust_spawn_points_defend;
+}
+
+static inline const Vec2 *dust_get_spawn_points_dm(int *out_count) {
+    if (out_count) *out_count = (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2));
+    return dust_spawn_points_dm;
+}
+
 static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
     if (!scene_portal_active(p->scene_id)) return 0;
 
@@ -645,6 +920,13 @@ static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
         float dist_sq_vox = dx_vox * dx_vox + dz_vox * dz_vox;
         if (dist_sq_vox <= (GARAGE_VOX_PORTAL_RADIUS * GARAGE_VOX_PORTAL_RADIUS)) {
             if (out_portal_id) *out_portal_id = PORTAL_ID_GARAGE_TO_VOXWORLD;
+            return 1;
+        }
+        float dx_dust = p->x - GARAGE_DUST_PORTAL_X;
+        float dz_dust = p->z - GARAGE_DUST_PORTAL_Z;
+        float dist_sq_dust = dx_dust * dx_dust + dz_dust * dz_dust;
+        if (dist_sq_dust <= (GARAGE_DUST_PORTAL_RADIUS * GARAGE_DUST_PORTAL_RADIUS)) {
+            if (out_portal_id) *out_portal_id = PORTAL_ID_GARAGE_TO_DUST;
             return 1;
         }
     }
@@ -678,7 +960,7 @@ static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
         if (out_portal_id) {
             *out_portal_id = (p->scene_id == SCENE_VOXWORLD)
                 ? PORTAL_ID_VOXWORLD_TO_STADIUM
-                : PORTAL_ID_GARAGE_EXIT;
+                : (p->scene_id == SCENE_DUST_COMPOUND ? PORTAL_ID_DUST_TO_GARAGE : PORTAL_ID_GARAGE_EXIT);
         }
         return 1;
     }
@@ -1035,7 +1317,8 @@ void phys_respawn(PlayerState *p, unsigned int now) {
     p->dash_vx = p->dash_vy = p->dash_vz = 0.0f;
     p->dash_hit_count = 0;
     p->use_was_down = 0;
-    if (p->scene_id != SCENE_GARAGE_OSAKA && p->scene_id != SCENE_STADIUM && p->scene_id != SCENE_VOXWORLD) {
+    if (p->scene_id != SCENE_GARAGE_OSAKA && p->scene_id != SCENE_STADIUM &&
+        p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND) {
         p->scene_id = SCENE_GARAGE_OSAKA;
     }
     scene_spawn_for_player(p, &p->x, &p->y, &p->z);

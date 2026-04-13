@@ -982,6 +982,59 @@ static void draw_box_solid(float hx, float hy, float hz) {
     glEnd();
 }
 
+static void draw_single_bush(const BushProp *b) {
+    float tint = b->tint;
+    float base_r = lerpf(0.20f, 0.26f, tint);
+    float base_g = lerpf(0.31f, 0.39f, tint);
+    float base_b = lerpf(0.16f, 0.21f, tint);
+    float top_r = lerpf(0.36f, 0.48f, tint);
+    float top_g = lerpf(0.52f, 0.64f, tint);
+    float top_b = lerpf(0.23f, 0.28f, tint);
+    float stem_r = 0.28f, stem_g = 0.22f, stem_b = 0.16f;
+
+    glPushMatrix();
+    glTranslatef(b->x, b->y, b->z);
+    glRotatef(b->yaw, 0.0f, 1.0f, 0.0f);
+    glScalef(b->scale, b->scale, b->scale);
+
+    glColor3f(stem_r, stem_g, stem_b);
+    glPushMatrix();
+    glTranslatef(0.0f, 0.65f, 0.0f);
+    draw_box_solid(0.13f, 0.65f, 0.13f);
+    glPopMatrix();
+
+    glColor3f(base_r, base_g, base_b);
+    glPushMatrix();
+    glTranslatef(-0.56f, 1.05f, -0.20f);
+    draw_box_solid(0.54f, 0.56f, 0.46f);
+    glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.48f, 1.16f, 0.14f);
+    draw_box_solid(0.52f, 0.52f, 0.48f);
+    glPopMatrix();
+
+    glColor3f(top_r, top_g, top_b);
+    glPushMatrix();
+    glTranslatef(-0.12f, 1.58f, 0.10f);
+    draw_box_solid(0.58f, 0.48f, 0.56f);
+    glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.10f, 1.22f, -0.55f);
+    draw_box_solid(0.40f, 0.36f, 0.36f);
+    glPopMatrix();
+    glPopMatrix();
+}
+
+static void draw_voxworld_bushes(void) {
+    if (local_state.scene_id != SCENE_VOXWORLD) return;
+    int bush_count = 0;
+    const BushProp *bushes = voxworld_get_bushes(&bush_count);
+    if (!bushes || bush_count <= 0) return;
+    for (int i = 0; i < bush_count; i++) draw_single_bush(&bushes[i]);
+}
+
 static void draw_box_planar_uv(float hx, float hy, float hz, float scroll) {
     glBegin(GL_QUADS);
     float x, y, z;
@@ -2044,6 +2097,7 @@ void draw_scene(PlayerState *render_p) {
     draw_grid(); 
     update_and_draw_trails();
     draw_terrain();
+    draw_voxworld_bushes();
     draw_map();
     draw_garage_vehicle_pads();
     draw_garage_portal_frame();

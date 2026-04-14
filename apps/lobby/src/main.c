@@ -94,6 +94,8 @@ typedef enum {
     SKIN_BAT = 0,
     SKIN_MAYRICE,
     SKIN_CYBORG,
+    SKIN_PIRATE,
+    SKIN_NINJA,
     SKIN_COUNT
 } PlayerSkin;
 
@@ -101,7 +103,9 @@ static int g_selected_skin = SKIN_BAT;
 static const char *SKIN_LABELS[SKIN_COUNT] = {
     "BAT",
     "MAYRICE",
-    "CYBORG"
+    "CYBORG",
+    "PIRATE",
+    "NINJA"
 };
 static const char *SKIN_CONFIG_PATH = "shankpit_skin.cfg";
 
@@ -1549,6 +1553,66 @@ static void draw_player_skin_mayrice(PlayerState *p, float draw_pitch, float dra
     glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
 }
 
+static void draw_player_skin_pirate(PlayerState *p, float draw_pitch, float draw_recoil) {
+    glColor3f(0.70f, 0.10f, 0.08f);
+    glPushMatrix(); glTranslatef(0.0f, 0.80f, 0.0f); draw_box(1.25f, 1.40f, 0.70f); draw_box_outline(1.25f, 1.40f, 0.70f); glPopMatrix();
+    glColor3f(0.38f, 0.22f, 0.10f);
+    glPushMatrix(); glTranslatef(0.0f, 0.35f, 0.36f); draw_box(1.05f, 0.24f, 0.12f); draw_box_outline(1.05f, 0.24f, 0.12f); glPopMatrix();
+    glColor3f(0.22f, 0.12f, 0.06f);
+    glPushMatrix(); glTranslatef(-0.36f, -0.12f, 0.0f); draw_box(0.42f, 1.38f, 0.42f); draw_box_outline(0.42f, 1.38f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.36f, -0.12f, 0.0f); draw_box(0.42f, 1.38f, 0.42f); draw_box_outline(0.42f, 1.38f, 0.42f); glPopMatrix();
+    glColor3f(0.48f, 0.21f, 0.08f);
+    glPushMatrix(); glTranslatef(-0.76f, 0.82f, 0.0f); draw_box(0.30f, 1.20f, 0.34f); draw_box_outline(0.30f, 1.20f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.76f, 0.82f, 0.0f); draw_box(0.30f, 1.20f, 0.34f); draw_box_outline(0.30f, 1.20f, 0.34f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.90f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(0.34f, 0.21f, 0.13f); draw_box(0.65f, 0.74f, 0.65f); draw_box_outline(0.65f, 0.74f, 0.65f);
+    glColor3f(0.05f, 0.05f, 0.05f);
+    glPushMatrix(); glTranslatef(0.0f, 0.36f, 0.0f); draw_box(1.52f, 0.22f, 0.95f); draw_box_outline(1.52f, 0.22f, 0.95f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.58f, 0.0f); draw_box(0.62f, 0.24f, 0.52f); draw_box_outline(0.62f, 0.24f, 0.52f); glPopMatrix();
+    glColor3f(0.86f, 0.82f, 0.74f);
+    glPushMatrix(); glTranslatef(0.0f, 0.39f, 0.42f); draw_box(0.24f, 0.20f, 0.06f); draw_box_outline(0.24f, 0.20f, 0.06f); glPopMatrix();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
+static void draw_player_skin_ninja(PlayerState *p, float draw_pitch, float draw_recoil) {
+    glColor3f(0.11f, 0.45f, 0.78f);
+    glPushMatrix(); glTranslatef(0.0f, 0.82f, 0.0f); draw_box(1.18f, 1.44f, 0.68f); draw_box_outline(1.18f, 1.44f, 0.68f); glPopMatrix();
+    glColor3f(0.03f, 0.12f, 0.22f);
+    glPushMatrix(); glTranslatef(0.0f, 0.34f, 0.35f); draw_box(1.08f, 0.14f, 0.10f); draw_box_outline(1.08f, 0.14f, 0.10f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.18f, 0.29f); draw_box(0.92f, 0.10f, 0.10f); draw_box_outline(0.92f, 0.10f, 0.10f); glPopMatrix();
+    glColor3f(0.08f, 0.36f, 0.65f);
+    glPushMatrix(); glTranslatef(-0.32f, -0.10f, 0.0f); draw_box(0.40f, 1.42f, 0.42f); draw_box_outline(0.40f, 1.42f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.32f, -0.10f, 0.0f); draw_box(0.40f, 1.42f, 0.42f); draw_box_outline(0.40f, 1.42f, 0.42f); glPopMatrix();
+    glColor3f(0.07f, 0.40f, 0.72f);
+    glPushMatrix(); glTranslatef(-0.70f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.70f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.92f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(0.12f, 0.54f, 0.88f); draw_box(0.68f, 0.84f, 0.68f); draw_box_outline(0.68f, 0.84f, 0.68f);
+    glColor3f(0.02f, 0.06f, 0.10f);
+    glPushMatrix(); glTranslatef(0.0f, 0.06f, 0.37f); draw_box(0.56f, 0.28f, 0.10f); draw_box_outline(0.56f, 0.28f, 0.10f); glPopMatrix();
+    glColor3f(0.78f, 0.66f, 0.56f);
+    glPushMatrix(); glTranslatef(0.0f, 0.03f, 0.42f); draw_box(0.24f, 0.14f, 0.03f); draw_box_outline(0.24f, 0.14f, 0.03f); glPopMatrix();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
 void draw_weapon_p(PlayerState *p) {
     if (p->in_vehicle) return; 
     glPushMatrix();
@@ -1603,6 +1667,12 @@ void draw_player_3rd(PlayerState *p) {
     } else {
         // TODO(net): replicate skin on player state (e.g. p->skin) so remote players can use per-player skins.
         switch (clamp_skin_id(g_selected_skin)) {
+            case SKIN_NINJA:
+                draw_player_skin_ninja(p, draw_pitch, draw_recoil);
+                break;
+            case SKIN_PIRATE:
+                draw_player_skin_pirate(p, draw_pitch, draw_recoil);
+                break;
             case SKIN_CYBORG:
                 draw_player_skin_cyborg(p, draw_pitch, draw_recoil);
                 break;

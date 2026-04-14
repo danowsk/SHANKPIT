@@ -51,6 +51,7 @@ int my_client_id = -1;
 int lobby_selection = 0;
 int skin_menu_selection = 0;
 int skin_menu_open = 0;
+int skin_menu_scroll = 0;
 
 UiState ui_state;
 int ui_use_server = 0;
@@ -96,6 +97,9 @@ typedef enum {
     SKIN_CYBORG,
     SKIN_PIRATE,
     SKIN_NINJA,
+    SKIN_PIMP,
+    SKIN_VIKING,
+    SKIN_BILL,
     SKIN_COUNT
 } PlayerSkin;
 
@@ -105,9 +109,13 @@ static const char *SKIN_LABELS[SKIN_COUNT] = {
     "MAYRICE",
     "CYBORG",
     "PIRATE",
-    "NINJA"
+    "NINJA",
+    "PIMP",
+    "VIKING",
+    "BILL"
 };
 static const char *SKIN_CONFIG_PATH = "shankpit_skin.cfg";
+static void ensure_skin_selection_visible(void);
 
 static float clamp01f(float v) {
     if (v < 0.0f) return 0.0f;
@@ -581,6 +589,8 @@ static void lobby_start_action(int action) {
     if (action == lobby_menu_count() - 1) {
         skin_menu_open = 1;
         skin_menu_selection = clamp_skin_id(g_selected_skin);
+        skin_menu_scroll = 0;
+        ensure_skin_selection_visible();
         return;
     }
     if (ui_use_server) {
@@ -1613,6 +1623,94 @@ static void draw_player_skin_ninja(PlayerState *p, float draw_pitch, float draw_
     glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
 }
 
+static void draw_player_skin_pimp(PlayerState *p, float draw_pitch, float draw_recoil) {
+    glColor3f(0.50f, 0.12f, 0.68f);
+    glPushMatrix(); glTranslatef(0.0f, 0.80f, 0.0f); draw_box(1.28f, 1.46f, 0.72f); draw_box_outline(1.28f, 1.46f, 0.72f); glPopMatrix();
+    glColor3f(0.34f, 0.08f, 0.48f);
+    glPushMatrix(); glTranslatef(0.0f, 1.44f, 0.0f); draw_box(1.44f, 0.20f, 0.90f); draw_box_outline(1.44f, 0.20f, 0.90f); glPopMatrix();
+    glColor3f(0.72f, 0.64f, 0.12f);
+    glPushMatrix(); glTranslatef(0.0f, 0.35f, 0.37f); draw_box(0.18f, 0.56f, 0.06f); draw_box_outline(0.18f, 0.56f, 0.06f); glPopMatrix();
+    glColor3f(0.35f, 0.11f, 0.52f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.82f, 0.0f); draw_box(0.30f, 1.20f, 0.34f); draw_box_outline(0.30f, 1.20f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.72f, 0.82f, 0.0f); draw_box(0.30f, 1.20f, 0.34f); draw_box_outline(0.30f, 1.20f, 0.34f); glPopMatrix();
+    glColor3f(0.18f, 0.06f, 0.28f);
+    glPushMatrix(); glTranslatef(-0.33f, -0.10f, 0.0f); draw_box(0.40f, 1.42f, 0.42f); draw_box_outline(0.40f, 1.42f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.33f, -0.10f, 0.0f); draw_box(0.40f, 1.42f, 0.42f); draw_box_outline(0.40f, 1.42f, 0.42f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.94f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(0.70f, 0.53f, 0.42f); draw_box(0.68f, 0.82f, 0.68f); draw_box_outline(0.68f, 0.82f, 0.68f);
+    glColor3f(0.56f, 0.12f, 0.78f);
+    glPushMatrix(); glTranslatef(0.0f, 0.46f, 0.0f); draw_box(1.54f, 0.20f, 0.96f); draw_box_outline(1.54f, 0.20f, 0.96f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.68f, 0.0f); draw_box(0.62f, 0.22f, 0.52f); draw_box_outline(0.62f, 0.22f, 0.52f); glPopMatrix();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
+static void draw_player_skin_viking(PlayerState *p, float draw_pitch, float draw_recoil) {
+    glColor3f(0.44f, 0.46f, 0.50f);
+    glPushMatrix(); glTranslatef(0.0f, 0.82f, 0.0f); draw_box(1.26f, 1.46f, 0.74f); draw_box_outline(1.26f, 1.46f, 0.74f); glPopMatrix();
+    glColor3f(0.58f, 0.40f, 0.12f);
+    glPushMatrix(); glTranslatef(0.0f, 0.36f, 0.36f); draw_box(1.10f, 0.16f, 0.10f); draw_box_outline(1.10f, 0.16f, 0.10f); glPopMatrix();
+    glColor3f(0.30f, 0.32f, 0.36f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.72f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glColor3f(0.22f, 0.24f, 0.29f);
+    glPushMatrix(); glTranslatef(-0.34f, -0.12f, 0.0f); draw_box(0.42f, 1.40f, 0.42f); draw_box_outline(0.42f, 1.40f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.34f, -0.12f, 0.0f); draw_box(0.42f, 1.40f, 0.42f); draw_box_outline(0.42f, 1.40f, 0.42f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.94f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(0.64f, 0.46f, 0.34f); draw_box(0.70f, 0.84f, 0.68f); draw_box_outline(0.70f, 0.84f, 0.68f);
+    glColor3f(0.80f, 0.14f, 0.10f);
+    glPushMatrix(); glTranslatef(0.0f, 0.58f, 0.0f); draw_box(0.92f, 0.24f, 0.88f); draw_box_outline(0.92f, 0.24f, 0.88f); glPopMatrix();
+    glColor3f(0.70f, 0.58f, 0.26f);
+    glPushMatrix(); glTranslatef(-0.50f, 0.62f, 0.0f); draw_box(0.14f, 0.54f, 0.14f); draw_box_outline(0.14f, 0.54f, 0.14f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.50f, 0.62f, 0.0f); draw_box(0.14f, 0.54f, 0.14f); draw_box_outline(0.14f, 0.54f, 0.14f); glPopMatrix();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
+static void draw_player_skin_bill(PlayerState *p, float draw_pitch, float draw_recoil) {
+    glColor3f(0.22f, 0.22f, 0.26f);
+    glPushMatrix(); glTranslatef(0.0f, 0.82f, 0.0f); draw_box(1.16f, 1.44f, 0.68f); draw_box_outline(1.16f, 1.44f, 0.68f); glPopMatrix();
+    glColor3f(0.12f, 0.80f, 0.72f);
+    glPushMatrix(); glTranslatef(0.0f, 1.02f, 0.36f); draw_box(0.64f, 0.24f, 0.06f); draw_box_outline(0.64f, 0.24f, 0.06f); glPopMatrix();
+    glColor3f(0.18f, 0.18f, 0.22f);
+    glPushMatrix(); glTranslatef(-0.68f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.68f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.30f, -0.10f, 0.0f); draw_box(0.40f, 1.42f, 0.42f); draw_box_outline(0.40f, 1.42f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.30f, -0.10f, 0.0f); draw_box(0.40f, 1.42f, 0.42f); draw_box_outline(0.40f, 1.42f, 0.42f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.94f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(0.72f, 0.56f, 0.45f); draw_box(0.68f, 0.84f, 0.68f); draw_box_outline(0.68f, 0.84f, 0.68f);
+    glColor3f(0.04f, 0.09f, 0.12f);
+    glPushMatrix(); glTranslatef(0.0f, 0.10f, 0.37f); draw_box(0.58f, 0.24f, 0.10f); draw_box_outline(0.58f, 0.24f, 0.10f); glPopMatrix();
+    glColor3f(0.12f, 0.86f, 0.78f);
+    glPushMatrix(); glTranslatef(0.0f, 0.54f, 0.0f); draw_box(0.78f, 0.12f, 0.74f); draw_box_outline(0.78f, 0.12f, 0.74f); glPopMatrix();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
 void draw_weapon_p(PlayerState *p) {
     if (p->in_vehicle) return; 
     glPushMatrix();
@@ -1667,6 +1765,15 @@ void draw_player_3rd(PlayerState *p) {
     } else {
         // TODO(net): replicate skin on player state (e.g. p->skin) so remote players can use per-player skins.
         switch (clamp_skin_id(g_selected_skin)) {
+            case SKIN_BILL:
+                draw_player_skin_bill(p, draw_pitch, draw_recoil);
+                break;
+            case SKIN_VIKING:
+                draw_player_skin_viking(p, draw_pitch, draw_recoil);
+                break;
+            case SKIN_PIMP:
+                draw_player_skin_pimp(p, draw_pitch, draw_recoil);
+                break;
             case SKIN_NINJA:
                 draw_player_skin_ninja(p, draw_pitch, draw_recoil);
                 break;
@@ -2238,9 +2345,33 @@ static int lobby_hit_test(float mx, float my, int menu_count, float base_x, floa
     return -1;
 }
 
+static int skin_menu_visible_count(void) {
+    return 4;
+}
+
+static int skin_menu_scroll_max(void) {
+    int max_scroll = (SKIN_COUNT + 1) - skin_menu_visible_count();
+    return (max_scroll > 0) ? max_scroll : 0;
+}
+
+static void ensure_skin_selection_visible(void) {
+    int visible_count = skin_menu_visible_count();
+    if (skin_menu_selection < skin_menu_scroll) {
+        skin_menu_scroll = skin_menu_selection;
+    } else if (skin_menu_selection >= skin_menu_scroll + visible_count) {
+        skin_menu_scroll = skin_menu_selection - visible_count + 1;
+    }
+    if (skin_menu_scroll < 0) skin_menu_scroll = 0;
+    int max_scroll = skin_menu_scroll_max();
+    if (skin_menu_scroll > max_scroll) skin_menu_scroll = max_scroll;
+}
+
 static int skin_hit_test(float mx, float my, float base_x, float base_y, float w, float h, float gap) {
-    for (int i = 0; i < SKIN_COUNT + 1; i++) {
-        float y = base_y - gap * i;
+    int visible_count = skin_menu_visible_count();
+    for (int row = 0; row < visible_count; row++) {
+        int i = skin_menu_scroll + row;
+        if (i >= SKIN_COUNT + 1) break;
+        float y = base_y - gap * row;
         if (mx >= base_x && mx <= base_x + w && my >= y && my <= y + h) return i;
     }
     return -1;
@@ -2277,43 +2408,72 @@ static void draw_skin_chooser_overlay() {
     glColor3f(0.85f, 0.95f, 1.0f);
     draw_string("CHOOSE SKIN", panel_x + 30.0f, panel_y - 30.0f, 5);
 
-    for (int i = 0; i < SKIN_COUNT; i++) {
-        float y = item_top - item_gap * i;
-        int is_active = (clamp_skin_id(g_selected_skin) == i);
-        int is_cursor = (skin_menu_selection == i);
-        glColor3f(is_active ? 0.35f : 0.16f, is_active ? 0.65f : 0.22f, is_active ? 0.88f : 0.28f);
-        glRectf(item_x, y, item_x + item_w, y + item_h);
-        if (is_cursor) {
-            glColor3f(0.95f, 0.95f, 0.95f);
-            glBegin(GL_LINE_LOOP);
-            glVertex2f(item_x, y);
-            glVertex2f(item_x + item_w, y);
-            glVertex2f(item_x + item_w, y + item_h);
-            glVertex2f(item_x, y + item_h);
-            glEnd();
-        }
-        glColor3f(0.05f, 0.05f, 0.06f);
-        draw_string(SKIN_LABELS[i], item_x + 12.0f, y + 29.0f, 5);
-        if (is_active) {
-            draw_string("< ACTIVE >", item_x + item_w - 120.0f, y + 29.0f, 4);
+    int visible_count = skin_menu_visible_count();
+    int entry_count = SKIN_COUNT + 1;
+    int max_scroll = skin_menu_scroll_max();
+    if (skin_menu_scroll > max_scroll) skin_menu_scroll = max_scroll;
+    if (skin_menu_scroll < 0) skin_menu_scroll = 0;
+    ensure_skin_selection_visible();
+
+    for (int row = 0; row < visible_count; row++) {
+        int i = skin_menu_scroll + row;
+        if (i >= entry_count) break;
+        float y = item_top - item_gap * row;
+        if (i < SKIN_COUNT) {
+            int is_active = (clamp_skin_id(g_selected_skin) == i);
+            int is_cursor = (skin_menu_selection == i);
+            glColor3f(is_active ? 0.35f : 0.16f, is_active ? 0.65f : 0.22f, is_active ? 0.88f : 0.28f);
+            glRectf(item_x, y, item_x + item_w, y + item_h);
+            if (is_cursor) {
+                glColor3f(0.95f, 0.95f, 0.95f);
+                glBegin(GL_LINE_LOOP);
+                glVertex2f(item_x, y);
+                glVertex2f(item_x + item_w, y);
+                glVertex2f(item_x + item_w, y + item_h);
+                glVertex2f(item_x, y + item_h);
+                glEnd();
+            }
+            glColor3f(0.05f, 0.05f, 0.06f);
+            draw_string(SKIN_LABELS[i], item_x + 12.0f, y + 29.0f, 5);
+            if (is_active) {
+                draw_string("< ACTIVE >", item_x + item_w - 120.0f, y + 29.0f, 4);
+            }
+        } else {
+            int back_selected = (skin_menu_selection == SKIN_COUNT);
+            glColor3f(0.34f, 0.30f, 0.34f);
+            glRectf(item_x, y, item_x + item_w, y + item_h);
+            if (back_selected) {
+                glColor3f(0.95f, 0.95f, 0.95f);
+                glBegin(GL_LINE_LOOP);
+                glVertex2f(item_x, y);
+                glVertex2f(item_x + item_w, y);
+                glVertex2f(item_x + item_w, y + item_h);
+                glVertex2f(item_x, y + item_h);
+                glEnd();
+            }
+            glColor3f(0.05f, 0.05f, 0.06f);
+            draw_string("BACK", item_x + 12.0f, y + 29.0f, 5);
         }
     }
 
-    float back_y = item_top - item_gap * SKIN_COUNT;
-    int back_selected = (skin_menu_selection == SKIN_COUNT);
-    glColor3f(0.34f, 0.30f, 0.34f);
-    glRectf(item_x, back_y, item_x + item_w, back_y + item_h);
-    if (back_selected) {
-        glColor3f(0.95f, 0.95f, 0.95f);
-        glBegin(GL_LINE_LOOP);
-        glVertex2f(item_x, back_y);
-        glVertex2f(item_x + item_w, back_y);
-        glVertex2f(item_x + item_w, back_y + item_h);
-        glVertex2f(item_x, back_y + item_h);
-        glEnd();
+    if (entry_count > visible_count) {
+        float track_x = panel_x + panel_w - 12.0f;
+        float track_y0 = item_top;
+        float track_y1 = item_top - item_gap * (visible_count - 1) + item_h;
+        float track_h = track_y0 - track_y1;
+        float knob_h = track_h * ((float)visible_count / (float)entry_count);
+        if (knob_h < 18.0f) knob_h = 18.0f;
+        float t = (max_scroll > 0) ? ((float)skin_menu_scroll / (float)max_scroll) : 0.0f;
+        float knob_y = track_y0 - t * (track_h - knob_h);
+
+        glColor3f(0.10f, 0.16f, 0.22f);
+        glRectf(track_x, track_y0, track_x + 6.0f, track_y1);
+        glColor3f(0.42f, 0.78f, 0.92f);
+        glRectf(track_x, knob_y, track_x + 6.0f, knob_y - knob_h);
     }
-    glColor3f(0.05f, 0.05f, 0.06f);
-    draw_string("BACK", item_x + 12.0f, back_y + 29.0f, 5);
+
+    glColor3f(0.62f, 0.86f, 0.97f);
+    draw_string("MOUSEWHEEL / UP-DOWN TO SCROLL", panel_x + 22.0f, panel_y - panel_h + 16.0f, 3);
 }
 
 void net_init() {
@@ -2951,8 +3111,10 @@ int main(int argc, char* argv[]) {
                     if (skin_menu_open) {
                         if (e.key.keysym.sym == SDLK_UP) {
                             skin_menu_selection = (skin_menu_selection + SKIN_COUNT) % (SKIN_COUNT + 1);
+                            ensure_skin_selection_visible();
                         } else if (e.key.keysym.sym == SDLK_DOWN) {
                             skin_menu_selection = (skin_menu_selection + 1) % (SKIN_COUNT + 1);
+                            ensure_skin_selection_visible();
                         } else if (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_BACKSPACE) {
                             skin_menu_open = 0;
                         } else if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) {
@@ -2977,6 +3139,13 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
+                if (e.type == SDL_MOUSEWHEEL && skin_menu_open) {
+                    if (e.wheel.y > 0 && skin_menu_scroll > 0) {
+                        skin_menu_scroll--;
+                    } else if (e.wheel.y < 0 && skin_menu_scroll < skin_menu_scroll_max()) {
+                        skin_menu_scroll++;
+                    }
+                }
                 if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
                     float mx = (float)e.button.x;
                     float my = 720.0f - (float)e.button.y;
@@ -2984,6 +3153,7 @@ int main(int argc, char* argv[]) {
                         int hit = skin_hit_test(mx, my, 790.0f, 455.0f, 290.0f, 50.0f, 60.0f);
                         if (hit >= 0) {
                             skin_menu_selection = hit;
+                            ensure_skin_selection_visible();
                             if (hit < SKIN_COUNT) {
                                 g_selected_skin = clamp_skin_id(hit);
                                 save_skin_selection();

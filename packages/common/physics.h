@@ -121,6 +121,9 @@ static int map_geo_dust_init = 0;
 static Box map_geo_tanker[CITY_MAX_BOXES];
 static int map_geo_tanker_count = 0;
 static int map_geo_tanker_init = 0;
+static Box map_geo_poo_island[CITY_MAX_BOXES];
+static int map_geo_poo_island_count = 0;
+static int map_geo_poo_island_init = 0;
 
 static const Box *map_geo = map_geo_stadium;
 static int map_count = 0;
@@ -179,6 +182,9 @@ static int map_count = 0;
 #define TANKER_KILL_Y -70.0f
 #define TANKER_BOUNDS_X 360.0f
 #define TANKER_BOUNDS_Z 240.0f
+#define POO_POO_KILL_Y -140.0f
+#define POO_POO_BOUNDS_X 860.0f
+#define POO_POO_BOUNDS_Z 860.0f
 
 #define GARAGE_PORTAL_X 0.0f
 #define GARAGE_PORTAL_Y 6.0f
@@ -196,6 +202,10 @@ static int map_count = 0;
 #define GARAGE_TANKER_PORTAL_Y 6.0f
 #define GARAGE_TANKER_PORTAL_Z 0.0f
 #define GARAGE_TANKER_PORTAL_RADIUS 6.0f
+#define GARAGE_POO_PORTAL_X 48.0f
+#define GARAGE_POO_PORTAL_Y 6.0f
+#define GARAGE_POO_PORTAL_Z -32.0f
+#define GARAGE_POO_PORTAL_RADIUS 6.5f
 #define STADIUM_PORTAL_X 0.0f
 #define STADIUM_PORTAL_Y 2.0f
 #define STADIUM_PORTAL_Z 0.0f
@@ -219,6 +229,10 @@ static int map_count = 0;
 #define TANKER_PORTAL_Y 6.0f
 #define TANKER_PORTAL_Z 0.0f
 #define TANKER_PORTAL_RADIUS 13.0f
+#define POO_PORTAL_X -740.0f
+#define POO_PORTAL_Y 10.0f
+#define POO_PORTAL_Z -620.0f
+#define POO_PORTAL_RADIUS 15.0f
 #define PORTAL_ID_GARAGE_EXIT 0
 #define PORTAL_ID_STADIUM_TO_VOXWORLD 1
 #define PORTAL_ID_VOXWORLD_TO_STADIUM 2
@@ -227,6 +241,8 @@ static int map_count = 0;
 #define PORTAL_ID_DUST_TO_GARAGE 5
 #define PORTAL_ID_GARAGE_TO_TANKER 6
 #define PORTAL_ID_TANKER_TO_GARAGE 7
+#define PORTAL_ID_GARAGE_TO_POO_POO_ISLAND 8
+#define PORTAL_ID_POO_POO_ISLAND_TO_GARAGE 9
 
 typedef struct {
     float x;
@@ -307,6 +323,10 @@ static const Vec2 tanker_spawn_points_dm[] = {
     {-110.0f, 140.0f}, {-30.0f, -72.0f}, {-20.0f, 82.0f}, {80.0f, -155.0f},
     {90.0f, 155.0f}, {150.0f, -30.0f}, {155.0f, 35.0f}, {220.0f, 0.0f}
 };
+static const Vec2 poo_poo_spawn_points_dm[] = {
+    {-640.0f, -520.0f}, {-500.0f, -600.0f}, {-350.0f, -640.0f}, {-140.0f, -580.0f},
+    {140.0f, -440.0f}, {260.0f, -150.0f}, {220.0f, 160.0f}, {-80.0f, 220.0f}
+};
 static const VoxRouteAnchor dust_route_anchors[] = {
     {DUST_MID_X, DUST_MID_Z, "MID"},
     {DUST_UNDERPASS_X, DUST_UNDERPASS_Z, "UNDERPASS"},
@@ -317,6 +337,15 @@ static const VoxRouteAnchor dust_route_anchors[] = {
 static const VoxRouteAnchor dust_objective_anchors[] = {
     {DUST_A_SITE_X, DUST_A_SITE_Z, "ALPHA"},
     {DUST_B_SITE_X, DUST_B_SITE_Z, "BRAVO"}
+};
+static const VoxRouteAnchor poo_poo_landmark_anchors[] = {
+    {-620.0f, -560.0f, "POO POO TOWN"},
+    {-520.0f, -650.0f, "BEACH"},
+    {-300.0f, -470.0f, "MARINA"},
+    {420.0f, -120.0f, "LIGHTHOUSE"},
+    {-40.0f, -80.0f, "HILLS"},
+    {320.0f, 280.0f, "VOLCANO"},
+    {80.0f, -320.0f, "LOOP BRIDGE"}
 };
 
 #define MAX_VOXWORLD_BUSHES 256
@@ -647,6 +676,44 @@ static inline void init_oil_tanker_geo(void) {
     printf("[OIL_TANKER] authored geo boxes=%d\n", map_geo_tanker_count);
 }
 
+static inline void poo_add_box(float x, float y, float z, float w, float h, float d) {
+    if (map_geo_poo_island_count >= CITY_MAX_BOXES) return;
+    map_geo_poo_island[map_geo_poo_island_count++] = (Box){x, y, z, w, h, d};
+}
+
+static inline float poo_height_at(float x, float z) {
+    if (g_scene_terrain.active && g_scene_terrain.heights) {
+        return terrain_sample_height(&g_scene_terrain, x, z);
+    }
+    return 0.0f;
+}
+
+static inline void init_poo_poo_island_geo(void) {
+    if (map_geo_poo_island_init) return;
+    map_geo_poo_island_init = 1;
+    map_geo_poo_island_count = 0;
+    poo_add_box(0.0f, -15.0f, 0.0f, 1900.0f, 20.0f, 1900.0f);
+    poo_add_box(0.0f, 180.0f, 870.0f, 1900.0f, 350.0f, 10.0f);
+    poo_add_box(0.0f, 180.0f, -870.0f, 1900.0f, 350.0f, 10.0f);
+    poo_add_box(870.0f, 180.0f, 0.0f, 10.0f, 350.0f, 1900.0f);
+    poo_add_box(-870.0f, 180.0f, 0.0f, 10.0f, 350.0f, 1900.0f);
+    // Town blocks
+    poo_add_box(-610.0f, poo_height_at(-610.0f, -560.0f) + 8.0f, -560.0f, 180.0f, 16.0f, 160.0f);
+    poo_add_box(-540.0f, poo_height_at(-540.0f, -500.0f) + 9.0f, -500.0f, 130.0f, 18.0f, 100.0f);
+    poo_add_box(-450.0f, poo_height_at(-450.0f, -560.0f) + 9.0f, -560.0f, 100.0f, 18.0f, 110.0f);
+    // Marina / docks
+    poo_add_box(-330.0f, poo_height_at(-330.0f, -430.0f) + 4.0f, -430.0f, 190.0f, 8.0f, 42.0f);
+    poo_add_box(-250.0f, poo_height_at(-250.0f, -395.0f) + 4.0f, -395.0f, 170.0f, 8.0f, 32.0f);
+    // Lighthouse
+    poo_add_box(430.0f, poo_height_at(430.0f, -120.0f) + 20.0f, -120.0f, 36.0f, 40.0f, 36.0f);
+    // Volcano crown
+    poo_add_box(320.0f, poo_height_at(320.0f, 290.0f) + 20.0f, 290.0f, 130.0f, 20.0f, 120.0f);
+    // Bridges / loop route hints
+    poo_add_box(80.0f, poo_height_at(80.0f, -320.0f) + 6.0f, -320.0f, 180.0f, 8.0f, 30.0f);
+    poo_add_box(240.0f, poo_height_at(240.0f, -240.0f) + 6.0f, -240.0f, 120.0f, 8.0f, 30.0f);
+    printf("[POO_POO_ISLAND] authored geo boxes=%d\n", map_geo_poo_island_count);
+}
+
 static int phys_scene_id = SCENE_STADIUM;
 static TerrainHeightfield g_scene_terrain = {0};
 static int g_last_ground_source_terrain = 0;
@@ -655,6 +722,8 @@ static inline void init_voxworld_bloodgulch_terrain(void);
 static inline void init_dust_compound_terrain(void);
 static inline void init_dust_compound_geo(void);
 static inline void init_oil_tanker_geo(void);
+static inline void init_poo_poo_island_terrain(void);
+static inline void init_poo_poo_island_geo(void);
 static inline void voxworld_build_bushes(void);
 
 static inline float voxworld_bush_hash01(int x, int z, int salt) {
@@ -796,6 +865,12 @@ static inline void phys_set_scene(int scene_id) {
         map_geo = map_geo_tanker;
         map_count = map_geo_tanker_count;
         g_scene_terrain.active = 0;
+    } else if (scene_id == SCENE_POO_POO_ISLAND) {
+        init_poo_poo_island_terrain();
+        init_poo_poo_island_geo();
+        map_geo = map_geo_poo_island;
+        map_count = map_geo_poo_island_count;
+        g_scene_terrain.active = (g_scene_terrain.heights != NULL);
     } else if (scene_id == SCENE_VOXWORLD) {
         init_voxworld_bloodgulch_terrain();
         init_voxworld_bloodgulch_geo();
@@ -938,6 +1013,38 @@ static inline void init_dust_compound_terrain(void) {
     g_scene_terrain_scene_id = SCENE_DUST_COMPOUND;
 }
 
+static inline void init_poo_poo_island_terrain(void) {
+    if (g_scene_terrain_scene_id == SCENE_POO_POO_ISLAND && g_scene_terrain.heights) {
+        g_scene_terrain.active = 1;
+        return;
+    }
+    if (g_scene_terrain.heights) terrain_free(&g_scene_terrain);
+    if (!terrain_init(&g_scene_terrain, 160, 160, 11.0f, -880.0f, -880.0f)) return;
+    terrain_clear(&g_scene_terrain, -2.0f);
+    for (int gz = 0; gz < g_scene_terrain.height; gz++) {
+        for (int gx = 0; gx < g_scene_terrain.width; gx++) {
+            float wx = g_scene_terrain.origin_x + gx * g_scene_terrain.cell_size;
+            float wz = g_scene_terrain.origin_z + gz * g_scene_terrain.cell_size;
+            float dist = sqrtf(wx * wx + wz * wz);
+            float island = 65.0f - (dist * 0.08f);
+            float h = island + 6.0f * sinf(wx * 0.006f) + 5.0f * cosf(wz * 0.0065f);
+            h += 2.0f * sinf((wx + wz) * 0.015f);
+            h += 38.0f * expf(-((wx - 320.0f)*(wx - 320.0f) + (wz - 280.0f)*(wz - 280.0f)) / (2.0f * 150.0f * 150.0f)); // volcano
+            h += 20.0f * expf(-((wx + 620.0f)*(wx + 620.0f) + (wz + 560.0f)*(wz + 560.0f)) / (2.0f * 170.0f * 170.0f)); // town shelf
+            h -= 18.0f * expf(-((wx + 500.0f)*(wx + 500.0f) + (wz + 680.0f)*(wz + 680.0f)) / (2.0f * 180.0f * 140.0f)); // beach
+            if (dist > 760.0f) h -= (dist - 760.0f) * 0.42f;
+            terrain_set_height(&g_scene_terrain, gx, gz, h);
+        }
+    }
+    vox_terrain_stamp(&g_scene_terrain, -620.0f, -560.0f, 220.0f, 22.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, -520.0f, -650.0f, 240.0f, 5.0f, 0.75f);
+    vox_terrain_stamp(&g_scene_terrain, -280.0f, -440.0f, 150.0f, 8.0f, 0.9f);
+    vox_terrain_stamp(&g_scene_terrain, 420.0f, -120.0f, 110.0f, 44.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, 320.0f, 280.0f, 200.0f, 78.0f, 0.9f);
+    vox_terrain_smooth(&g_scene_terrain, 2, 0.48f);
+    g_scene_terrain_scene_id = SCENE_POO_POO_ISLAND;
+}
+
 static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float *out_y, float *out_z) {
     if (scene_id == SCENE_GARAGE_OSAKA) {
         float offsets[] = {-20.0f, 0.0f, 20.0f, -10.0f, 10.0f};
@@ -972,6 +1079,14 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
         *out_y = 6.0f;
         return;
     }
+    if (scene_id == SCENE_POO_POO_ISLAND) {
+        int count = (int)(sizeof(poo_poo_spawn_points_dm) / sizeof(Vec2));
+        int idx = slot % count;
+        *out_x = poo_poo_spawn_points_dm[idx].x;
+        *out_z = poo_poo_spawn_points_dm[idx].y;
+        *out_y = poo_height_at(*out_x, *out_z) + 6.0f;
+        return;
+    }
     if (slot % 2 == 0) {
         *out_x = 0.0f; *out_z = 0.0f; *out_y = 80.0f;
     } else {
@@ -983,16 +1098,22 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
 }
 
 static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *out_y, float *out_z) {
-    if (p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND && p->scene_id != SCENE_OIL_TANKER) {
+    if (p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND && p->scene_id != SCENE_OIL_TANKER && p->scene_id != SCENE_POO_POO_ISLAND) {
         scene_spawn_point(p->scene_id, p->id, out_x, out_y, out_z);
         return;
     }
-    const Vec2 *pts = (p->scene_id == SCENE_DUST_COMPOUND) ? dust_spawn_points_dm
-                    : (p->scene_id == SCENE_OIL_TANKER ? tanker_spawn_points_dm : voxworld_spawn_points_ffa);
-    int count = (p->scene_id == SCENE_DUST_COMPOUND)
-        ? (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2))
-        : (p->scene_id == SCENE_OIL_TANKER ? (int)(sizeof(tanker_spawn_points_dm) / sizeof(Vec2))
-                                           : (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2)));
+    const Vec2 *pts = voxworld_spawn_points_ffa;
+    int count = (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2));
+    if (p->scene_id == SCENE_DUST_COMPOUND) {
+        pts = dust_spawn_points_dm;
+        count = (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2));
+    } else if (p->scene_id == SCENE_OIL_TANKER) {
+        pts = tanker_spawn_points_dm;
+        count = (int)(sizeof(tanker_spawn_points_dm) / sizeof(Vec2));
+    } else if (p->scene_id == SCENE_POO_POO_ISLAND) {
+        pts = poo_poo_spawn_points_dm;
+        count = (int)(sizeof(poo_poo_spawn_points_dm) / sizeof(Vec2));
+    }
     int team_mode = (g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF);
     int team = p->team_id;
     if (team_mode && (team != 0 && team != 1)) team = (p->id % 2);
@@ -1018,7 +1139,7 @@ static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *o
     *out_z = pts[idx].y;
     *out_y = (p->scene_id == SCENE_DUST_COMPOUND)
         ? (dust_height_at(*out_x, *out_z) + 5.5f)
-        : (p->scene_id == SCENE_OIL_TANKER ? 6.0f : (voxworld_height_at(*out_x, *out_z) + 6.0f));
+        : (p->scene_id == SCENE_OIL_TANKER ? 6.0f : (p->scene_id == SCENE_POO_POO_ISLAND ? (poo_height_at(*out_x, *out_z) + 6.0f) : (voxworld_height_at(*out_x, *out_z) + 6.0f)));
 }
 
 static inline void scene_force_spawn(PlayerState *p) {
@@ -1072,12 +1193,20 @@ static inline void scene_safety_check(PlayerState *p) {
             p->z < -TANKER_BOUNDS_Z || p->z > TANKER_BOUNDS_Z) {
             scene_force_spawn(p);
         }
+        return;
+    }
+    if (p->scene_id == SCENE_POO_POO_ISLAND) {
+        if (p->y < POO_POO_KILL_Y ||
+            p->x < -POO_POO_BOUNDS_X || p->x > POO_POO_BOUNDS_X ||
+            p->z < -POO_POO_BOUNDS_Z || p->z > POO_POO_BOUNDS_Z) {
+            scene_force_spawn(p);
+        }
     }
 }
 
 static inline int scene_portal_active(int scene_id) {
     return scene_id == SCENE_GARAGE_OSAKA || scene_id == SCENE_STADIUM ||
-           scene_id == SCENE_VOXWORLD || scene_id == SCENE_DUST_COMPOUND || scene_id == SCENE_OIL_TANKER;
+           scene_id == SCENE_VOXWORLD || scene_id == SCENE_DUST_COMPOUND || scene_id == SCENE_OIL_TANKER || scene_id == SCENE_POO_POO_ISLAND;
 }
 
 static inline int portal_resolve_destination(int current_scene, int portal_id, int slot,
@@ -1114,6 +1243,13 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
         *out_z = 0.0f;
         return 1;
     }
+    if (current_scene == SCENE_GARAGE_OSAKA && portal_id == PORTAL_ID_GARAGE_TO_POO_POO_ISLAND) {
+        *out_scene = SCENE_POO_POO_ISLAND;
+        *out_x = -620.0f;
+        *out_y = 30.0f;
+        *out_z = -580.0f;
+        return 1;
+    }
     if (current_scene == SCENE_STADIUM && portal_id == PORTAL_ID_STADIUM_TO_VOXWORLD) {
         *out_scene = SCENE_VOXWORLD;
         *out_x = STADIUM_EDGE_TELEPORT_X;
@@ -1140,6 +1276,13 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
         *out_x = GARAGE_TANKER_PORTAL_X + 10.0f;
         *out_y = GARAGE_TANKER_PORTAL_Y;
         *out_z = GARAGE_TANKER_PORTAL_Z;
+        return 1;
+    }
+    if (current_scene == SCENE_POO_POO_ISLAND && portal_id == PORTAL_ID_POO_POO_ISLAND_TO_GARAGE) {
+        *out_scene = SCENE_GARAGE_OSAKA;
+        *out_x = GARAGE_POO_PORTAL_X - 8.0f;
+        *out_y = GARAGE_POO_PORTAL_Y;
+        *out_z = GARAGE_POO_PORTAL_Z;
         return 1;
     }
     return 0;
@@ -1171,6 +1314,11 @@ static inline void scene_portal_info(int scene_id, float *out_x, float *out_y, f
         *out_y = TANKER_PORTAL_Y;
         *out_z = TANKER_PORTAL_Z;
         *out_radius = TANKER_PORTAL_RADIUS;
+    } else if (scene_id == SCENE_POO_POO_ISLAND) {
+        *out_x = POO_PORTAL_X;
+        *out_y = POO_PORTAL_Y;
+        *out_z = POO_PORTAL_Z;
+        *out_radius = POO_PORTAL_RADIUS;
     } else {
         *out_x = 0.0f; *out_y = 0.0f; *out_z = 0.0f; *out_radius = 0.0f;
     }
@@ -1225,6 +1373,11 @@ static inline const Vec2 *dust_get_spawn_points_dm(int *out_count) {
     return dust_spawn_points_dm;
 }
 
+static inline const VoxRouteAnchor *poo_poo_island_get_landmark_anchors(int *out_count) {
+    if (out_count) *out_count = (int)(sizeof(poo_poo_landmark_anchors) / sizeof(VoxRouteAnchor));
+    return poo_poo_landmark_anchors;
+}
+
 static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
     if (!scene_portal_active(p->scene_id)) return 0;
 
@@ -1248,6 +1401,13 @@ static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
         float dist_sq_dust = dx_dust * dx_dust + dz_dust * dz_dust;
         if (dist_sq_dust <= (GARAGE_DUST_PORTAL_RADIUS * GARAGE_DUST_PORTAL_RADIUS)) {
             if (out_portal_id) *out_portal_id = PORTAL_ID_GARAGE_TO_DUST;
+            return 1;
+        }
+        float dx_poo = p->x - GARAGE_POO_PORTAL_X;
+        float dz_poo = p->z - GARAGE_POO_PORTAL_Z;
+        float dist_sq_poo = dx_poo * dx_poo + dz_poo * dz_poo;
+        if (dist_sq_poo <= (GARAGE_POO_PORTAL_RADIUS * GARAGE_POO_PORTAL_RADIUS)) {
+            if (out_portal_id) *out_portal_id = PORTAL_ID_GARAGE_TO_POO_POO_ISLAND;
             return 1;
         }
     }
@@ -1281,7 +1441,7 @@ static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
         if (out_portal_id) {
             *out_portal_id = (p->scene_id == SCENE_VOXWORLD)
                 ? PORTAL_ID_VOXWORLD_TO_STADIUM
-                : (p->scene_id == SCENE_DUST_COMPOUND ? PORTAL_ID_DUST_TO_GARAGE : (p->scene_id == SCENE_OIL_TANKER ? PORTAL_ID_TANKER_TO_GARAGE : PORTAL_ID_GARAGE_EXIT));
+                : (p->scene_id == SCENE_DUST_COMPOUND ? PORTAL_ID_DUST_TO_GARAGE : (p->scene_id == SCENE_OIL_TANKER ? PORTAL_ID_TANKER_TO_GARAGE : (p->scene_id == SCENE_POO_POO_ISLAND ? PORTAL_ID_POO_POO_ISLAND_TO_GARAGE : PORTAL_ID_GARAGE_EXIT)));
         }
         return 1;
     }
@@ -1639,13 +1799,16 @@ void phys_respawn(PlayerState *p, unsigned int now) {
     p->dash_hit_count = 0;
     p->use_was_down = 0;
     if (p->scene_id != SCENE_GARAGE_OSAKA && p->scene_id != SCENE_STADIUM &&
-        p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND) {
+        p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND &&
+        p->scene_id != SCENE_OIL_TANKER && p->scene_id != SCENE_POO_POO_ISLAND) {
         p->scene_id = SCENE_GARAGE_OSAKA;
     }
     scene_spawn_for_player(p, &p->x, &p->y, &p->z);
     p->current_weapon = WPN_MAGNUM;
     for(int i=0; i<MAX_WEAPONS; i++) p->ammo[i] = WPN_STATS[i].ammo_max;
     p->storm_charges = 0;
+    p->sticky_grenades = 1;
+    p->sticky_throw_cooldown = 0;
     p->ability_cooldown = 0;
     p->portal_cooldown_until_ms = 0;
     p->stunned_until_ms = 0;

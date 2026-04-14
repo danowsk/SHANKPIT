@@ -10,10 +10,21 @@ ServerState local_state;
 int was_holding_jump = 0;
 #define SHANKPIT_HELI_DEBUG 0
 
+#define STICKY_GRENADE_MAX_RESERVE 4
+#define STICKY_GRENADE_FUSE_TICKS 105
+#define STICKY_GRENADE_THROW_COOLDOWN 24
+#define STICKY_GRENADE_THROW_SPEED 2.6f
+#define STICKY_GRENADE_DAMAGE 120
+#define STICKY_GRENADE_RADIUS 10.0f
+#define PICKUP_DEFAULT_RESPAWN_TICKS 900
+
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time);
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time);
 static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z);
 void local_init_match(int num_players, int mode);
+static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int damage, unsigned int now_ms);
+static inline void poo_poo_island_init_pickups(void);
+static inline void sticky_try_throw(PlayerState *p);
 
 float rand_weight() { return ((float)(rand()%2000)/1000.0f) - 1.0f; } 
 float rand_pos() { return ((float)(rand()%1000)/1000.0f); } 
@@ -62,6 +73,9 @@ static inline void scene_load(int scene_id) {
         local_state.helicopters[hi].id = hi;
         local_state.helicopters[hi].occupant_player_id = -1;
     }
+
+    for (int si = 0; si < MAX_STICKY_GRENADES; si++) local_state.sticky_grenades[si].active = 0;
+    if (scene_id == SCENE_POO_POO_ISLAND) poo_poo_island_init_pickups();
 
     if (scene_id == SCENE_VOXWORLD) {
         float red_y = voxworld_heli_spawn_y(VOXWORLD_BASE_RED_X);
@@ -232,8 +246,200 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
     if (p->recoil_anim < 0) p->recoil_anim = 0;
     if (p->hit_feedback > 0) p->hit_feedback--;
 
+    sticky_try_throw(p);
     update_weapons(p, local_state.players, local_state.projectiles, p->in_shoot > 0, p->in_reload > 0, p->in_ability > 0);
     scene_safety_check(p);
+}
+
+
+static inline WorldPickup *pickup_spawn(int scene_id, unsigned char type, float x, float y, float z, int respawn_delay_ticks, int dropped_by_player_id) {
+    for (int i = 0; i < MAX_WORLD_PICKUPS; i++) {
+        WorldPickup *w = &local_state.pickups[i];
+        if (w->active) continue;
+        memset(w, 0, sizeof(*w));
+        w->active = 1;
+        w->id = i;
+        w->scene_id = scene_id;
+        w->type = type;
+        w->x = x; w->y = y; w->z = z;
+        w->radius = 3.5f;
+        w->respawn_delay_ticks = respawn_delay_ticks;
+        w->respawn_ticks = 0;
+        w->available = 1;
+        w->dropped_by_player_id = dropped_by_player_id;
+        return w;
+    }
+    return NULL;
+}
+
+static inline void poo_poo_island_init_pickups(void) {
+    for (int i = 0; i < MAX_WORLD_PICKUPS; i++) {
+        WorldPickup *w = &local_state.pickups[i];
+        if (!w->active || w->scene_id != SCENE_POO_POO_ISLAND) continue;
+        w->active = 0;
+    }
+    pickup_spawn(SCENE_POO_POO_ISLAND, PICKUP_STICKY_GRENADE, -675.0f, poo_poo_height_at(-675.0f, 590.0f) + 2.0f, 590.0f, PICKUP_DEFAULT_RESPAWN_TICKS, -1);
+    pickup_spawn(SCENE_POO_POO_ISLAND, PICKUP_STICKY_GRENADE, -220.0f, poo_poo_height_at(-220.0f, 190.0f) + 2.0f, 190.0f, PICKUP_DEFAULT_RESPAWN_TICKS, -1);
+    pickup_spawn(SCENE_POO_POO_ISLAND, PICKUP_STICKY_GRENADE, 540.0f, poo_poo_height_at(540.0f, -420.0f) + 2.0f, -420.0f, PICKUP_DEFAULT_RESPAWN_TICKS, -1);
+    pickup_spawn(SCENE_POO_POO_ISLAND, PICKUP_HEALTH, -920.0f, poo_poo_height_at(-920.0f, 760.0f) + 2.0f, 760.0f, 720, -1);
+    pickup_spawn(SCENE_POO_POO_ISLAND, PICKUP_HEALTH, -430.0f, poo_poo_height_at(-430.0f, 400.0f) + 2.0f, 400.0f, 720, -1);
+    pickup_spawn(SCENE_POO_POO_ISLAND, PICKUP_HEALTH, 130.0f, poo_poo_height_at(130.0f, 420.0f) + 2.0f, 420.0f, 720, -1);
+    pickup_spawn(SCENE_POO_POO_ISLAND, PICKUP_HEALTH, 310.0f, poo_poo_height_at(310.0f, -260.0f) + 2.0f, -260.0f, 720, -1);
+}
+
+static inline void drop_player_inventory_pickups(PlayerState *p) {
+    if (!p || p->sticky_grenades <= 0) return;
+    float gy = phys_sample_ground_height(p->x, p->z, NULL) + 2.0f;
+    pickup_spawn(p->scene_id, PICKUP_STICKY_GRENADE, p->x, gy, p->z, 0, p->id);
+}
+
+static inline int sticky_spawn_from_player(PlayerState *p) {
+    for (int i = 0; i < MAX_STICKY_GRENADES; i++) {
+        StickyGrenadeState *g = &local_state.sticky_grenades[i];
+        if (g->active) continue;
+        memset(g, 0, sizeof(*g));
+        g->active = 1;
+        g->id = i;
+        g->scene_id = p->scene_id;
+        g->owner_player_id = p->id;
+        g->x = p->x;
+        g->y = p->y + EYE_HEIGHT;
+        g->z = p->z;
+        float r = -p->yaw * 0.0174533f; float rp = p->pitch * 0.0174533f;
+        g->vx = sinf(r) * cosf(rp) * STICKY_GRENADE_THROW_SPEED;
+        g->vy = sinf(rp) * STICKY_GRENADE_THROW_SPEED;
+        g->vz = -cosf(r) * cosf(rp) * STICKY_GRENADE_THROW_SPEED;
+        g->normal_y = 1.0f;
+        g->fuse_ticks = STICKY_GRENADE_FUSE_TICKS;
+        return 1;
+    }
+    return 0;
+}
+
+static inline void sticky_try_throw(PlayerState *p) {
+    if (!p || p->state == STATE_DEAD) return;
+    int grenade_pressed = p->in_bike;
+    int grenade_edge = grenade_pressed && !p->grenade_was_down;
+    p->grenade_was_down = grenade_pressed;
+    if (p->sticky_throw_cooldown > 0) p->sticky_throw_cooldown--;
+    if (!grenade_edge) return;
+    if (p->sticky_throw_cooldown > 0 || p->sticky_grenades <= 0) return;
+    if (sticky_spawn_from_player(p)) {
+        p->sticky_grenades--;
+        if (p->sticky_grenades < 0) p->sticky_grenades = 0;
+        p->sticky_throw_cooldown = STICKY_GRENADE_THROW_COOLDOWN;
+    }
+}
+
+static inline void sticky_explode(StickyGrenadeState *g, unsigned int now_ms) {
+    if (!g || !g->active || g->exploded) return;
+    g->exploded = 1;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        PlayerState *t = &local_state.players[i];
+        if (!t->active || t->state == STATE_DEAD || t->scene_id != g->scene_id) continue;
+        float dx = t->x - g->x;
+        float dy = (t->y + EYE_HEIGHT * 0.5f) - g->y;
+        float dz = t->z - g->z;
+        float dist = sqrtf(dx*dx + dy*dy + dz*dz);
+        if (dist > STICKY_GRENADE_RADIUS) continue;
+        float falloff = 1.0f - (dist / STICKY_GRENADE_RADIUS);
+        if (falloff < 0.0f) falloff = 0.0f;
+        int damage = (int)(STICKY_GRENADE_DAMAGE * falloff);
+        if (damage < 8) damage = 8;
+        PlayerState *owner = (g->owner_player_id >= 0 && g->owner_player_id < MAX_CLIENTS) ? &local_state.players[g->owner_player_id] : NULL;
+        apply_projectile_damage(owner, t, damage, now_ms);
+        float inv = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
+        float boost = (g->attach_type == STICKY_ATTACH_PLAYER && g->attach_target_id == i) ? 6.8f : 3.6f;
+        t->vx += dx * inv * boost;
+        t->vz += dz * inv * boost;
+        t->vy += 2.4f + falloff * 1.8f;
+    }
+    g->active = 0;
+}
+
+static inline void sticky_update_all(unsigned int now_ms) {
+    for (int i = 0; i < MAX_STICKY_GRENADES; i++) {
+        StickyGrenadeState *g = &local_state.sticky_grenades[i];
+        if (!g->active) continue;
+        if (g->fuse_ticks > 0) g->fuse_ticks--;
+        if (g->attached && g->attach_type == STICKY_ATTACH_PLAYER) {
+            if (g->attach_target_id >= 0 && g->attach_target_id < MAX_CLIENTS) {
+                PlayerState *t = &local_state.players[g->attach_target_id];
+                if (t->active && t->state != STATE_DEAD && t->scene_id == g->scene_id) {
+                    g->x = t->x + g->attach_local_x;
+                    g->y = t->y + g->attach_local_y;
+                    g->z = t->z + g->attach_local_z;
+                } else {
+                    g->attached = 1;
+                    g->attach_type = STICKY_ATTACH_WORLD;
+                }
+            }
+        } else if (!g->attached) {
+            phys_set_scene(g->scene_id);
+            float nx, ny, nz, hx, hy, hz;
+            float nxp = g->x + g->vx;
+            float nyp = g->y + g->vy;
+            float nzp = g->z + g->vz;
+            if (trace_map(g->x, g->y, g->z, nxp, nyp, nzp, &hx, &hy, &hz, &nx, &ny, &nz)) {
+                g->x = hx; g->y = hy; g->z = hz;
+                g->attached = 1;
+                g->attach_type = STICKY_ATTACH_WORLD;
+                g->vx = g->vy = g->vz = 0.0f;
+                g->normal_x = nx; g->normal_y = ny; g->normal_z = nz;
+            } else {
+                g->x = nxp; g->y = nyp; g->z = nzp;
+            }
+            for (int t = 0; t < MAX_CLIENTS && !g->attached; t++) {
+                PlayerState *pl = &local_state.players[t];
+                if (!pl->active || pl->state == STATE_DEAD || pl->scene_id != g->scene_id || t == g->owner_player_id) continue;
+                float dx = pl->x - g->x; float dy = (pl->y + 2.2f) - g->y; float dz = pl->z - g->z;
+                if ((dx*dx + dy*dy + dz*dz) < 6.0f) {
+                    g->attached = 1; g->attach_type = STICKY_ATTACH_PLAYER; g->attach_target_id = t;
+                    g->attach_local_x = g->x - pl->x; g->attach_local_y = g->y - pl->y; g->attach_local_z = g->z - pl->z;
+                    g->vx = g->vy = g->vz = 0.0f;
+                }
+            }
+        }
+        if (g->fuse_ticks <= 0) sticky_explode(g, now_ms);
+    }
+}
+
+static inline void pickup_update_and_collect(void) {
+    for (int i = 0; i < MAX_WORLD_PICKUPS; i++) {
+        WorldPickup *w = &local_state.pickups[i];
+        if (!w->active) continue;
+        if (!w->available) {
+            if (w->respawn_delay_ticks > 0) {
+                w->respawn_ticks++;
+                if (w->respawn_ticks >= w->respawn_delay_ticks) {
+                    w->respawn_ticks = 0;
+                    w->available = 1;
+                }
+            }
+            continue;
+        }
+        for (int pi = 0; pi < MAX_CLIENTS; pi++) {
+            PlayerState *p = &local_state.players[pi];
+            if (!p->active || p->state == STATE_DEAD || p->scene_id != w->scene_id) continue;
+            float dx = p->x - w->x, dz = p->z - w->z;
+            if ((dx * dx + dz * dz) > (w->radius * w->radius)) continue;
+            if (w->type == PICKUP_HEALTH) {
+                if (p->health >= 100) continue;
+                p->health += 35;
+                if (p->health > 100) p->health = 100;
+            } else if (w->type == PICKUP_STICKY_GRENADE) {
+                if (p->sticky_grenades >= STICKY_GRENADE_MAX_RESERVE) continue;
+                p->sticky_grenades++;
+            }
+            if (w->respawn_delay_ticks > 0) {
+                w->available = 0;
+                w->respawn_ticks = 0;
+            } else {
+                w->active = 0;
+            }
+            break;
+        }
+    }
 }
 
 static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int damage, unsigned int now_ms) {
@@ -247,6 +453,7 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
     if (target->health <= 0) {
         if (owner) { owner->kills++; owner->accumulated_reward += 500.0f; }
         target->deaths++;
+        drop_player_inventory_pickups(target);
         phys_respawn(target, now_ms);
     }
 
@@ -399,6 +606,8 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         update_entity(p, 0.016f, server_context, cmd_time);
     }
     update_projectiles(cmd_time);
+    sticky_update_all(cmd_time);
+    pickup_update_and_collect();
 }
 
 void local_init_match(int num_players, int mode) {

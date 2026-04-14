@@ -525,6 +525,8 @@ static void lobby_apply_scene_id(const char *scene_id) {
         scene_load(SCENE_VOXWORLD);
     } else if (strcmp(scene_id, "OIL_TANKER") == 0) {
         scene_load(SCENE_OIL_TANKER);
+    } else if (strcmp(scene_id, "POO_POO_ISLAND") == 0) {
+        scene_load(SCENE_POO_POO_ISLAND);
     }
 }
 
@@ -1761,6 +1763,18 @@ void draw_hud(PlayerState *p) {
     glRectf(x0, y_health0, x0 + (p->health * (x1 - x0) / 100.0f), y_health1);
     glColor3f(0.10f, 0.12f, 0.20f); glRectf(x0, y_shield0, x1, y_shield1); glColor3f(0.34f, 0.52f, 0.86f);
     glRectf(x0, y_shield0, x0 + (p->shield * (x1 - x0) / 100.0f), y_shield1);
+    for (int gi = 0; gi < p->sticky_grenades; gi++) {
+        float px = x0 + gi * 14.0f;
+        float py = y_shield1 + 18.0f;
+        glColor3f(0.16f, 0.96f, 1.0f);
+        glBegin(GL_QUADS);
+        glVertex2f(px, py); glVertex2f(px + 9.0f, py); glVertex2f(px + 9.0f, py + 9.0f); glVertex2f(px, py + 9.0f);
+        glEnd();
+        glColor3f(0.72f, 0.40f, 0.95f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(px - 1.0f, py - 1.0f); glVertex2f(px + 10.0f, py - 1.0f); glVertex2f(px + 10.0f, py + 10.0f); glVertex2f(px - 1.0f, py + 10.0f);
+        glEnd();
+    }
     
     if (p->in_vehicle) {
         glColor3f(0.0f, 1.0f, 0.0f);
@@ -1822,6 +1836,7 @@ static const char *scene_name_ui(int scene_id) {
         case SCENE_VOXWORLD: return "VOXWORLD";
         case SCENE_DUST_COMPOUND: return "DUST_COMPOUND";
         case SCENE_OIL_TANKER: return "OIL_TANKER";
+        case SCENE_POO_POO_ISLAND: return "POO_POO_ISLAND";
         default: return "UNKNOWN";
     }
 }
@@ -1966,6 +1981,18 @@ static void draw_garage_portal_frame() {
         glVertex3f(-GARAGE_DUST_PORTAL_RADIUS, 6.0f, 0.0f);
         glEnd();
         glPopMatrix();
+
+        glPushMatrix();
+        glTranslatef(GARAGE_POO_PORTAL_X, GARAGE_POO_PORTAL_Y, GARAGE_POO_PORTAL_Z);
+        glColor3f(0.35f, 1.0f, 0.9f);
+        glLineWidth(3.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex3f(-GARAGE_POO_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_POO_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_POO_PORTAL_RADIUS, 6.0f, 0.0f);
+        glVertex3f(-GARAGE_POO_PORTAL_RADIUS, 6.0f, 0.0f);
+        glEnd();
+        glPopMatrix();
     }
 }
 
@@ -2001,6 +2028,7 @@ static void draw_garage_overlay(PlayerState *p) {
     draw_string("PORTAL -> STADIUM", 40, 640, 6);
     draw_string("PORTAL -> VOXWORLD TERRAIN", 40, 620, 6);
     draw_string("PORTAL -> OIL TANKER", 40, 600, 6);
+    draw_string("PORTAL -> POO POO ISLAND", 40, 580, 6);
 
     int pad_count = 0;
     const VehiclePad *pads = scene_vehicle_pads(local_state.scene_id, &pad_count);
@@ -2030,6 +2058,7 @@ static void draw_garage_overlay(PlayerState *p) {
     int vox_portal_target = target_in_view(p, GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z, 30.0f, 0.75f);
     int tanker_portal_target = target_in_view(p, GARAGE_TANKER_PORTAL_X, GARAGE_TANKER_PORTAL_Y, GARAGE_TANKER_PORTAL_Z, 30.0f, 0.75f);
     int dust_portal_target = target_in_view(p, GARAGE_DUST_PORTAL_X, GARAGE_DUST_PORTAL_Y, GARAGE_DUST_PORTAL_Z, 30.0f, 0.75f);
+    int poo_portal_target = target_in_view(p, GARAGE_POO_PORTAL_X, GARAGE_POO_PORTAL_Y, GARAGE_POO_PORTAL_Z, 30.0f, 0.75f);
     int pad_target = 0;
     int heli_target = 0;
     if (scene_near_vehicle_pad(local_state.scene_id, p->x, p->z, 12.0f, NULL)) {
@@ -2051,7 +2080,7 @@ static void draw_garage_overlay(PlayerState *p) {
     }
 
     glColor3f(1.0f, 1.0f, 0.0f);
-    if (portal_target || vox_portal_target || tanker_portal_target || dust_portal_target) {
+    if (portal_target || vox_portal_target || tanker_portal_target || dust_portal_target || poo_portal_target) {
         draw_string("TRAVEL", 600, 350, 8);
     } else if (heli_target || (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER)) {
         draw_string(p->in_vehicle ? "PRESS F TO EXIT HELICOPTER" : "PRESS F TO ENTER HELICOPTER", 460, 350, 8);
@@ -2079,6 +2108,33 @@ void draw_projectiles() {
     glEnd();
 }
 
+
+void draw_sticky_grenades() {
+    glDisable(GL_TEXTURE_2D);
+    glPointSize(9.0f);
+    glBegin(GL_POINTS);
+    for (int i = 0; i < MAX_STICKY_GRENADES; i++) {
+        StickyGrenadeState *g = &local_state.sticky_grenades[i];
+        if (!g->active || g->scene_id != local_state.scene_id) continue;
+        glColor3f(0.15f, 0.95f, 1.0f);
+        glVertex3f(g->x, g->y, g->z);
+    }
+    glEnd();
+}
+
+void draw_world_pickups() {
+    for (int i = 0; i < MAX_WORLD_PICKUPS; i++) {
+        WorldPickup *w = &local_state.pickups[i];
+        if (!w->active || !w->available || w->scene_id != local_state.scene_id) continue;
+        glPushMatrix();
+        glTranslatef(w->x, w->y, w->z);
+        if (w->type == PICKUP_STICKY_GRENADE) glColor3f(0.15f, 0.95f, 1.0f);
+        else glColor3f(0.2f, 1.0f, 0.25f);
+        draw_box(2.0f, 2.0f, 2.0f);
+        glPopMatrix();
+    }
+}
+
 static void client_apply_scene_id(int scene_id, unsigned int now_ms) {
     if (scene_id < 0) return;
     if (local_state.scene_id != scene_id) {
@@ -2092,6 +2148,8 @@ static void client_apply_scene_id(int scene_id, unsigned int now_ms) {
             local_state.helicopters[i].active = 0;
             local_state.helicopters[i].occupant_player_id = -1;
         }
+        for (int i = 0; i < MAX_STICKY_GRENADES; i++) local_state.sticky_grenades[i].active = 0;
+        for (int i = 0; i < MAX_WORLD_PICKUPS; i++) local_state.pickups[i].active = 0;
     }
 }
 
@@ -2177,6 +2235,8 @@ void draw_scene(PlayerState *render_p) {
         draw_helicopter_model(h);
     }
     draw_projectiles();
+    draw_sticky_grenades();
+    draw_world_pickups();
     if (render_p->in_vehicle) draw_player_3rd(render_p);
     for(int i=0; i<MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
@@ -2365,7 +2425,7 @@ void net_connect() {
     }
 }
 
-UserCmd client_create_cmd(float fwd, float str, float yaw, float pitch, int shoot, int jump, int crouch, int reload, int use, int ability, int wpn_idx) {
+UserCmd client_create_cmd(float fwd, float str, float yaw, float pitch, int shoot, int jump, int crouch, int reload, int use, int ability, int grenade, int wpn_idx) {
     UserCmd cmd;
     memset(&cmd, 0, sizeof(UserCmd));
     cmd.sequence = ++net_cmd_seq; cmd.timestamp = SDL_GetTicks();
@@ -2376,6 +2436,7 @@ UserCmd client_create_cmd(float fwd, float str, float yaw, float pitch, int shoo
     if(reload) cmd.buttons |= BTN_RELOAD;
     if(use) cmd.buttons |= BTN_USE;
     if(ability) cmd.buttons |= BTN_ABILITY_1;
+    if(grenade) cmd.buttons |= BTN_GRENADE;
     client_cmd_hist[cmd.sequence % CLIENT_RECON_HISTORY] = cmd;
     net_latest_seq_sent = cmd.sequence;
     cmd.weapon_idx = wpn_idx; return cmd;
@@ -2700,6 +2761,7 @@ void net_process_snapshot(char *buffer, int len) {
         p->hit_feedback = np->hit_feedback;
         p->kills = (int)np->kills;
         p->deaths = (int)np->deaths;
+        p->sticky_grenades = (int)np->sticky_grenades;
         p->ammo[p->current_weapon] = np->ammo;
 
         if (now_shooting && !was_shooting) p->recoil_anim = 1.0f;
@@ -2804,6 +2866,45 @@ void net_process_snapshot(char *buffer, int len) {
     printf("[HELI SNAPSHOT][RX] scene=%d heli_count=%u cursor=%d len=%d\n",
            (int)head->scene_id, heli_count, cursor, len);
 #endif
+    for (int si = 0; si < MAX_STICKY_GRENADES; si++) local_state.sticky_grenades[si].active = 0;
+    if (cursor + 2 <= len) {
+        unsigned short sticky_count = *(unsigned short *)(buffer + cursor);
+        cursor += 2;
+        for (unsigned short si = 0; si < sticky_count; si++) {
+            if (cursor + (int)sizeof(NetStickyGrenade) > len) break;
+            NetStickyGrenade *ng = (NetStickyGrenade *)(buffer + cursor);
+            cursor += (int)sizeof(NetStickyGrenade);
+            if (ng->id >= MAX_STICKY_GRENADES) continue;
+            StickyGrenadeState *g = &local_state.sticky_grenades[ng->id];
+            g->active = 1;
+            g->id = ng->id;
+            g->scene_id = ng->scene_id;
+            g->attached = ng->attached;
+            g->attach_type = ng->attach_type;
+            g->attach_target_id = ng->attach_target_id;
+            g->fuse_ticks = ng->fuse_ticks;
+            g->x = ng->x; g->y = ng->y; g->z = ng->z;
+        }
+    }
+    for (int wi = 0; wi < MAX_WORLD_PICKUPS; wi++) local_state.pickups[wi].active = 0;
+    if (cursor + 2 <= len) {
+        unsigned short pickup_count = *(unsigned short *)(buffer + cursor);
+        cursor += 2;
+        for (unsigned short wi = 0; wi < pickup_count; wi++) {
+            if (cursor + (int)sizeof(NetWorldPickup) > len) break;
+            NetWorldPickup *nw = (NetWorldPickup *)(buffer + cursor);
+            cursor += (int)sizeof(NetWorldPickup);
+            if (nw->id >= MAX_WORLD_PICKUPS) continue;
+            WorldPickup *w = &local_state.pickups[nw->id];
+            w->active = 1;
+            w->id = nw->id;
+            w->scene_id = nw->scene_id;
+            w->type = nw->type;
+            w->available = nw->available;
+            w->x = nw->x; w->y = nw->y; w->z = nw->z;
+            w->radius = nw->radius;
+        }
+    }
     for (int i = 1; i < MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
         if (!p->active) continue;
@@ -3172,7 +3273,7 @@ int main(int argc, char* argv[]) {
                 if (net_local_pid > 0 && net_have_initial_local_snapshot_sync) {
                     unsigned int now_ms = SDL_GetTicks();
                     if (now_ms - net_last_cmd_send_ms >= CLIENT_USERCMD_INTERVAL_MS) {
-                        UserCmd cmd = client_create_cmd(fwd, str, cam_yaw, cam_pitch, shoot, jump, crouch, reload, use, ability, wpn_req);
+                        UserCmd cmd = client_create_cmd(fwd, str, cam_yaw, cam_pitch, shoot, jump, crouch, reload, use, ability, k[SDL_SCANCODE_G], wpn_req);
                         client_apply_cmd_movement(&local_state.players[net_local_pid], &cmd, now_ms);
                         net_send_cmd(cmd);
                         net_last_cmd_send_ms = now_ms;
@@ -3183,6 +3284,7 @@ int main(int argc, char* argv[]) {
                 net_apply_remote_interpolation(SDL_GetTicks());
             } else {
                 local_state.players[0].in_use = use;
+                local_state.players[0].in_bike = k[SDL_SCANCODE_G];
                 if (use && local_state.players[0].vehicle_cooldown == 0 && local_state.transition_timer == 0) {
                     PlayerState *p0 = &local_state.players[0];
                     HelicopterState *near_h = NULL;

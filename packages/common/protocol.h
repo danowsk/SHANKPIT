@@ -5,6 +5,8 @@
 #define MAX_WEAPONS 6
 #define MAX_PROJECTILES 1024
 #define MAX_HELICOPTERS 8
+#define MAX_STICKY_GRENADES 256
+#define MAX_WORLD_PICKUPS 256
 #define LAG_HISTORY 64
 
 #define SCENE_GARAGE_OSAKA 0
@@ -13,6 +15,7 @@
 #define SCENE_DUST_COMPOUND 3
 #define SCENE_CITY 4
 #define SCENE_OIL_TANKER 5
+#define SCENE_POO_POO_ISLAND 6
 
 #define PACKET_CONNECT 0
 #define PACKET_USERCMD 1
@@ -66,6 +69,7 @@ typedef struct {
 #define BTN_USE    16
 #define BTN_ABILITY_1 32
 #define BTN_VEHICLE_2 64
+#define BTN_GRENADE 128
 
 #define VEH_NONE  0
 #define VEH_BUGGY 1
@@ -93,6 +97,49 @@ typedef struct {
     unsigned char scene_id;
 } Projectile;
 
+typedef enum {
+    STICKY_ATTACH_NONE = 0,
+    STICKY_ATTACH_WORLD = 1,
+    STICKY_ATTACH_PLAYER = 2
+} StickyAttachType;
+
+typedef struct {
+    int active;
+    int id;
+    int scene_id;
+    int owner_player_id;
+    float x, y, z;
+    float vx, vy, vz;
+    int attached;
+    unsigned char attach_type;
+    int attach_target_id;
+    float attach_local_x;
+    float attach_local_y;
+    float attach_local_z;
+    float normal_x, normal_y, normal_z;
+    int fuse_ticks;
+    int exploded;
+} StickyGrenadeState;
+
+typedef enum {
+    PICKUP_NONE = 0,
+    PICKUP_HEALTH = 1,
+    PICKUP_STICKY_GRENADE = 2
+} PickupType;
+
+typedef struct {
+    int active;
+    int id;
+    int scene_id;
+    unsigned char type;
+    float x, y, z;
+    float radius;
+    int respawn_ticks;
+    int respawn_delay_ticks;
+    int available;
+    int dropped_by_player_id;
+} WorldPickup;
+
 typedef struct {
     unsigned char id; 
     unsigned char scene_id;
@@ -111,6 +158,7 @@ typedef struct {
     unsigned char storm_charges;
     unsigned short kills;
     unsigned short deaths;
+    unsigned char sticky_grenades;
 } NetPlayer;
 
 typedef struct {
@@ -128,6 +176,25 @@ typedef struct {
     unsigned char health;
     signed char occupant_player_id;
 } NetHelicopter;
+
+typedef struct {
+    unsigned short id;
+    unsigned char scene_id;
+    unsigned char attached;
+    unsigned char attach_type;
+    signed char attach_target_id;
+    unsigned char fuse_ticks;
+    float x, y, z;
+} NetStickyGrenade;
+
+typedef struct {
+    unsigned short id;
+    unsigned char scene_id;
+    unsigned char type;
+    unsigned char available;
+    float x, y, z;
+    float radius;
+} NetWorldPickup;
 
 typedef struct {
     int version;
@@ -177,6 +244,9 @@ typedef struct {
     unsigned int stun_immune_until_ms;
     float run_phase;
     float run_weight;
+    int sticky_grenades;
+    int sticky_throw_cooldown;
+    int grenade_was_down;
 } PlayerState;
 
 typedef struct {
@@ -217,6 +287,8 @@ typedef struct {
     PlayerState players[MAX_CLIENTS];
     Projectile projectiles[MAX_PROJECTILES];
     HelicopterState helicopters[MAX_HELICOPTERS];
+    StickyGrenadeState sticky_grenades[MAX_STICKY_GRENADES];
+    WorldPickup pickups[MAX_WORLD_PICKUPS];
     LagRecord history[MAX_CLIENTS][LAG_HISTORY];
     int server_tick;
     int game_mode;

@@ -488,6 +488,7 @@ void server_broadcast() {
             np.storm_charges = (unsigned char)p->storm_charges;
             np.kills = (unsigned short)(p->kills < 0 ? 0 : p->kills);
             np.deaths = (unsigned short)(p->deaths < 0 ? 0 : p->deaths);
+            np.sticky_grenades = (unsigned char)(p->sticky_grenades < 0 ? 0 : (p->sticky_grenades > 255 ? 255 : p->sticky_grenades));
             p->accumulated_reward = 0;
             memcpy(buffer + cursor, &np, sizeof(NetPlayer)); cursor += (int)sizeof(NetPlayer);
         }
@@ -521,6 +522,53 @@ void server_broadcast() {
             nh.health = (unsigned char)(h->health < 0 ? 0 : (h->health > 255 ? 255 : h->health));
             nh.occupant_player_id = (signed char)h->occupant_player_id;
             memcpy(buffer + cursor, &nh, sizeof(NetHelicopter)); cursor += (int)sizeof(NetHelicopter);
+        }
+
+        unsigned short sticky_count = 0;
+        for (int si = 0; si < MAX_STICKY_GRENADES; si++) {
+            StickyGrenadeState *sg = &local_state.sticky_grenades[si];
+            if (!sg->active || sg->scene_id != recipient_scene) continue;
+            sticky_count++;
+        }
+        if (cursor + 2 > (int)sizeof(buffer)) continue;
+        memcpy(buffer + cursor, &sticky_count, 2); cursor += 2;
+        for (int si = 0; si < MAX_STICKY_GRENADES; si++) {
+            StickyGrenadeState *sg = &local_state.sticky_grenades[si];
+            if (!sg->active || sg->scene_id != recipient_scene) continue;
+            if (cursor + (int)sizeof(NetStickyGrenade) > (int)sizeof(buffer)) break;
+            NetStickyGrenade ng;
+            memset(&ng, 0, sizeof(ng));
+            ng.id = (unsigned short)sg->id;
+            ng.scene_id = (unsigned char)sg->scene_id;
+            ng.attached = (unsigned char)sg->attached;
+            ng.attach_type = (unsigned char)sg->attach_type;
+            ng.attach_target_id = (signed char)sg->attach_target_id;
+            ng.fuse_ticks = (unsigned char)(sg->fuse_ticks < 0 ? 0 : (sg->fuse_ticks > 255 ? 255 : sg->fuse_ticks));
+            ng.x = sg->x; ng.y = sg->y; ng.z = sg->z;
+            memcpy(buffer + cursor, &ng, sizeof(ng)); cursor += (int)sizeof(ng);
+        }
+
+        unsigned short pickup_count = 0;
+        for (int wi = 0; wi < MAX_WORLD_PICKUPS; wi++) {
+            WorldPickup *wp = &local_state.pickups[wi];
+            if (!wp->active || !wp->available || wp->scene_id != recipient_scene) continue;
+            pickup_count++;
+        }
+        if (cursor + 2 > (int)sizeof(buffer)) continue;
+        memcpy(buffer + cursor, &pickup_count, 2); cursor += 2;
+        for (int wi = 0; wi < MAX_WORLD_PICKUPS; wi++) {
+            WorldPickup *wp = &local_state.pickups[wi];
+            if (!wp->active || !wp->available || wp->scene_id != recipient_scene) continue;
+            if (cursor + (int)sizeof(NetWorldPickup) > (int)sizeof(buffer)) break;
+            NetWorldPickup nw;
+            memset(&nw, 0, sizeof(nw));
+            nw.id = (unsigned short)wp->id;
+            nw.scene_id = (unsigned char)wp->scene_id;
+            nw.type = (unsigned char)wp->type;
+            nw.available = (unsigned char)wp->available;
+            nw.x = wp->x; nw.y = wp->y; nw.z = wp->z;
+            nw.radius = wp->radius;
+            memcpy(buffer + cursor, &nw, sizeof(nw)); cursor += (int)sizeof(nw);
         }
 #if HELI_NET_DEBUG
         printf("[HELI SNAPSHOT][TX] client=%d scene=%d heli_count=%u players=%u\n", i, recipient_scene, heli_count, count);
@@ -699,6 +747,8 @@ int main(int argc, char *argv[]) {
         }
 
         update_projectiles(now);
+        sticky_update_all(now);
+        pickup_update_and_collect();
         recorder_write_frame(tick, now);
         if ((tick % SERVER_SNAPSHOT_INTERVAL_TICKS) == 0) {
             server_broadcast();

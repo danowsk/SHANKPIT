@@ -3234,21 +3234,6 @@ int main(int argc, char* argv[]) {
                     }
                 }
             } else {
-                                    lobby_start_action(hit);
-                                }
-                                ui_last_click_ms = 0;
-                                ui_last_click_index = -1;
-                            } else {
-                                ui_last_click_ms = now;
-                                ui_last_click_index = hit;
-                            }
-                        } else {
-                            ui_last_click_ms = now;
-                            ui_last_click_index = hit;
-                        }
-                    }
-                }
-            } else {
                 if (e.type == SDL_KEYDOWN) {
                     if (e.key.keysym.sym == SDLK_ESCAPE) {
                         if (app_state == STATE_GAME_NET) net_shutdown();

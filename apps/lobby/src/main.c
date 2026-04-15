@@ -557,9 +557,12 @@ static void lobby_apply_ui_state() {
     } else if (strcmp(ui_state.active_mode_id, "mode.battle") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(12, MODE_DEATHMATCH);
-    } else if (strcmp(ui_state.active_mode_id, "mode.tdmb") == 0 || strcmp(ui_state.active_mode_id, "mode.tdm") == 0) {
+    } else if (strcmp(ui_state.active_mode_id, "mode.tdmb") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(12, MODE_TDMB);
+    } else if (strcmp(ui_state.active_mode_id, "mode.tdm") == 0) {
+        app_state = STATE_GAME_LOCAL;
+        local_init_match(12, MODE_TDM);
     } else if (strcmp(ui_state.active_mode_id, "mode.ctf") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(8, MODE_CTF);
@@ -2032,34 +2035,91 @@ static int score_row_cmp_desc(const void *a, const void *b) {
     return ra->id - rb->id;
 }
 
+static int mode_uses_team_scoreboard(int mode) {
+    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_CTF;
+}
+
+static int is_valid_scoreboard_team_id(int team_id) {
+    return team_id == TDMB_BLUE_TEAM || team_id == TDMB_RED_TEAM;
+}
+
+static void scoreboard_team_totals(int mode, int *out_blue, int *out_red) {
+    int blue = 0;
+    int red = 0;
+    if (mode == MODE_TDMB) {
+        blue = local_state.team_scores[TDMB_BLUE_TEAM];
+        red = local_state.team_scores[TDMB_RED_TEAM];
+    } else {
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            PlayerState *p = &local_state.players[i];
+            if (!p->active || !is_valid_scoreboard_team_id(p->team_id)) continue;
+            if (p->team_id == TDMB_BLUE_TEAM) blue += p->kills;
+            else if (p->team_id == TDMB_RED_TEAM) red += p->kills;
+        }
+    }
+    if (out_blue) *out_blue = blue;
+    if (out_red) *out_red = red;
+}
+
+static void draw_team_section_rows(const ScoreRow *rows, int row_count, PlayerState *self,
+                                   float section_l, float section_r, float player_x,
+                                   float kills_x, float deaths_x, float *row_y) {
+    for (int i = 0; i < row_count; i++) {
+        PlayerState *row_p = &local_state.players[rows[i].id];
+        int is_self = (row_p == self);
+        float y = *row_y;
+        float row_top = y + 11.0f;
+        float row_bottom = y - 15.0f;
+        float stripe = (i % 2 == 0) ? 0.15f : 0.10f;
+        if (is_self) glColor4f(0.78f, 0.63f, 0.16f, 0.48f);
+        else glColor4f(0.12f, 0.16f, 0.22f, stripe);
+        glBegin(GL_QUADS);
+        glVertex2f(section_l, row_bottom); glVertex2f(section_r, row_bottom);
+        glVertex2f(section_r, row_top); glVertex2f(section_l, row_top);
+        glEnd();
+
+        glColor3f(is_self ? 1.0f : 0.82f, is_self ? 0.95f : 0.84f, is_self ? 0.35f : 0.92f);
+        char name_buf[64];
+        snprintf(name_buf, sizeof(name_buf), "%s%02d%s",
+                 row_p->is_bot ? "BOT-" : "P",
+                 rows[i].id,
+                 is_self ? " (YOU)" : "");
+        draw_string(name_buf, player_x, y, 6);
+        char score_buf[32];
+        snprintf(score_buf, sizeof(score_buf), "%d", rows[i].kills);
+        draw_string(score_buf, kills_x, y, 6);
+        snprintf(score_buf, sizeof(score_buf), "%d", rows[i].deaths);
+        draw_string(score_buf, deaths_x, y, 6);
+        *row_y -= 34.0f;
+    }
+}
+
 static void draw_tab_scoreboard(PlayerState *self) {
     const Uint8 *keys = SDL_GetKeyboardState(NULL);
     if (!keys[SDL_SCANCODE_TAB]) return;
 
+    const int team_mode = mode_uses_team_scoreboard(local_state.game_mode);
     ScoreRow rows[MAX_CLIENTS];
+    ScoreRow blue_rows[MAX_CLIENTS];
+    ScoreRow red_rows[MAX_CLIENTS];
     int row_count = 0;
-    if (local_state.game_mode == MODE_TDMB) {
-        for (int pass = 0; pass < 2; pass++) {
-            int team = (pass == 0) ? 1 : 0;
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (!local_state.players[i].active) continue;
-                if (local_state.players[i].team_id != team) continue;
-                rows[row_count].id = i;
-                rows[row_count].kills = local_state.players[i].kills;
-                rows[row_count].deaths = local_state.players[i].deaths;
-                row_count++;
-            }
-        }
-    } else {
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (!local_state.players[i].active) continue;
-            rows[row_count].id = i;
-            rows[row_count].kills = local_state.players[i].kills;
-            rows[row_count].deaths = local_state.players[i].deaths;
-            row_count++;
+    int blue_count = 0;
+    int red_count = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        PlayerState *p = &local_state.players[i];
+        if (!p->active) continue;
+        ScoreRow row = { i, p->kills, p->deaths };
+        if (team_mode && is_valid_scoreboard_team_id(p->team_id)) {
+            if (p->team_id == TDMB_BLUE_TEAM) blue_rows[blue_count++] = row;
+            else red_rows[red_count++] = row;
+        } else if (!team_mode) {
+            rows[row_count++] = row;
         }
     }
-    if (local_state.game_mode != MODE_TDMB) {
+    if (team_mode) {
+        qsort(blue_rows, (size_t)blue_count, sizeof(blue_rows[0]), score_row_cmp_desc);
+        qsort(red_rows, (size_t)red_count, sizeof(red_rows[0]), score_row_cmp_desc);
+    } else {
         qsort(rows, (size_t)row_count, sizeof(rows[0]), score_row_cmp_desc);
     }
 
@@ -2094,60 +2154,108 @@ static void draw_tab_scoreboard(PlayerState *self) {
     glVertex2f(panel_r - 5.0f, panel_t - 5.0f); glVertex2f(panel_l + 5.0f, panel_t - 5.0f);
     glEnd();
 
-    char header[128];
-    if (local_state.game_mode == MODE_TDMB) snprintf(header, sizeof(header), "TDMB SCOREBOARD · BLUE %d - %d RED", local_state.team_scores[1], local_state.team_scores[0]);
-    else snprintf(header, sizeof(header), "SCOREBOARD - %s", scene_name_ui(local_state.scene_id));
-    glColor3f(0.95f, 0.95f, 0.2f);
-    draw_string(header, 290, 590, 9);
-    glColor3f(0.72f, 0.90f, 1.0f);
-    draw_string("PLAYER", player_x, 552, 6);
-    draw_string("K", kills_x, 552, 6);
-    draw_string("D", deaths_x, 552, 6);
+    if (team_mode) {
+        int blue_total = 0, red_total = 0;
+        scoreboard_team_totals(local_state.game_mode, &blue_total, &red_total);
+        glColor3f(0.95f, 0.95f, 0.2f);
+        draw_string("TEAM DEATHMATCH", 440, 590, 9);
+        char totals[96];
+        snprintf(totals, sizeof(totals), "BLUE %d  |  RED %d", blue_total, red_total);
+        glColor3f(0.78f, 0.90f, 1.0f);
+        draw_string(totals, 468, 560, 7);
 
-    glColor4f(0.48f, 0.62f, 0.78f, 0.50f);
-    glBegin(GL_LINES);
-    glVertex2f(panel_l + 34.0f, 544.0f); glVertex2f(panel_r - 34.0f, 544.0f);
-    glEnd();
+        const float section_l = panel_l + 24.0f;
+        const float section_r = panel_r - 24.0f;
+        const float blue_header_y = 520.0f;
+        const float red_header_y = 320.0f;
+        const float section_player_x = 340.0f;
+        const float section_kills_x = 860.0f;
+        const float section_deaths_x = 960.0f;
 
-    float row_start_y = 508.0f;
-    int visible_rows = (int)((row_start_y - (panel_b + 18.0f)) / row_step) + 1;
-    if (visible_rows < 0) visible_rows = 0;
-    if (visible_rows > row_count) visible_rows = row_count;
-    int last_team = 99;
-    for (int i = 0; i < visible_rows; i++) {
-        PlayerState *row_p = &local_state.players[rows[i].id];
-        int is_self = (row_p == self);
-        if (local_state.game_mode == MODE_TDMB && row_p->team_id != last_team) {
-            float section_y = row_start_y - (float)i * row_step + 16.0f;
-            glColor3f(row_p->team_id == 1 ? 0.45f : 1.0f, row_p->team_id == 1 ? 0.75f : 0.35f, row_p->team_id == 1 ? 1.0f : 0.32f);
-            draw_string(row_p->team_id == 1 ? "BLUE TEAM" : "RED TEAM", player_x - 40.0f, section_y, 4);
-            last_team = row_p->team_id;
-        }
-        float y = row_start_y - (float)i * row_step;
-        float row_top = y + 11.0f;
-        float row_bottom = y - 15.0f;
-        float stripe = (i % 2 == 0) ? 0.15f : 0.10f;
-        if (is_self) glColor4f(0.78f, 0.63f, 0.16f, 0.48f);
-        else glColor4f(0.12f, 0.16f, 0.22f, stripe);
-        glBegin(GL_QUADS);
-        glVertex2f(panel_l + 24.0f, row_bottom); glVertex2f(panel_r - 24.0f, row_bottom);
-        glVertex2f(panel_r - 24.0f, row_top); glVertex2f(panel_l + 24.0f, row_top);
+        glColor3f(0.40f, 0.78f, 1.0f);
+        draw_string("BLUE TEAM - NINJAS", 300, blue_header_y, 6);
+        char blue_score[32];
+        snprintf(blue_score, sizeof(blue_score), "%d", blue_total);
+        draw_string(blue_score, 1000, blue_header_y, 6);
+        glColor3f(0.72f, 0.90f, 1.0f);
+        draw_string("PLAYER", section_player_x, blue_header_y - 30.0f, 5);
+        draw_string("K", section_kills_x, blue_header_y - 30.0f, 5);
+        draw_string("D", section_deaths_x, blue_header_y - 30.0f, 5);
+
+        glColor4f(0.35f, 0.64f, 0.92f, 0.42f);
+        glBegin(GL_LINES);
+        glVertex2f(section_l, blue_header_y - 38.0f); glVertex2f(section_r, blue_header_y - 38.0f);
+        glEnd();
+        float blue_row_y = blue_header_y - 62.0f;
+        int blue_visible = (int)((blue_row_y - (red_header_y + 34.0f)) / row_step) + 1;
+        if (blue_visible < 0) blue_visible = 0;
+        if (blue_visible > blue_count) blue_visible = blue_count;
+        draw_team_section_rows(blue_rows, blue_visible, self, section_l, section_r,
+                               section_player_x, section_kills_x, section_deaths_x, &blue_row_y);
+
+        glColor3f(1.0f, 0.45f, 0.32f);
+        draw_string("RED TEAM - PIRATES", 300, red_header_y, 6);
+        char red_score[32];
+        snprintf(red_score, sizeof(red_score), "%d", red_total);
+        draw_string(red_score, 1000, red_header_y, 6);
+        glColor3f(1.0f, 0.80f, 0.72f);
+        draw_string("PLAYER", section_player_x, red_header_y - 30.0f, 5);
+        draw_string("K", section_kills_x, red_header_y - 30.0f, 5);
+        draw_string("D", section_deaths_x, red_header_y - 30.0f, 5);
+
+        glColor4f(0.92f, 0.50f, 0.40f, 0.42f);
+        glBegin(GL_LINES);
+        glVertex2f(section_l, red_header_y - 38.0f); glVertex2f(section_r, red_header_y - 38.0f);
+        glEnd();
+        float red_row_y = red_header_y - 62.0f;
+        int red_visible = (int)((red_row_y - (panel_b + 18.0f)) / row_step) + 1;
+        if (red_visible < 0) red_visible = 0;
+        if (red_visible > red_count) red_visible = red_count;
+        draw_team_section_rows(red_rows, red_visible, self, section_l, section_r,
+                               section_player_x, section_kills_x, section_deaths_x, &red_row_y);
+    } else {
+        char header[128];
+        snprintf(header, sizeof(header), "SCOREBOARD - %s", scene_name_ui(local_state.scene_id));
+        glColor3f(0.95f, 0.95f, 0.2f);
+        draw_string(header, 290, 590, 9);
+        glColor3f(0.72f, 0.90f, 1.0f);
+        draw_string("PLAYER", player_x, 552, 6);
+        draw_string("K", kills_x, 552, 6);
+        draw_string("D", deaths_x, 552, 6);
+
+        glColor4f(0.48f, 0.62f, 0.78f, 0.50f);
+        glBegin(GL_LINES);
+        glVertex2f(panel_l + 34.0f, 544.0f); glVertex2f(panel_r - 34.0f, 544.0f);
         glEnd();
 
-        glColor3f(is_self ? 1.0f : 0.82f, is_self ? 0.95f : 0.84f, is_self ? 0.35f : 0.92f);
-        char name_buf[64];
-        if (local_state.game_mode == MODE_TDMB) {
-            const char *team_tag = (local_state.players[rows[i].id].team_id == 1) ? "B" : "R";
-            snprintf(name_buf, sizeof(name_buf), "%s%s%02d%s", team_tag, local_state.players[rows[i].id].is_bot ? "-BOT" : "-P", rows[i].id, is_self ? "(YOU)" : "");
-        } else {
+        float row_start_y = 508.0f;
+        int visible_rows = (int)((row_start_y - (panel_b + 18.0f)) / row_step) + 1;
+        if (visible_rows < 0) visible_rows = 0;
+        if (visible_rows > row_count) visible_rows = row_count;
+        for (int i = 0; i < visible_rows; i++) {
+            PlayerState *row_p = &local_state.players[rows[i].id];
+            int is_self = (row_p == self);
+            float y = row_start_y - (float)i * row_step;
+            float row_top = y + 11.0f;
+            float row_bottom = y - 15.0f;
+            float stripe = (i % 2 == 0) ? 0.15f : 0.10f;
+            if (is_self) glColor4f(0.78f, 0.63f, 0.16f, 0.48f);
+            else glColor4f(0.12f, 0.16f, 0.22f, stripe);
+            glBegin(GL_QUADS);
+            glVertex2f(panel_l + 24.0f, row_bottom); glVertex2f(panel_r - 24.0f, row_bottom);
+            glVertex2f(panel_r - 24.0f, row_top); glVertex2f(panel_l + 24.0f, row_top);
+            glEnd();
+
+            glColor3f(is_self ? 1.0f : 0.82f, is_self ? 0.95f : 0.84f, is_self ? 0.35f : 0.92f);
+            char name_buf[64];
             snprintf(name_buf, sizeof(name_buf), "%s%02d", is_self ? "YOU-" : "P", rows[i].id);
+            draw_string(name_buf, player_x, y, 6);
+            char score_buf[64];
+            snprintf(score_buf, sizeof(score_buf), "%d", rows[i].kills);
+            draw_string(score_buf, kills_x, y, 6);
+            snprintf(score_buf, sizeof(score_buf), "%d", rows[i].deaths);
+            draw_string(score_buf, deaths_x, y, 6);
         }
-        draw_string(name_buf, player_x, y, 6);
-        char score_buf[64];
-        snprintf(score_buf, sizeof(score_buf), "%d", rows[i].kills);
-        draw_string(score_buf, kills_x, y, 6);
-        snprintf(score_buf, sizeof(score_buf), "%d", rows[i].deaths);
-        draw_string(score_buf, deaths_x, y, 6);
     }
 
     glEnable(GL_DEPTH_TEST); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();

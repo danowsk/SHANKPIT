@@ -96,6 +96,8 @@ typedef struct {
 typedef struct {
     unsigned char id; 
     unsigned char scene_id;
+    unsigned char is_bot;
+    signed char team_id;
     unsigned int last_seq;
     float x, y, z; float yaw, pitch;
     unsigned char current_weapon;
@@ -211,7 +213,7 @@ typedef struct {
     HeliInputState input;
 } HelicopterState;
 
-typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100, MODE_TDMB=101 } GameMode;
+typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100, MODE_TDMB=101, MODE_TDMO=102 } GameMode;
 
 typedef struct {
     PlayerState players[MAX_CLIENTS];

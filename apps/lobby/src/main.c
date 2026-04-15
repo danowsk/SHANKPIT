@@ -102,6 +102,8 @@ typedef enum {
     SKIN_BILL,
     SKIN_GENIE,
     SKIN_WANDERER,
+    SKIN_SUIT,
+    SKIN_WORKER,
     SKIN_COUNT
 } PlayerSkin;
 
@@ -116,7 +118,9 @@ static const char *SKIN_LABELS[SKIN_COUNT] = {
     "VIKING",
     "BILL",
     "GENIE",
-    "WANDERER"
+    "WANDERER",
+    "SUIT",
+    "WORKER"
 };
 static const char *SKIN_CONFIG_PATH = "shankpit_skin.cfg";
 static void ensure_skin_selection_visible(void);
@@ -1777,6 +1781,73 @@ static void draw_player_skin_wanderer(PlayerState *p, float draw_pitch, float dr
     glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
 }
 
+static void draw_player_skin_suit(PlayerState *p, float draw_pitch, float draw_recoil) {
+    glColor3f(0.16f, 0.17f, 0.20f);
+    glPushMatrix(); glTranslatef(0.0f, 0.82f, 0.0f); draw_box(1.18f, 1.46f, 0.70f); draw_box_outline(1.18f, 1.46f, 0.70f); glPopMatrix();
+    glColor3f(0.95f, 0.95f, 0.96f);
+    glPushMatrix(); glTranslatef(0.0f, 0.96f, 0.36f); draw_box(0.48f, 0.54f, 0.06f); draw_box_outline(0.48f, 0.54f, 0.06f); glPopMatrix();
+    glColor3f(0.05f, 0.05f, 0.06f);
+    glPushMatrix(); glTranslatef(0.0f, 1.02f, 0.39f); draw_box(0.12f, 0.58f, 0.04f); draw_box_outline(0.12f, 0.58f, 0.04f); glPopMatrix();
+    glColor3f(0.10f, 0.11f, 0.14f);
+    glPushMatrix(); glTranslatef(-0.70f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.70f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glColor3f(0.12f, 0.13f, 0.16f);
+    glPushMatrix(); glTranslatef(-0.32f, -0.10f, 0.0f); draw_box(0.42f, 1.42f, 0.42f); draw_box_outline(0.42f, 1.42f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.32f, -0.10f, 0.0f); draw_box(0.42f, 1.42f, 0.42f); draw_box_outline(0.42f, 1.42f, 0.42f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.94f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(0.74f, 0.58f, 0.46f); draw_box(0.68f, 0.84f, 0.68f); draw_box_outline(0.68f, 0.84f, 0.68f);
+    glColor3f(0.09f, 0.08f, 0.07f);
+    glPushMatrix(); glTranslatef(0.0f, 0.38f, 0.0f); draw_box(0.76f, 0.18f, 0.72f); draw_box_outline(0.76f, 0.18f, 0.72f); glPopMatrix();
+    glColor3f(0.08f, 0.07f, 0.07f);
+    glPushMatrix(); glTranslatef(0.0f, 0.08f, 0.37f); draw_box(0.56f, 0.24f, 0.10f); draw_box_outline(0.56f, 0.24f, 0.10f); glPopMatrix();
+    glColor3f(0.36f, 0.24f, 0.14f);
+    glPushMatrix(); glTranslatef(0.0f, -0.16f, 0.39f); draw_box(0.44f, 0.12f, 0.06f); draw_box_outline(0.44f, 0.12f, 0.06f); glPopMatrix();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
+static void draw_player_skin_worker(PlayerState *p, float draw_pitch, float draw_recoil) {
+    glColor3f(0.98f, 0.43f, 0.08f);
+    glPushMatrix(); glTranslatef(0.0f, 0.82f, 0.0f); draw_box(1.22f, 1.46f, 0.70f); draw_box_outline(1.22f, 1.46f, 0.70f); glPopMatrix();
+    glColor3f(0.82f, 0.86f, 0.90f);
+    glPushMatrix(); glTranslatef(-0.42f, 0.82f, 0.36f); draw_box(0.10f, 1.30f, 0.06f); draw_box_outline(0.10f, 1.30f, 0.06f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.42f, 0.82f, 0.36f); draw_box(0.10f, 1.30f, 0.06f); draw_box_outline(0.10f, 1.30f, 0.06f); glPopMatrix();
+    glColor3f(0.12f, 0.48f, 0.76f);
+    glPushMatrix(); glTranslatef(-0.34f, -0.10f, 0.0f); draw_box(0.42f, 1.42f, 0.42f); draw_box_outline(0.42f, 1.42f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.34f, -0.10f, 0.0f); draw_box(0.42f, 1.42f, 0.42f); draw_box_outline(0.42f, 1.42f, 0.42f); glPopMatrix();
+    glColor3f(0.10f, 0.36f, 0.60f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.72f, 0.84f, 0.0f); draw_box(0.30f, 1.24f, 0.34f); draw_box_outline(0.30f, 1.24f, 0.34f); glPopMatrix();
+    glColor3f(0.30f, 0.17f, 0.08f);
+    glPushMatrix(); glTranslatef(-0.34f, -0.88f, 0.0f); draw_box(0.46f, 0.20f, 0.48f); draw_box_outline(0.46f, 0.20f, 0.48f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.34f, -0.88f, 0.0f); draw_box(0.46f, 0.20f, 0.48f); draw_box_outline(0.46f, 0.20f, 0.48f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.94f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(0.74f, 0.60f, 0.48f); draw_box(0.68f, 0.84f, 0.68f); draw_box_outline(0.68f, 0.84f, 0.68f);
+    glColor3f(0.96f, 0.74f, 0.10f);
+    glPushMatrix(); glTranslatef(0.0f, 0.52f, 0.0f); draw_box(1.04f, 0.14f, 0.88f); draw_box_outline(1.04f, 0.14f, 0.88f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.66f, 0.0f); draw_box(0.74f, 0.16f, 0.58f); draw_box_outline(0.74f, 0.16f, 0.58f); glPopMatrix();
+    glColor3f(0.08f, 0.07f, 0.06f);
+    glPushMatrix(); glTranslatef(0.0f, 0.10f, 0.37f); draw_box(0.56f, 0.22f, 0.10f); draw_box_outline(0.56f, 0.22f, 0.10f); glPopMatrix();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
 void draw_weapon_p(PlayerState *p) {
     if (p->in_vehicle) return; 
     glPushMatrix();
@@ -1831,6 +1902,12 @@ void draw_player_3rd(PlayerState *p) {
     } else {
         // TODO(net): replicate skin on player state (e.g. p->skin) so remote players can use per-player skins.
         switch (clamp_skin_id(g_selected_skin)) {
+            case SKIN_WORKER:
+                draw_player_skin_worker(p, draw_pitch, draw_recoil);
+                break;
+            case SKIN_SUIT:
+                draw_player_skin_suit(p, draw_pitch, draw_recoil);
+                break;
             case SKIN_WANDERER:
                 draw_player_skin_wanderer(p, draw_pitch, draw_recoil);
                 break;

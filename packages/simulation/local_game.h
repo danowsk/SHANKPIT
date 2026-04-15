@@ -8,7 +8,13 @@
 
 ServerState local_state;
 int was_holding_jump = 0;
+static int tdmb_last_kills[MAX_CLIENTS];
 #define SHANKPIT_HELI_DEBUG 0
+#define TDMB_BLUE_TEAM 1
+#define TDMB_RED_TEAM 0
+#define TDMB_BLUE_BOTS 5
+#define TDMB_RED_BOTS 6
+#define TDMB_SCORE_LIMIT 25
 
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time);
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time);
@@ -134,8 +140,9 @@ static inline void scene_tick_transition() {
 // --- BOT AI ---
 void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw, int *out_buttons) {
     PlayerState *me = &players[bot_idx];
-    if (me->state == STATE_DEAD) { *out_buttons = 0; return; }
+    if (me->state == STATE_DEAD || local_state.match_over) { *out_buttons = 0; return; }
 
+    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB);
     int target_idx = -1;
     float min_dist = 9999.0f;
 
@@ -143,13 +150,14 @@ void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw
         if (i == bot_idx) continue;
         if (!players[i].active) continue;
         if (players[i].state == STATE_DEAD) continue;
+        if (team_mode && players[i].team_id == me->team_id) continue;
         
         float dx = players[i].x - me->x;
         float dz = players[i].z - me->z;
         float dist = sqrtf(dx*dx + dz*dz);
         
         if (i == 0 || dist < min_dist) { 
-            if (i == 0) dist *= 0.5f;
+            if (i == 0 && (!team_mode || players[0].team_id != me->team_id)) dist *= 0.5f;
             if (dist < min_dist) { min_dist = dist; target_idx = i; }
         }
     }
@@ -238,6 +246,8 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
 
 static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int damage, unsigned int now_ms) {
     if (!target->active || target->state == STATE_DEAD) return;
+    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB);
+    if (owner && team_mode && owner->team_id == target->team_id) return;
     target->shield_regen_timer = SHIELD_REGEN_DELAY;
     if (target->shield > 0) {
         if (target->shield >= damage) { target->shield -= damage; damage = 0; }
@@ -245,7 +255,10 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
     }
     target->health -= damage;
     if (target->health <= 0) {
-        if (owner) { owner->kills++; owner->accumulated_reward += 500.0f; }
+        if (owner) {
+            owner->kills++;
+            owner->accumulated_reward += 500.0f;
+        }
         target->deaths++;
         phys_respawn(target, now_ms);
     }
@@ -309,6 +322,9 @@ static void update_projectiles(unsigned int now_ms) {
 
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time) {
     PlayerState *p0 = &local_state.players[0];
+    if (local_state.match_over && local_state.game_mode == MODE_TDMB) {
+        fwd = 0.0f; str = 0.0f; shoot = 0; jump = 0; crouch = 0; reload = 0; ability = 0;
+    }
     scene_tick_transition();
     if (local_state.transition_timer > 0) {
         fwd = 0.0f;
@@ -399,27 +415,64 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         update_entity(p, 0.016f, server_context, cmd_time);
     }
     update_projectiles(cmd_time);
+    if (local_state.game_mode == MODE_TDMB) {
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            PlayerState *pp = &local_state.players[i];
+            int prev = tdmb_last_kills[i];
+            if (pp->kills > prev && (pp->team_id == TDMB_BLUE_TEAM || pp->team_id == TDMB_RED_TEAM)) {
+                int delta = pp->kills - prev;
+                local_state.team_scores[pp->team_id] += delta;
+                if (!local_state.match_over && local_state.team_scores[pp->team_id] >= local_state.score_limit) {
+                    local_state.match_over = 1;
+                    local_state.winning_team = pp->team_id;
+                }
+            }
+            tdmb_last_kills[i] = pp->kills;
+        }
+    }
 }
 
 void local_init_match(int num_players, int mode) {
     memset(&local_state, 0, sizeof(ServerState));
+    memset(tdmb_last_kills, 0, sizeof(tdmb_last_kills));
     local_state.game_mode = mode;
     scene_set_game_mode(mode);
-    local_state.scene_id = SCENE_GARAGE_OSAKA;
     local_state.pending_scene = -1;
     local_state.transition_timer = 0;
+    local_state.winning_team = -1;
+    local_state.score_limit = (mode == MODE_TDMB) ? TDMB_SCORE_LIMIT : 0;
+
+    if (mode == MODE_TDMB) {
+        num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
+        local_state.scene_id = SCENE_VOXWORLD;
+    } else {
+        local_state.scene_id = SCENE_GARAGE_OSAKA;
+    }
+
     phys_set_scene(local_state.scene_id);
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        local_state.players[i].id = i;
+    }
+
     local_state.players[0].active = 1;
-    local_state.players[0].team_id = 0;
+    local_state.players[0].is_bot = 0;
+    local_state.players[0].team_id = (mode == MODE_TDMB) ? TDMB_BLUE_TEAM : ((mode == MODE_TDM || mode == MODE_CTF) ? 0 : -1);
     local_state.players[0].scene_id = local_state.scene_id;
     phys_respawn(&local_state.players[0], 0);
+
     for(int i=1; i<num_players; i++) {
         local_state.players[i].active = 1;
-        local_state.players[i].team_id = (mode == MODE_TDM || mode == MODE_CTF) ? (i % 2) : -1;
+        local_state.players[i].is_bot = 1;
+        if (mode == MODE_TDMB) {
+            local_state.players[i].team_id = (i <= TDMB_BLUE_BOTS) ? TDMB_BLUE_TEAM : TDMB_RED_TEAM;
+        } else {
+            local_state.players[i].team_id = (mode == MODE_TDM || mode == MODE_CTF) ? (i % 2) : -1;
+        }
         local_state.players[i].scene_id = local_state.scene_id;
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);
     }
     scene_load(local_state.scene_id);
 }
+
 #endif

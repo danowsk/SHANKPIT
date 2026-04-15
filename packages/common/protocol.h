@@ -211,7 +211,7 @@ typedef struct {
     HeliInputState input;
 } HelicopterState;
 
-typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100 } GameMode;
+typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100, MODE_TDMB=101 } GameMode;
 
 typedef struct {
     PlayerState players[MAX_CLIENTS];
@@ -223,6 +223,10 @@ typedef struct {
     int scene_id;
     int pending_scene;
     int transition_timer;
+    int team_scores[2];
+    int score_limit;
+    int match_over;
+    int winning_team;
     struct sockaddr_in clients[MAX_CLIENTS];
     ClientMeta client_meta[MAX_CLIENTS];
 } ServerState;

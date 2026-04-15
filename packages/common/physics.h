@@ -328,6 +328,16 @@ static int g_voxworld_bushes_ready = 0;
 float phys_rand_f() { return ((float)(rand()%1000)/500.0f) - 1.0f; }
 
 static int g_phys_game_mode = MODE_DEATHMATCH;
+static inline int phys_team_mode_enabled(void) {
+    return g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF || g_phys_game_mode == MODE_TDMB;
+}
+
+static inline int phys_is_friendly(const PlayerState *a, const PlayerState *b) {
+    if (!a || !b) return 0;
+    if (!phys_team_mode_enabled()) return 0;
+    return a->team_id >= 0 && a->team_id == b->team_id;
+}
+
 static TerrainHeightfield g_scene_terrain;
 
 static inline float vox_hash_noise(float x, float z) {
@@ -993,7 +1003,7 @@ static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *o
         ? (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2))
         : (p->scene_id == SCENE_OIL_TANKER ? (int)(sizeof(tanker_spawn_points_dm) / sizeof(Vec2))
                                            : (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2)));
-    int team_mode = (g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF);
+    int team_mode = phys_team_mode_enabled();
     int team = p->team_id;
     if (team_mode && (team != 0 && team != 1)) team = (p->id % 2);
     if (team_mode && p->scene_id == SCENE_VOXWORLD) {
@@ -1403,6 +1413,7 @@ static inline void katana_try_slash(PlayerState *p, PlayerState *targets) {
         if (target == p) continue;
         if (!target->active || target->state == STATE_DEAD) continue;
         if (target->scene_id != p->scene_id) continue;
+        if (phys_is_friendly(p, target)) continue;
         float tx = target->x - origin_x;
         float ty = (target->y + 2.0f) - origin_y;
         float tz = target->z - origin_z;
@@ -1442,6 +1453,7 @@ static inline void katana_update_dash_damage(PlayerState *p, PlayerState *target
         if (target == p) continue;
         if (!target->active || target->state == STATE_DEAD) continue;
         if (target->scene_id != p->scene_id) continue;
+        if (phys_is_friendly(p, target)) continue;
         if (katana_dash_target_seen(p, i)) continue;
         float dx = target->x - p->x;
         float dy = (target->y + 2.0f) - (p->y + 2.0f);
@@ -1750,6 +1762,7 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
                 if (p == &targets[i]) continue;
                 if (!targets[i].active || targets[i].state == STATE_DEAD) continue;
                 if (targets[i].scene_id != p->scene_id) continue;
+                if (phys_is_friendly(p, &targets[i])) continue;
                 if (w == WPN_KNIFE) {
                     float kx = p->x - targets[i].x;
                     float ky = p->y - targets[i].y; float kz = p->z - targets[i].z;

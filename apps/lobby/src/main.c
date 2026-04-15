@@ -421,7 +421,7 @@ typedef enum {
     LOBBY_BATTLE,
     LOBBY_TDM,
     LOBBY_CTF,
-    LOBBY_EVOLUTION,
+    LOBBY_TDMB,
     LOBBY_JOIN,
     LOBBY_COUNT
 } LobbyAction;
@@ -433,7 +433,7 @@ static const char *LOBBY_LABELS[LOBBY_COUNT] = {
     "BATTLE (BOTS)",
     "TEAM DM (BOTS)",
     "LAN CTF",
-    "EVOLUTION",
+    "TDMB",
     "JOIN S.FARTHQ.COM"
 };
 
@@ -557,15 +557,12 @@ static void lobby_apply_ui_state() {
     } else if (strcmp(ui_state.active_mode_id, "mode.battle") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(12, MODE_DEATHMATCH);
-    } else if (strcmp(ui_state.active_mode_id, "mode.tdm") == 0) {
+    } else if (strcmp(ui_state.active_mode_id, "mode.tdmb") == 0 || strcmp(ui_state.active_mode_id, "mode.tdm") == 0) {
         app_state = STATE_GAME_LOCAL;
-        local_init_match(12, MODE_TDM);
+        local_init_match(12, MODE_TDMB);
     } else if (strcmp(ui_state.active_mode_id, "mode.ctf") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(8, MODE_CTF);
-    } else if (strcmp(ui_state.active_mode_id, "mode.evolution") == 0) {
-        app_state = STATE_GAME_LOCAL;
-        local_init_match(8, MODE_EVOLUTION);
     } else if (strcmp(ui_state.active_mode_id, "mode.training") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(1, MODE_DEATHMATCH);
@@ -579,7 +576,7 @@ static void lobby_apply_ui_state() {
         return;
     }
 
-    lobby_apply_scene_id(ui_state.active_scene_id);
+    if (local_state.game_mode != MODE_TDMB) lobby_apply_scene_id(ui_state.active_scene_id);
 }
 
 static void setup_lobby_2d() {
@@ -627,8 +624,8 @@ static void lobby_start_action(int action) {
             case LOBBY_CTF:
                 local_init_match(8, MODE_CTF);
                 break;
-            case LOBBY_EVOLUTION:
-                local_init_match(8, MODE_EVOLUTION);
+            case LOBBY_TDMB:
+                local_init_match(12, MODE_TDMB);
                 break;
             default:
                 break;
@@ -1831,8 +1828,12 @@ void draw_player_3rd(PlayerState *p) {
     if (p->in_vehicle) {
         draw_buggy_model(p);
     } else {
-        // TODO(net): replicate skin on player state (e.g. p->skin) so remote players can use per-player skins.
-        switch (clamp_skin_id(g_selected_skin)) {
+        int forced_skin = -1;
+        if (local_state.game_mode == MODE_TDMB) {
+            forced_skin = (p->team_id == 1) ? SKIN_NINJA : SKIN_PIRATE;
+        }
+        int draw_skin = (forced_skin >= 0) ? forced_skin : clamp_skin_id(g_selected_skin);
+        switch (draw_skin) {
             case SKIN_WANDERER:
                 draw_player_skin_wanderer(p, draw_pitch, draw_recoil);
                 break;
@@ -1935,6 +1936,16 @@ void draw_hud(PlayerState *p) {
         }
     }
 
+
+    if (local_state.game_mode == MODE_TDMB) {
+        char score_buf[96];
+        snprintf(score_buf, sizeof(score_buf), "BLUE %d  -  %d RED", local_state.team_scores[1], local_state.team_scores[0]);
+        glColor3f(0.40f, 0.75f, 1.0f);
+        draw_string(score_buf, 470, 682, 7);
+        glColor3f(0.8f, 0.85f, 0.9f);
+        draw_string("TDMB · SCORE LIMIT 25", 520, 658, 4);
+        draw_string(p->team_id == 1 ? "YOU: BLUE TEAM" : "YOU: RED TEAM", 548, 638, 4);
+    }
     float x0 = 50.0f, x1 = vs0_art_direction_enabled ? 220.0f : 250.0f;
     float y_health0 = 50.0f, y_health1 = vs0_art_direction_enabled ? 66.0f : 70.0f;
     float y_shield0 = vs0_art_direction_enabled ? 72.0f : 80.0f, y_shield1 = vs0_art_direction_enabled ? 88.0f : 100.0f;
@@ -2027,14 +2038,30 @@ static void draw_tab_scoreboard(PlayerState *self) {
 
     ScoreRow rows[MAX_CLIENTS];
     int row_count = 0;
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (!local_state.players[i].active) continue;
-        rows[row_count].id = i;
-        rows[row_count].kills = local_state.players[i].kills;
-        rows[row_count].deaths = local_state.players[i].deaths;
-        row_count++;
+    if (local_state.game_mode == MODE_TDMB) {
+        for (int pass = 0; pass < 2; pass++) {
+            int team = (pass == 0) ? 1 : 0;
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (!local_state.players[i].active) continue;
+                if (local_state.players[i].team_id != team) continue;
+                rows[row_count].id = i;
+                rows[row_count].kills = local_state.players[i].kills;
+                rows[row_count].deaths = local_state.players[i].deaths;
+                row_count++;
+            }
+        }
+    } else {
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (!local_state.players[i].active) continue;
+            rows[row_count].id = i;
+            rows[row_count].kills = local_state.players[i].kills;
+            rows[row_count].deaths = local_state.players[i].deaths;
+            row_count++;
+        }
     }
-    qsort(rows, (size_t)row_count, sizeof(rows[0]), score_row_cmp_desc);
+    if (local_state.game_mode != MODE_TDMB) {
+        qsort(rows, (size_t)row_count, sizeof(rows[0]), score_row_cmp_desc);
+    }
 
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 1280, 0, 720);
@@ -2068,7 +2095,8 @@ static void draw_tab_scoreboard(PlayerState *self) {
     glEnd();
 
     char header[128];
-    snprintf(header, sizeof(header), "SCOREBOARD - %s", scene_name_ui(local_state.scene_id));
+    if (local_state.game_mode == MODE_TDMB) snprintf(header, sizeof(header), "TDMB SCOREBOARD · BLUE %d - %d RED", local_state.team_scores[1], local_state.team_scores[0]);
+    else snprintf(header, sizeof(header), "SCOREBOARD - %s", scene_name_ui(local_state.scene_id));
     glColor3f(0.95f, 0.95f, 0.2f);
     draw_string(header, 290, 590, 9);
     glColor3f(0.72f, 0.90f, 1.0f);
@@ -2085,9 +2113,16 @@ static void draw_tab_scoreboard(PlayerState *self) {
     int visible_rows = (int)((row_start_y - (panel_b + 18.0f)) / row_step) + 1;
     if (visible_rows < 0) visible_rows = 0;
     if (visible_rows > row_count) visible_rows = row_count;
+    int last_team = 99;
     for (int i = 0; i < visible_rows; i++) {
         PlayerState *row_p = &local_state.players[rows[i].id];
         int is_self = (row_p == self);
+        if (local_state.game_mode == MODE_TDMB && row_p->team_id != last_team) {
+            float section_y = row_start_y - (float)i * row_step + 16.0f;
+            glColor3f(row_p->team_id == 1 ? 0.45f : 1.0f, row_p->team_id == 1 ? 0.75f : 0.35f, row_p->team_id == 1 ? 1.0f : 0.32f);
+            draw_string(row_p->team_id == 1 ? "BLUE TEAM" : "RED TEAM", player_x - 40.0f, section_y, 4);
+            last_team = row_p->team_id;
+        }
         float y = row_start_y - (float)i * row_step;
         float row_top = y + 11.0f;
         float row_bottom = y - 15.0f;
@@ -2101,7 +2136,12 @@ static void draw_tab_scoreboard(PlayerState *self) {
 
         glColor3f(is_self ? 1.0f : 0.82f, is_self ? 0.95f : 0.84f, is_self ? 0.35f : 0.92f);
         char name_buf[64];
-        snprintf(name_buf, sizeof(name_buf), "%s%02d", is_self ? "YOU-" : "P", rows[i].id);
+        if (local_state.game_mode == MODE_TDMB) {
+            const char *team_tag = (local_state.players[rows[i].id].team_id == 1) ? "B" : "R";
+            snprintf(name_buf, sizeof(name_buf), "%s%s%02d%s", team_tag, local_state.players[rows[i].id].is_bot ? "-BOT" : "-P", rows[i].id, is_self ? "(YOU)" : "");
+        } else {
+            snprintf(name_buf, sizeof(name_buf), "%s%02d", is_self ? "YOU-" : "P", rows[i].id);
+        }
         draw_string(name_buf, player_x, y, 6);
         char score_buf[64];
         snprintf(score_buf, sizeof(score_buf), "%d", rows[i].kills);
@@ -2332,6 +2372,27 @@ static void draw_travel_overlay() {
     glEnable(GL_DEPTH_TEST);
 }
 
+
+static void draw_tdmb_match_over_overlay(void) {
+    if (local_state.game_mode != MODE_TDMB || !local_state.match_over) return;
+    glDisable(GL_DEPTH_TEST);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 1280, 0, 720);
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+    glColor4f(0.0f, 0.0f, 0.0f, 0.62f);
+    glBegin(GL_QUADS);
+    glVertex2f(220, 210); glVertex2f(1060, 210); glVertex2f(1060, 510); glVertex2f(220, 510);
+    glEnd();
+    const int blue_won = (local_state.winning_team == 1);
+    glColor3f(blue_won ? 0.35f : 1.0f, blue_won ? 0.75f : 0.32f, blue_won ? 1.0f : 0.28f);
+    draw_string(blue_won ? "BLUE TEAM WINS" : "RED TEAM WINS", 460, 430, 10);
+    glColor3f(0.95f, 0.95f, 0.95f);
+    draw_string("R: RESTART TDMB", 500, 340, 6);
+    draw_string("ESC: BACK TO MENU", 486, 300, 6);
+    glEnable(GL_DEPTH_TEST);
+    glMatrixMode(GL_PROJECTION); glPopMatrix();
+    glMatrixMode(GL_MODELVIEW); glPopMatrix();
+}
+
 void draw_scene(PlayerState *render_p) {
     if (vs0_art_direction_enabled) glClearColor(0.18f, 0.25f, 0.36f, 1.0f);
     else glClearColor(0.02f, 0.02f, 0.05f, 1.0f);
@@ -2390,6 +2451,14 @@ void draw_scene(PlayerState *render_p) {
     draw_terrain();
     draw_voxworld_bushes();
     draw_map();
+    if (local_state.game_mode == MODE_TDMB && local_state.scene_id == SCENE_VOXWORLD) {
+        float ry = voxworld_height_at(VOXWORLD_BASE_RED_X, VOXWORLD_BASE_Z) + 9.0f;
+        float by = voxworld_height_at(VOXWORLD_BASE_BLUE_X, VOXWORLD_BASE_Z) + 9.0f;
+        glColor3f(1.0f, 0.25f, 0.25f);
+        glPushMatrix(); glTranslatef(VOXWORLD_BASE_RED_X, ry, VOXWORLD_BASE_Z); draw_box(22.0f, 8.0f, 22.0f); glPopMatrix();
+        glColor3f(0.28f, 0.55f, 1.0f);
+        glPushMatrix(); glTranslatef(VOXWORLD_BASE_BLUE_X, by, VOXWORLD_BASE_Z); draw_box(22.0f, 8.0f, 22.0f); glPopMatrix();
+    }
     draw_garage_vehicle_pads();
     draw_garage_portal_frame();
     for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
@@ -2407,6 +2476,7 @@ void draw_scene(PlayerState *render_p) {
     }
     draw_weapon_p(render_p); draw_hud(render_p); draw_garage_overlay(render_p); draw_tab_scoreboard(render_p);
     draw_travel_overlay();
+    draw_tdmb_match_over_overlay();
 }
 
 static void draw_lobby_buttons(int menu_count, float base_x, float base_y, float gap, float size) {
@@ -3347,7 +3417,9 @@ int main(int argc, char* argv[]) {
                 }
             } else {
                 if (e.type == SDL_KEYDOWN) {
-                    if (e.key.keysym.sym == SDLK_ESCAPE) {
+                    if (local_state.game_mode == MODE_TDMB && local_state.match_over && e.key.keysym.sym == SDLK_r) {
+                        local_init_match(12, MODE_TDMB);
+                    } else if (e.key.keysym.sym == SDLK_ESCAPE) {
                         if (app_state == STATE_GAME_NET) net_shutdown();
                         app_state = STATE_LOBBY;
                         SDL_SetRelativeMouseMode(SDL_FALSE);

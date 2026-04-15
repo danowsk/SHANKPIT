@@ -329,7 +329,7 @@ float phys_rand_f() { return ((float)(rand()%1000)/500.0f) - 1.0f; }
 
 static int g_phys_game_mode = MODE_DEATHMATCH;
 static inline int phys_team_mode_enabled(void) {
-    return g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF || g_phys_game_mode == MODE_TDMB;
+    return g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF || g_phys_game_mode == MODE_TDMB || g_phys_game_mode == MODE_TDMO;
 }
 
 static inline int phys_is_friendly(const PlayerState *a, const PlayerState *b) {

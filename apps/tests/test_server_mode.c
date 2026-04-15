@@ -32,11 +32,19 @@ static void test_tdm_mode(void) {
     ASSERT_EQ(parse_server_mode(2, args), MODE_TDM, "TDM flag sets team deathmatch");
 }
 
+static void test_tdmo_mode(void) {
+    printf("--- Testing TDMO Server Mode ---\n");
+    char *args[] = { "server", "--tdmo" };
+    ASSERT_EQ(parse_server_mode(2, args), MODE_TDMO, "TDMO flag sets online team deathmatch");
+}
+
 int parse_server_mode(int argc, char **argv) {
     int mode = MODE_DEATHMATCH;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--tdm") == 0) {
             mode = MODE_TDM;
+        } else if (strcmp(argv[i], "--tdmo") == 0) {
+            mode = MODE_TDMO;
         } else if (strcmp(argv[i], "--deathmatch") == 0) {
             mode = MODE_DEATHMATCH;
         }
@@ -48,6 +56,7 @@ int main(void) {
     printf("🛡️ SHANKPIT SERVER MODE CHECK 🛡️\n");
     test_default_mode();
     test_tdm_mode();
+    test_tdmo_mode();
     printf("\n--------------------------------------\n");
     printf("SUMMARY: %d/%d Tests Passed.\n", tests_passed, tests_run);
     return (tests_passed == tests_run) ? 0 : 1;

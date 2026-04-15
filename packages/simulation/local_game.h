@@ -17,7 +17,7 @@ static int tdmb_last_kills[MAX_CLIENTS];
 #define TDMB_SCORE_LIMIT 25
 
 static int mode_uses_team_scores(int mode) {
-    return mode == MODE_TDM || mode == MODE_TDMB;
+    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO;
 }
 
 static int team_id_is_valid(int team_id) {
@@ -150,7 +150,7 @@ void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw
     PlayerState *me = &players[bot_idx];
     if (me->state == STATE_DEAD || local_state.match_over) { *out_buttons = 0; return; }
 
-    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB);
+    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO);
     int target_idx = -1;
     float min_dist = 9999.0f;
 
@@ -254,7 +254,7 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
 
 static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int damage, unsigned int now_ms) {
     if (!target->active || target->state == STATE_DEAD) return;
-    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB);
+    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO);
     if (owner && team_mode && owner->team_id == target->team_id) return;
     target->shield_regen_timer = SHIELD_REGEN_DELAY;
     if (target->shield > 0) {
@@ -448,7 +448,7 @@ void local_init_match(int num_players, int mode) {
     local_state.pending_scene = -1;
     local_state.transition_timer = 0;
     local_state.winning_team = -1;
-    local_state.score_limit = (mode == MODE_TDMB) ? TDMB_SCORE_LIMIT : 0;
+    local_state.score_limit = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_SCORE_LIMIT : 0;
 
     if (mode == MODE_TDMB) {
         num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
@@ -464,7 +464,7 @@ void local_init_match(int num_players, int mode) {
 
     local_state.players[0].active = 1;
     local_state.players[0].is_bot = 0;
-    local_state.players[0].team_id = (mode == MODE_TDMB) ? TDMB_BLUE_TEAM : ((mode == MODE_TDM || mode == MODE_CTF) ? 0 : -1);
+    local_state.players[0].team_id = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_BLUE_TEAM : ((mode == MODE_TDM || mode == MODE_CTF) ? 0 : -1);
     local_state.players[0].scene_id = local_state.scene_id;
     phys_respawn(&local_state.players[0], 0);
 
@@ -474,7 +474,7 @@ void local_init_match(int num_players, int mode) {
         if (mode == MODE_TDMB) {
             local_state.players[i].team_id = (i <= TDMB_BLUE_BOTS) ? TDMB_BLUE_TEAM : TDMB_RED_TEAM;
         } else {
-            local_state.players[i].team_id = (mode == MODE_TDM || mode == MODE_CTF) ? (i % 2) : -1;
+            local_state.players[i].team_id = (mode == MODE_TDM || mode == MODE_CTF || mode == MODE_TDMO) ? (i % 2) : -1;
         }
         local_state.players[i].scene_id = local_state.scene_id;
         phys_respawn(&local_state.players[i], i*100);

@@ -58,11 +58,14 @@ static RecorderState recorder = {0};
 #define SERVER_SNAPSHOT_INTERVAL_TICKS 3
 #define SERVER_DM_FRAG_LIMIT 25
 #define SERVER_DM_ROUND_MS (6 * 60 * 1000)
+#define TDMO_TEAM_SIZE 6
+#define TDMO_SCORE_LIMIT 25
 
 static const int g_dm_rotation[] = { SCENE_STADIUM, SCENE_VOXWORLD, SCENE_OIL_TANKER };
 static int g_dm_rotation_idx = 0;
 static int g_server_match_scene = SCENE_GARAGE_OSAKA;
 static unsigned int g_round_start_ms = 0;
+static int g_tdmo_tie_breaker = 0;
 
 #define RECORDER_SHAKE_POS 0.08f
 #define RECORDER_SHAKE_ANGLE 0.35f
@@ -118,6 +121,115 @@ static int addr_equal(const struct sockaddr_in *a, const struct sockaddr_in *b) 
     return a->sin_addr.s_addr == b->sin_addr.s_addr && a->sin_port == b->sin_port;
 }
 
+static int server_team_mode_enabled(int mode) {
+    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTF;
+}
+
+static int tdmo_bot_slot_available(int slot) {
+    return slot > 0 && slot < MAX_CLIENTS && !slots[slot].active && !local_state.players[slot].active;
+}
+
+static int tdmo_find_free_bot_slot(void) {
+    for (int i = MAX_CLIENTS - 1; i >= 1; i--) {
+        if (tdmo_bot_slot_available(i)) return i;
+    }
+    return -1;
+}
+
+static int tdmo_human_count_on_team(int team_id) {
+    int count = 0;
+    for (int i = 1; i < MAX_CLIENTS; i++) {
+        if (!slots[i].active || !slots[i].welcomed) continue;
+        PlayerState *p = &local_state.players[i];
+        if (!p->active || p->is_bot) continue;
+        if (p->team_id == team_id) count++;
+    }
+    return count;
+}
+
+static int tdmo_total_count_on_team(int team_id) {
+    int count = 0;
+    for (int i = 1; i < MAX_CLIENTS; i++) {
+        PlayerState *p = &local_state.players[i];
+        if (!p->active) continue;
+        if (p->team_id == team_id) count++;
+    }
+    return count;
+}
+
+static int tdmo_choose_join_team(void) {
+    int blue_humans = tdmo_human_count_on_team(TDMB_BLUE_TEAM);
+    int red_humans = tdmo_human_count_on_team(TDMB_RED_TEAM);
+    if (blue_humans != red_humans) {
+        return (blue_humans < red_humans) ? TDMB_BLUE_TEAM : TDMB_RED_TEAM;
+    }
+    int blue_total = tdmo_total_count_on_team(TDMB_BLUE_TEAM);
+    int red_total = tdmo_total_count_on_team(TDMB_RED_TEAM);
+    if (blue_total != red_total) {
+        return (blue_total < red_total) ? TDMB_BLUE_TEAM : TDMB_RED_TEAM;
+    }
+    int team = (g_tdmo_tie_breaker++ & 1) ? TDMB_RED_TEAM : TDMB_BLUE_TEAM;
+    return team;
+}
+
+static int tdmo_remove_one_bot_from_team(int team_id) {
+    for (int i = MAX_CLIENTS - 1; i >= 1; i--) {
+        PlayerState *p = &local_state.players[i];
+        if (!p->active || !p->is_bot || p->team_id != team_id) continue;
+        memset(p, 0, sizeof(*p));
+        p->id = i;
+        p->team_id = -1;
+        return 1;
+    }
+    return 0;
+}
+
+static int tdmo_spawn_bot_on_team(int team_id, unsigned int now_ms) {
+    int slot = tdmo_find_free_bot_slot();
+    if (slot == -1) return 0;
+    PlayerState *p = &local_state.players[slot];
+    memset(p, 0, sizeof(*p));
+    p->id = slot;
+    p->active = 1;
+    p->is_bot = 1;
+    p->team_id = team_id;
+    p->scene_id = g_server_match_scene;
+    p->state = STATE_ALIVE;
+    p->health = 100;
+    p->shield = 100;
+    p->current_weapon = WPN_AR;
+    p->ammo[WPN_AR] = WPN_STATS[WPN_AR].ammo_max;
+    init_genome(&p->brain);
+    phys_respawn(p, now_ms);
+    return 1;
+}
+
+static void tdmo_fill_team_to_target(int team_id, unsigned int now_ms) {
+    while (tdmo_total_count_on_team(team_id) < TDMO_TEAM_SIZE) {
+        if (!tdmo_spawn_bot_on_team(team_id, now_ms)) break;
+    }
+}
+
+static void tdmo_ensure_population(unsigned int now_ms) {
+    tdmo_fill_team_to_target(TDMB_BLUE_TEAM, now_ms);
+    tdmo_fill_team_to_target(TDMB_RED_TEAM, now_ms);
+}
+
+static void tdmo_activate_match(unsigned int now_ms) {
+    local_init_match(1, MODE_TDMO);
+    g_server_match_scene = SCENE_VOXWORLD;
+    scene_load(g_server_match_scene);
+    local_state.game_mode = MODE_TDMO;
+    local_state.score_limit = TDMO_SCORE_LIMIT;
+    local_state.team_scores[TDMB_BLUE_TEAM] = 0;
+    local_state.team_scores[TDMB_RED_TEAM] = 0;
+    local_state.match_over = 0;
+    local_state.winning_team = -1;
+    local_state.players[0].active = 0;
+    g_tdmo_tie_breaker = 0;
+    tdmo_ensure_population(now_ms);
+}
+
 static int find_slot_by_addr(const struct sockaddr_in *addr) {
     for (int i = 1; i < MAX_CLIENTS; i++) {
         if (slots[i].active && addr_equal(&slots[i].addr, addr)) {
@@ -158,6 +270,8 @@ static int alloc_slot(const struct sockaddr_in *addr) {
 
 static void free_slot(int slot) {
     if (slot <= 0 || slot >= MAX_CLIENTS) return;
+    int was_human = local_state.players[slot].active && !local_state.players[slot].is_bot;
+    int prev_team = local_state.players[slot].team_id;
     for (int i = 0; i < MAX_HELICOPTERS; i++) {
         if (local_state.helicopters[i].active && local_state.helicopters[i].occupant_player_id == slot) {
             local_state.helicopters[i].occupant_player_id = -1;
@@ -170,6 +284,10 @@ static void free_slot(int slot) {
     slots[slot].last_heard = 0.0;
     slots[slot].player_id = -1;
     server_disconnect(slot, client_last_seq);
+    if (local_state.game_mode == MODE_TDMO && was_human && team_id_is_valid(prev_team)) {
+        tdmo_spawn_bot_on_team(prev_team, get_server_time());
+        tdmo_ensure_population(get_server_time());
+    }
 }
 
 static HelicopterState *server_find_nearby_heli(int scene_id, float x, float y, float z, float radius) {
@@ -204,14 +322,16 @@ static int server_try_exit_heli(PlayerState *p, HelicopterState *h) {
 
 static void send_welcome(const struct sockaddr_in *addr, int client_id) {
     unsigned int now = get_server_time();
-    NetHeader h;
-    h.type = PACKET_WELCOME;
-    h.client_id = (unsigned char)client_id;
-    h.sequence = 0;
-    h.timestamp = now;
-    h.entity_count = 0;
-    h.scene_id = (unsigned char)local_state.players[client_id].scene_id;
-    sendto(sock, (char*)&h, sizeof(NetHeader), 0,
+    char packet[sizeof(NetHeader) + 1];
+    NetHeader *h = (NetHeader*)packet;
+    h->type = PACKET_WELCOME;
+    h->client_id = (unsigned char)client_id;
+    h->sequence = 0;
+    h->timestamp = now;
+    h->entity_count = 0;
+    h->scene_id = (unsigned char)local_state.players[client_id].scene_id;
+    packet[sizeof(NetHeader)] = (unsigned char)(local_state.game_mode & 0xFF);
+    sendto(sock, packet, sizeof(packet), 0,
            (const struct sockaddr*)addr, sizeof(struct sockaddr_in));
     if (client_id > 0 && client_id < MAX_CLIENTS) {
         slots[client_id].welcomed = 1;
@@ -346,6 +466,8 @@ int parse_server_mode(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--tdm") == 0) {
             mode = MODE_TDM;
+        } else if (strcmp(argv[i], "--tdmo") == 0) {
+            mode = MODE_TDMO;
         } else if (strcmp(argv[i], "--deathmatch") == 0) {
             mode = MODE_DEATHMATCH;
         }
@@ -393,8 +515,33 @@ void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
     if (client_id == -1) return;
 
     if (head->type == PACKET_CONNECT) {
+        int requested_mode = MODE_DEATHMATCH;
+        if (size >= (int)sizeof(NetHeader) + 1) {
+            requested_mode = (unsigned char)buffer[sizeof(NetHeader)];
+        }
+        if (requested_mode == MODE_TDMO && local_state.game_mode != MODE_TDMO) {
+            tdmo_activate_match(get_server_time());
+        }
         PlayerState *p = &local_state.players[client_id];
         client_last_seq[client_id] = 0;
+        if (local_state.game_mode == MODE_TDMO) {
+            int team = tdmo_choose_join_team();
+            tdmo_remove_one_bot_from_team(team);
+            memset(p, 0, sizeof(*p));
+            p->id = client_id;
+            p->active = 1;
+            p->is_bot = 0;
+            p->team_id = team;
+            p->scene_id = g_server_match_scene;
+            p->state = STATE_ALIVE;
+            p->health = 100;
+            p->shield = 100;
+            p->current_weapon = WPN_MAGNUM;
+            p->ammo[WPN_MAGNUM] = WPN_STATS[WPN_MAGNUM].ammo_max;
+            phys_respawn(p, get_server_time());
+            local_state.client_meta[client_id].active = 1;
+            tdmo_ensure_population(get_server_time());
+        }
         p->in_fwd = 0.0f;
         p->in_strafe = 0.0f;
         p->in_jump = 0;
@@ -431,8 +578,10 @@ void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
             slots[client_id].last_heard = now_seconds();
             local_state.client_meta[client_id].last_heard_ms = get_server_time();
             slots[client_id].cmd_seen = 1;
-            local_state.players[client_id].active = slots[client_id].welcomed && slots[client_id].cmd_seen;
-            local_state.client_meta[client_id].active = local_state.players[client_id].active;
+            if (local_state.game_mode != MODE_TDMO) {
+                local_state.players[client_id].active = slots[client_id].welcomed && slots[client_id].cmd_seen;
+                local_state.client_meta[client_id].active = local_state.players[client_id].active;
+            }
         }
     }
 }
@@ -446,9 +595,13 @@ void server_broadcast() {
         unsigned char count = 0;
 
         for (int pi = 1; pi < MAX_CLIENTS; pi++) {
-            if (!(slots[pi].active && slots[pi].welcomed && slots[pi].cmd_seen)) continue;
-            if (!local_state.players[pi].active) continue;
-            if (local_state.players[pi].scene_id != recipient_scene) continue;
+            PlayerState *p = &local_state.players[pi];
+            if (!p->active || p->scene_id != recipient_scene) continue;
+            if (p->is_bot) {
+                count++;
+                continue;
+            }
+            if (!(slots[pi].active && slots[pi].welcomed)) continue;
             count++;
         }
 
@@ -465,13 +618,15 @@ void server_broadcast() {
 
         for (int pi = 1; pi < MAX_CLIENTS; pi++) {
             PlayerState *p = &local_state.players[pi];
-            if (!(slots[pi].active && slots[pi].welcomed && slots[pi].cmd_seen && p->active)) continue;
-            if (p->scene_id != recipient_scene) continue;
+            if (!p->active || p->scene_id != recipient_scene) continue;
+            if (!p->is_bot && !(slots[pi].active && slots[pi].welcomed)) continue;
 
             if (cursor + (int)sizeof(NetPlayer) + 1 > (int)sizeof(buffer)) break;
             NetPlayer np;
             np.id = (unsigned char)pi;
             np.scene_id = (unsigned char)p->scene_id;
+            np.is_bot = (unsigned char)(p->is_bot ? 1 : 0);
+            np.team_id = (signed char)p->team_id;
             np.last_seq = client_last_seq[pi];
             np.x = p->x; np.y = p->y; np.z = p->z;
             np.yaw = norm_yaw_deg(p->yaw); np.pitch = clamp_pitch_deg(p->pitch);
@@ -554,7 +709,9 @@ int main(int argc, char *argv[]) {
     server_net_init();
     int mode = parse_server_mode(argc, argv);
     local_init_match(1, mode);
-    if (mode == MODE_DEATHMATCH || mode == MODE_TDM) {
+    if (mode == MODE_TDMO) {
+        tdmo_activate_match(get_server_time());
+    } else if (mode == MODE_DEATHMATCH || mode == MODE_TDM) {
         g_server_match_scene = g_dm_rotation[g_dm_rotation_idx];
         scene_load(g_server_match_scene);
         g_round_start_ms = get_server_time();
@@ -567,7 +724,13 @@ int main(int argc, char *argv[]) {
     local_state.players[0].active = 0;
     local_state.players[0].health = 0;
     local_state.players[0].state = STATE_DEAD;
-    printf("SERVER MODE: %s\n", mode == MODE_TDM ? "TEAM DEATHMATCH" : "DEATHMATCH");
+    if (mode == MODE_TDM) {
+        printf("SERVER MODE: TEAM DEATHMATCH\n");
+    } else if (mode == MODE_TDMO) {
+        printf("SERVER MODE: ONLINE TEAM DEATHMATCH (TDMO)\n");
+    } else {
+        printf("SERVER MODE: DEATHMATCH\n");
+    }
 
     int running = 1;
     unsigned int tick = 0;
@@ -584,6 +747,9 @@ int main(int argc, char *argv[]) {
         }
 
         unsigned int now = get_server_time();
+        if (local_state.game_mode == MODE_TDMO) {
+            tdmo_ensure_population(now);
+        }
         // TIMEOUT_SWEEP
         for (int i = 1; i < MAX_CLIENTS; i++) {
             if (slots[i].active && now_seconds() - slots[i].last_heard > 5.0) {
@@ -595,6 +761,27 @@ int main(int argc, char *argv[]) {
 
         for(int i=0; i<MAX_CLIENTS; i++) {
             PlayerState *p = &local_state.players[i];
+
+            if (local_state.game_mode == MODE_TDMO && p->active && p->is_bot && p->state != STATE_DEAD) {
+                float b_fwd = 0.0f;
+                float b_yaw = p->yaw;
+                int b_btns = 0;
+                bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
+                p->yaw = b_yaw;
+                float brad = b_yaw * 3.14159f / 180.0f;
+                float bx = sinf(brad) * b_fwd;
+                float bz = cosf(brad) * b_fwd;
+                accelerate(p, bx, bz, MAX_SPEED, ACCEL);
+                p->in_shoot = (b_btns & BTN_ATTACK) ? 1 : 0;
+                p->in_jump = (b_btns & BTN_JUMP) ? 1 : 0;
+                p->in_reload = (b_btns & BTN_RELOAD) ? 1 : 0;
+                p->crouching = (b_btns & BTN_CROUCH) ? 1 : 0;
+                p->in_ability = 0;
+                if (p->in_jump && p->on_ground) {
+                    p->y += 0.1f;
+                    p->vy += JUMP_FORCE;
+                }
+            }
 
             if (i > 0 && p->active && p->state == STATE_DEAD) {
                 if (local_state.game_mode != MODE_SURVIVAL && now > p->respawn_time) {
@@ -686,7 +873,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        if ((mode == MODE_DEATHMATCH || mode == MODE_TDM) && server_scene_is_dm_map(g_server_match_scene)) {
+        if ((local_state.game_mode == MODE_DEATHMATCH || local_state.game_mode == MODE_TDM) && server_scene_is_dm_map(g_server_match_scene)) {
             int top_frags = 0;
             for (int i = 1; i < MAX_CLIENTS; i++) {
                 PlayerState *p = &local_state.players[i];
@@ -699,6 +886,23 @@ int main(int argc, char *argv[]) {
         }
 
         update_projectiles(now);
+        if (server_team_mode_enabled(local_state.game_mode)) {
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                PlayerState *pp = &local_state.players[i];
+                int prev = tdmb_last_kills[i];
+                if (pp->kills > prev && team_id_is_valid(pp->team_id)) {
+                    int delta = pp->kills - prev;
+                    local_state.team_scores[pp->team_id] += delta;
+                    if (!local_state.match_over &&
+                        local_state.score_limit > 0 &&
+                        local_state.team_scores[pp->team_id] >= local_state.score_limit) {
+                        local_state.match_over = 1;
+                        local_state.winning_team = pp->team_id;
+                    }
+                }
+                tdmb_last_kills[i] = pp->kills;
+            }
+        }
         recorder_write_frame(tick, now);
         if ((tick % SERVER_SNAPSHOT_INTERVAL_TICKS) == 0) {
             server_broadcast();

@@ -59,7 +59,9 @@ void test_handshake_enums() {
     // Verify differentiation
     ASSERT_TRUE(PACKET_CONNECT != PACKET_USERCMD, "Connect != UserCmd");
     ASSERT_TRUE(PACKET_DISCONNECT != PACKET_USERCMD, "Disconnect != UserCmd");
+    ASSERT_EQ(MODE_TDMO, 102, "TDMO mode enum is stable");
 }
+
 
 void test_simulation_delta() {
     printf("--- Testing Delta Time Limits ---\n");
@@ -113,6 +115,10 @@ void test_scene_fields() {
     NetPlayer np;
     np.scene_id = SCENE_STADIUM;
     ASSERT_EQ(np.scene_id, SCENE_STADIUM, "NetPlayer stores scene_id");
+    np.is_bot = 1;
+    np.team_id = 1;
+    ASSERT_EQ(np.is_bot, 1, "NetPlayer stores bot identity");
+    ASSERT_EQ(np.team_id, 1, "NetPlayer stores team identity");
 }
 
 void test_katana_contract() {

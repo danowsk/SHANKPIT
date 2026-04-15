@@ -144,6 +144,7 @@ static void draw_box(float w, float h, float d);
 
 int sock = -1;
 struct sockaddr_in server_addr;
+static int net_requested_mode = MODE_DEATHMATCH;
 
 #define NET_CMD_HISTORY 3
 #define CLIENT_USERCMD_HZ 60
@@ -418,6 +419,7 @@ void draw_string(const char* str, float x, float y, float size) {
 
 typedef enum {
     LOBBY_JOIN = 0,
+    LOBBY_TDMO,
     LOBBY_SOLO,
     LOBBY_BATTLE,
     LOBBY_TDMB,
@@ -429,6 +431,7 @@ char lobby_labels_mutable[LOBBY_COUNT][64];
 
 static const char *LOBBY_LABELS[LOBBY_COUNT] = {
     "JOIN",
+    "TDMO",
     "SOLO",
     "BATTLE (BOTS)",
     "TDMB",
@@ -545,6 +548,14 @@ static void lobby_apply_ui_state() {
     if (strcmp(ui_state.active_mode_id, "mode.join") == 0) {
         app_state = STATE_GAME_NET;
         reset_client_render_state_for_net();
+        net_requested_mode = MODE_DEATHMATCH;
+        net_connect();
+        return;
+    }
+    if (strcmp(ui_state.active_mode_id, "mode.tdmo") == 0) {
+        app_state = STATE_GAME_NET;
+        reset_client_render_state_for_net();
+        net_requested_mode = MODE_TDMO;
         net_connect();
         return;
     }
@@ -609,6 +620,12 @@ static void lobby_start_action(int action) {
     if (action == LOBBY_JOIN) {
         app_state = STATE_GAME_NET;
         reset_client_render_state_for_net();
+        net_requested_mode = MODE_DEATHMATCH;
+        net_connect();
+    } else if (action == LOBBY_TDMO) {
+        app_state = STATE_GAME_NET;
+        reset_client_render_state_for_net();
+        net_requested_mode = MODE_TDMO;
         net_connect();
     } else {
         app_state = STATE_GAME_LOCAL;
@@ -1827,7 +1844,7 @@ void draw_player_3rd(PlayerState *p) {
         draw_buggy_model(p);
     } else {
         int forced_skin = -1;
-        if (local_state.game_mode == MODE_TDMB) {
+        if (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO) {
             forced_skin = (p->team_id == 1) ? SKIN_NINJA : SKIN_PIRATE;
         }
         int draw_skin = (forced_skin >= 0) ? forced_skin : clamp_skin_id(g_selected_skin);
@@ -1978,7 +1995,7 @@ void draw_hud(PlayerState *p) {
     }
 
 
-    if (local_state.game_mode == MODE_TDMB) {
+    if (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO) {
         char score_buf[96];
         snprintf(score_buf, sizeof(score_buf), "BLUE %d  -  %d RED", local_state.team_scores[1], local_state.team_scores[0]);
         glColor3f(0.40f, 0.75f, 1.0f);
@@ -2075,7 +2092,7 @@ static int score_row_cmp_desc(const void *a, const void *b) {
 }
 
 static int mode_uses_team_scoreboard(int mode) {
-    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_CTF;
+    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTF;
 }
 
 static int is_valid_scoreboard_team_id(int team_id) {
@@ -2085,7 +2102,7 @@ static int is_valid_scoreboard_team_id(int team_id) {
 static void scoreboard_team_totals(int mode, int *out_blue, int *out_red) {
     int blue = 0;
     int red = 0;
-    if (mode == MODE_TDMB) {
+    if (mode == MODE_TDMB || mode == MODE_TDMO) {
         blue = local_state.team_scores[TDMB_BLUE_TEAM];
         red = local_state.team_scores[TDMB_RED_TEAM];
     } else {
@@ -2521,7 +2538,7 @@ static void draw_travel_overlay() {
 
 
 static void draw_tdmb_match_over_overlay(void) {
-    if (local_state.game_mode != MODE_TDMB || !local_state.match_over) return;
+    if ((local_state.game_mode != MODE_TDMB && local_state.game_mode != MODE_TDMO) || !local_state.match_over) return;
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 1280, 0, 720);
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
@@ -2598,7 +2615,7 @@ void draw_scene(PlayerState *render_p) {
     draw_terrain();
     draw_voxworld_bushes();
     draw_map();
-    if (local_state.game_mode == MODE_TDMB && local_state.scene_id == SCENE_VOXWORLD) {
+    if ((local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO) && local_state.scene_id == SCENE_VOXWORLD) {
         float ry = voxworld_height_at(VOXWORLD_BASE_RED_X, VOXWORLD_BASE_Z) + 9.0f;
         float by = voxworld_height_at(VOXWORLD_BASE_BLUE_X, VOXWORLD_BASE_Z) + 9.0f;
         glColor3f(1.0f, 0.25f, 0.25f);
@@ -2916,6 +2933,7 @@ void net_shutdown() {
 
 void net_connect() {
     if (sock < 0) net_init();
+    local_state.game_mode = net_requested_mode;
     struct hostent *he = gethostbyname(SERVER_HOST);
     if (he) {
         server_addr.sin_family = AF_INET; 
@@ -2923,9 +2941,11 @@ void net_connect() {
         memcpy(&server_addr.sin_addr, he->h_addr_list[0], he->h_length);
         char buffer[128];
         NetHeader *h = (NetHeader*)buffer;
+        memset(buffer, 0, sizeof(buffer));
         h->type = PACKET_CONNECT;
         h->scene_id = 0;
-        sendto(sock, buffer, sizeof(NetHeader), 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
+        buffer[sizeof(NetHeader)] = (unsigned char)(net_requested_mode & 0xFF);
+        sendto(sock, buffer, sizeof(NetHeader) + 1, 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
         printf("Connected to %s...\n", SERVER_HOST);
     } else {
         printf("Failed to resolve %s\n", SERVER_HOST);
@@ -3247,6 +3267,8 @@ void net_process_snapshot(char *buffer, int len) {
         }
 
         p->state = np->state;
+        p->is_bot = np->is_bot ? 1 : 0;
+        p->team_id = np->team_id;
         p->health = np->health;
         p->shield = np->shield;
         p->crouching = np->crouching;
@@ -3446,6 +3468,9 @@ void net_tick() {
             }
 
             printf("[NET] WELCOME my_client_id=%d net_local_pid=%d\n", my_client_id, net_local_pid);
+            if (len >= (int)sizeof(NetHeader) + 1) {
+                local_state.game_mode = (unsigned char)buffer[sizeof(NetHeader)];
+            }
             printf("✅ JOINED SERVER AS CLIENT ID: %d\n", my_client_id);
         }
     }
@@ -3626,8 +3651,8 @@ int main(int argc, char* argv[]) {
                 }
             } else {
                 if (e.type == SDL_KEYDOWN) {
-                    if (local_state.game_mode == MODE_TDMB && local_state.match_over && e.key.keysym.sym == SDLK_r) {
-                        local_init_match(12, MODE_TDMB);
+                    if ((local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO) && local_state.match_over && e.key.keysym.sym == SDLK_r) {
+                        local_init_match(12, local_state.game_mode);
                     } else if (e.key.keysym.sym == SDLK_ESCAPE) {
                         if (app_state == STATE_GAME_NET) net_shutdown();
                         app_state = STATE_LOBBY;

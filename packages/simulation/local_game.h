@@ -16,6 +16,14 @@ static int tdmb_last_kills[MAX_CLIENTS];
 #define TDMB_RED_BOTS 6
 #define TDMB_SCORE_LIMIT 25
 
+static int mode_uses_team_scores(int mode) {
+    return mode == MODE_TDM || mode == MODE_TDMB;
+}
+
+static int team_id_is_valid(int team_id) {
+    return team_id == TDMB_BLUE_TEAM || team_id == TDMB_RED_TEAM;
+}
+
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time);
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time);
 static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z);
@@ -415,14 +423,14 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         update_entity(p, 0.016f, server_context, cmd_time);
     }
     update_projectiles(cmd_time);
-    if (local_state.game_mode == MODE_TDMB) {
+    if (mode_uses_team_scores(local_state.game_mode)) {
         for (int i = 0; i < MAX_CLIENTS; i++) {
             PlayerState *pp = &local_state.players[i];
             int prev = tdmb_last_kills[i];
-            if (pp->kills > prev && (pp->team_id == TDMB_BLUE_TEAM || pp->team_id == TDMB_RED_TEAM)) {
+            if (pp->kills > prev && team_id_is_valid(pp->team_id)) {
                 int delta = pp->kills - prev;
                 local_state.team_scores[pp->team_id] += delta;
-                if (!local_state.match_over && local_state.team_scores[pp->team_id] >= local_state.score_limit) {
+                if (!local_state.match_over && local_state.score_limit > 0 && local_state.team_scores[pp->team_id] >= local_state.score_limit) {
                     local_state.match_over = 1;
                     local_state.winning_team = pp->team_id;
                 }

@@ -2,6 +2,20 @@
 
 ## Recent changes
 
+### 2026-04-15
+- Polished TAB scoreboard readability with improved row layout and slightly increased row spacing for easier scanning during matches (`76f1945`, `33e783a`, merged in #159).
+
+### 2026-04-14
+- Expanded lobby customization with two new selectable character skins, **Genie** and **Wanderer** (`64cff5a`, merged in #158).
+- Renamed the previous POC skin option to **BILL** for clearer in-game skin naming (`c0d2098`, merged in #156).
+
+### 2026-04-13
+- Added **pirate** and **ninja** character skins to the lobby skin lineup (`06300d0`, merged in #154).
+
+### 2026-04-12
+- Added the **CYBORG** player skin and integrated it into the skin selector (`ab38202`, merged in #135).
+- Added a deterministic Voxworld bush foliage pass to improve scene dressing consistency (`127bdde`, merged in #136).
+
 ### 2026-04-12
 - Added Voxworld helicopter gameplay support, including scene-aware network replication and rooftop spawn pads with stair access for better traversal and vehicle flow (`d26454f`, `a9f5a30`, merged in #132).
 - Added a VS0 skin selector with Bat/Mayrice rendering options to expand in-game visual customization (`072e4ce`, #130).

@@ -417,24 +417,22 @@ void draw_string(const char* str, float x, float y, float size) {
 }
 
 typedef enum {
-    LOBBY_DEMO = 0,
+    LOBBY_JOIN = 0,
+    LOBBY_SOLO,
     LOBBY_BATTLE,
-    LOBBY_TDM,
-    LOBBY_CTF,
     LOBBY_TDMB,
-    LOBBY_JOIN,
+    LOBBY_CTF,
     LOBBY_COUNT
 } LobbyAction;
 
 char lobby_labels_mutable[LOBBY_COUNT][64];
 
 static const char *LOBBY_LABELS[LOBBY_COUNT] = {
-    "DEMO (SOLO)",
+    "JOIN",
+    "SOLO",
     "BATTLE (BOTS)",
-    "TEAM DM (BOTS)",
-    "LAN CTF",
     "TDMB",
-    "JOIN S.FARTHQ.COM"
+    "LAN CTF"
 };
 
 static void lobby_init_labels() {
@@ -612,20 +610,17 @@ static void lobby_start_action(int action) {
     } else {
         app_state = STATE_GAME_LOCAL;
         switch (action) {
-            case LOBBY_DEMO:
+            case LOBBY_SOLO:
                 local_init_match(1, MODE_DEATHMATCH);
                 break;
             case LOBBY_BATTLE:
                 local_init_match(12, MODE_DEATHMATCH);
                 break;
-            case LOBBY_TDM:
-                local_init_match(12, MODE_TDM);
+            case LOBBY_TDMB:
+                local_init_match(12, MODE_TDMB);
                 break;
             case LOBBY_CTF:
                 local_init_match(8, MODE_CTF);
-                break;
-            case LOBBY_TDMB:
-                local_init_match(12, MODE_TDMB);
                 break;
             default:
                 break;
@@ -2479,50 +2474,108 @@ void draw_scene(PlayerState *render_p) {
     draw_tdmb_match_over_overlay();
 }
 
-static void draw_lobby_buttons(int menu_count, float base_x, float base_y, float gap, float size) {
+typedef struct {
+    float title_x;
+    float title_y;
+    float menu_x;
+    float menu_y;
+    float column_w;
+    float row_gap;
+    float icon_size;
+    float text_x;
+    float text_y;
+    float footer_x;
+    float footer_y;
+} LobbyLayout;
+
+static const LobbyLayout LOBBY_LAYOUT = {
+    360.0f, 640.0f, 170.0f, 450.0f, 280.0f, 105.0f, 70.0f, 88.0f, 38.0f, 300.0f, 36.0f
+};
+
+static int lobby_grid_columns(int menu_count) {
+    (void)menu_count;
+    return 2;
+}
+
+static void lobby_button_pos(int index, int menu_count, const LobbyLayout *layout, float *x, float *y) {
+    int cols = lobby_grid_columns(menu_count);
+    int col = index % cols;
+    int row = index / cols;
+    *x = layout->menu_x + layout->column_w * (float)col;
+    *y = layout->menu_y - layout->row_gap * (float)row;
+}
+
+/* Keep grid navigation intuitive for uneven row counts by snapping to nearest valid cell. */
+static int lobby_nav_move(int selection, int menu_count, int dx, int dy) {
+    if (menu_count <= 0) return 0;
+    int cols = lobby_grid_columns(menu_count);
+    int rows = (menu_count + cols - 1) / cols;
+    int col = selection % cols;
+    int row = selection / cols;
+
+    if (dx != 0) {
+        int next_col = (col + dx + cols) % cols;
+        int idx = row * cols + next_col;
+        if (idx >= menu_count) idx = row * cols;
+        if (idx >= menu_count) idx = menu_count - 1;
+        return idx;
+    }
+    if (dy != 0) {
+        int next_row = (row + dy + rows) % rows;
+        int idx = next_row * cols + col;
+        if (idx >= menu_count) idx = menu_count - 1;
+        return idx;
+    }
+    return selection;
+}
+
+static void draw_lobby_buttons(int menu_count, const LobbyLayout *layout) {
     const float colors[][3] = {
+        {0.1f, 0.75f, 0.2f},  // green (join)
         {0.1f, 0.45f, 0.95f}, // blue
         {0.75f, 0.2f, 0.75f}, // magenta
         {0.0f, 0.75f, 0.75f}, // teal
-        {0.2f, 0.6f, 0.6f},   // light teal
-        {0.0f, 0.4f, 0.45f},  // dark teal
-        {0.4f, 0.5f, 0.1f},   // olive
-        {0.85f, 0.2f, 0.2f},  // red
         {0.9f, 0.75f, 0.1f},  // yellow
-        {0.2f, 0.8f, 0.2f}    // green
+        {0.25f, 0.7f, 0.3f},  // green 2
+        {0.85f, 0.2f, 0.2f},  // red
+        {0.2f, 0.6f, 0.6f}    // light teal
     };
     int color_count = (int)(sizeof(colors) / sizeof(colors[0]));
 
     for (int i = 0; i < menu_count; i++) {
-        float y = base_y - (gap * i);
+        float x = 0.0f, y = 0.0f;
+        lobby_button_pos(i, menu_count, layout, &x, &y);
         const float *c = colors[i % color_count];
         glColor3f(c[0], c[1], c[2]);
-        glRectf(base_x, y, base_x + size, y + size);
+        glRectf(x, y, x + layout->icon_size, y + layout->icon_size);
 
         if (i == lobby_selection) {
-            glColor3f(0.05f, 0.05f, 0.05f);
-            glLineWidth(2.0f);
+            glColor3f(1.0f, 1.0f, 1.0f);
+            glLineWidth(3.0f);
             glBegin(GL_LINE_LOOP);
-            glVertex2f(base_x, y);
-            glVertex2f(base_x + size, y);
-            glVertex2f(base_x + size, y + size);
-            glVertex2f(base_x, y + size);
+            glVertex2f(x, y);
+            glVertex2f(x + layout->icon_size, y);
+            glVertex2f(x + layout->icon_size, y + layout->icon_size);
+            glVertex2f(x, y + layout->icon_size);
             glEnd();
         }
 
-        glColor3f(0.05f, 0.05f, 0.05f);
-        draw_string(lobby_menu_label(i), base_x + 12.0f, y + size * 0.55f, 5);
+        glColor3f(0.0f, 0.0f, 0.0f);
+        draw_string(lobby_menu_label(i), x + layout->text_x + 2.0f, y + layout->text_y - 2.0f, 5);
+        glColor3f(0.98f, 0.98f, 1.0f);
+        draw_string(lobby_menu_label(i), x + layout->text_x, y + layout->text_y, 5);
         if (ui_edit_index == i) {
             glColor3f(0.95f, 0.9f, 0.2f);
-            draw_string(ui_edit_buffer, base_x + 12.0f, y + size * 0.25f, 5);
+            draw_string(ui_edit_buffer, x + layout->text_x, y + layout->icon_size * 0.2f, 5);
         }
     }
 }
 
-static int lobby_hit_test(float mx, float my, int menu_count, float base_x, float base_y, float gap, float size) {
+static int lobby_hit_test(float mx, float my, int menu_count, const LobbyLayout *layout) {
     for (int i = 0; i < menu_count; i++) {
-        float y = base_y - (gap * i);
-        if (mx >= base_x && mx <= base_x + size && my >= y && my <= y + size) {
+        float x = 0.0f, y = 0.0f;
+        lobby_button_pos(i, menu_count, layout, &x, &y);
+        if (mx >= x && mx <= x + layout->icon_size && my >= y && my <= y + layout->icon_size) {
             return i;
         }
     }
@@ -3344,11 +3397,19 @@ int main(int argc, char* argv[]) {
                     } else {
                         if (e.key.keysym.sym == SDLK_UP) {
                             int count = lobby_menu_count();
-                            lobby_selection = (lobby_selection + count - 1) % count;
+                            lobby_selection = lobby_nav_move(lobby_selection, count, 0, -1);
                         }
                         if (e.key.keysym.sym == SDLK_DOWN) {
                             int count = lobby_menu_count();
-                            lobby_selection = (lobby_selection + 1) % count;
+                            lobby_selection = lobby_nav_move(lobby_selection, count, 0, 1);
+                        }
+                        if (e.key.keysym.sym == SDLK_LEFT) {
+                            int count = lobby_menu_count();
+                            lobby_selection = lobby_nav_move(lobby_selection, count, -1, 0);
+                        }
+                        if (e.key.keysym.sym == SDLK_RIGHT) {
+                            int count = lobby_menu_count();
+                            lobby_selection = lobby_nav_move(lobby_selection, count, 1, 0);
                         }
                         if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) {
                             lobby_start_action(lobby_selection);
@@ -3382,11 +3443,7 @@ int main(int argc, char* argv[]) {
                     }
 
                     int menu_count = lobby_menu_count();
-                    float base_x = 360.0f;
-                    float base_y = 520.0f;
-                    float size = 70.0f;
-                    float gap = 85.0f;
-                    int hit = lobby_hit_test(mx, my, menu_count, base_x, base_y, gap, size);
+                    int hit = lobby_hit_test(mx, my, menu_count, &LOBBY_LAYOUT);
                     if (hit >= 0) {
                         unsigned int now = SDL_GetTicks();
                         if (ui_last_click_index == hit && ui_last_click_ms > 0) {
@@ -3468,22 +3525,15 @@ int main(int argc, char* argv[]) {
              glClear(GL_COLOR_BUFFER_BIT);
              setup_lobby_2d();
              glColor3f(0, 1, 1); // CYAN TEXT
-             draw_string("SHANKPIT", 430, 560, 12);
-             glColor3f(0.5f, 0.8f, 0.9f);
-             draw_string("SELECT MODE / SKIN", 430, 520, 6);
-
-             float base_x = 360.0f;
-             float base_y = 520.0f;
-             float size = 70.0f;
-             float gap = 85.0f;
+             draw_string("SHANKPIT", LOBBY_LAYOUT.title_x, LOBBY_LAYOUT.title_y, 12);
              int menu_count = lobby_menu_count();
-             draw_lobby_buttons(menu_count, base_x, base_y, gap, size);
+             draw_lobby_buttons(menu_count, &LOBBY_LAYOUT);
              if (skin_menu_open) {
                  draw_skin_chooser_overlay();
              }
 
              glColor3f(0.4f, 0.6f, 0.7f);
-             draw_string("DOUBLE-CLICK: FAST=OPEN / SLOW=RENAME", 320, 140, 5);
+             draw_string("DOUBLE CLICK TO SELECT MODE", LOBBY_LAYOUT.footer_x, LOBBY_LAYOUT.footer_y, 5);
              SDL_GL_SwapWindow(win);
         } 
         else {

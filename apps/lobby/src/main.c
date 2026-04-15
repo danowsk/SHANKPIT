@@ -1973,7 +1973,7 @@ static void draw_tab_scoreboard(PlayerState *self) {
     const float player_x = 300.0f;
     const float kills_x = 860.0f;
     const float deaths_x = 960.0f;
-    const float row_step = 32.0f;
+    const float row_step = 34.0f;
 
     glColor4f(0.05f, 0.07f, 0.10f, 0.84f);
     glBegin(GL_QUADS);

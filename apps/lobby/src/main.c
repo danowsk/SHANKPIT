@@ -2038,34 +2038,74 @@ static void draw_tab_scoreboard(PlayerState *self) {
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 1280, 0, 720);
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
 
-    glColor4f(0.05f, 0.07f, 0.10f, 0.82f);
+    const float panel_l = 220.0f;
+    const float panel_r = 1060.0f;
+    const float panel_b = 110.0f;
+    const float panel_t = 630.0f;
+    const float player_x = 300.0f;
+    const float kills_x = 860.0f;
+    const float deaths_x = 960.0f;
+    const float row_step = 34.0f;
+
+    glColor4f(0.05f, 0.07f, 0.10f, 0.84f);
     glBegin(GL_QUADS);
-    glVertex2f(290.0f, 150.0f); glVertex2f(990.0f, 150.0f); glVertex2f(990.0f, 600.0f); glVertex2f(290.0f, 600.0f);
+    glVertex2f(panel_l, panel_b); glVertex2f(panel_r, panel_b); glVertex2f(panel_r, panel_t); glVertex2f(panel_l, panel_t);
+    glEnd();
+
+    glColor4f(0.24f, 0.33f, 0.42f, 0.85f);
+    glLineWidth(2.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panel_l + 1.0f, panel_b + 1.0f); glVertex2f(panel_r - 1.0f, panel_b + 1.0f);
+    glVertex2f(panel_r - 1.0f, panel_t - 1.0f); glVertex2f(panel_l + 1.0f, panel_t - 1.0f);
+    glEnd();
+    glColor4f(0.02f, 0.04f, 0.07f, 0.85f);
+    glLineWidth(1.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panel_l + 5.0f, panel_b + 5.0f); glVertex2f(panel_r - 5.0f, panel_b + 5.0f);
+    glVertex2f(panel_r - 5.0f, panel_t - 5.0f); glVertex2f(panel_l + 5.0f, panel_t - 5.0f);
     glEnd();
 
     char header[128];
     snprintf(header, sizeof(header), "SCOREBOARD - %s", scene_name_ui(local_state.scene_id));
     glColor3f(0.95f, 0.95f, 0.2f);
-    draw_string(header, 330, 566, 8);
-    glColor3f(0.75f, 0.9f, 1.0f);
-    draw_string("PLAYER", 330, 536, 6);
-    draw_string("K", 760, 536, 6);
-    draw_string("D", 860, 536, 6);
+    draw_string(header, 290, 590, 9);
+    glColor3f(0.72f, 0.90f, 1.0f);
+    draw_string("PLAYER", player_x, 552, 6);
+    draw_string("K", kills_x, 552, 6);
+    draw_string("D", deaths_x, 552, 6);
 
-    float y = 510.0f;
-    for (int i = 0; i < row_count && i < 16; i++) {
+    glColor4f(0.48f, 0.62f, 0.78f, 0.50f);
+    glBegin(GL_LINES);
+    glVertex2f(panel_l + 34.0f, 544.0f); glVertex2f(panel_r - 34.0f, 544.0f);
+    glEnd();
+
+    float row_start_y = 508.0f;
+    int visible_rows = (int)((row_start_y - (panel_b + 18.0f)) / row_step) + 1;
+    if (visible_rows < 0) visible_rows = 0;
+    if (visible_rows > row_count) visible_rows = row_count;
+    for (int i = 0; i < visible_rows; i++) {
         PlayerState *row_p = &local_state.players[rows[i].id];
         int is_self = (row_p == self);
-        glColor3f(is_self ? 1.0f : 0.82f, is_self ? 0.95f : 0.82f, is_self ? 0.35f : 0.90f);
+        float y = row_start_y - (float)i * row_step;
+        float row_top = y + 11.0f;
+        float row_bottom = y - 15.0f;
+        float stripe = (i % 2 == 0) ? 0.15f : 0.10f;
+        if (is_self) glColor4f(0.78f, 0.63f, 0.16f, 0.48f);
+        else glColor4f(0.12f, 0.16f, 0.22f, stripe);
+        glBegin(GL_QUADS);
+        glVertex2f(panel_l + 24.0f, row_bottom); glVertex2f(panel_r - 24.0f, row_bottom);
+        glVertex2f(panel_r - 24.0f, row_top); glVertex2f(panel_l + 24.0f, row_top);
+        glEnd();
+
+        glColor3f(is_self ? 1.0f : 0.82f, is_self ? 0.95f : 0.84f, is_self ? 0.35f : 0.92f);
         char name_buf[64];
         snprintf(name_buf, sizeof(name_buf), "%s%02d", is_self ? "YOU-" : "P", rows[i].id);
-        draw_string(name_buf, 330, y, 6);
+        draw_string(name_buf, player_x, y, 6);
         char score_buf[64];
         snprintf(score_buf, sizeof(score_buf), "%d", rows[i].kills);
-        draw_string(score_buf, 760, y, 6);
+        draw_string(score_buf, kills_x, y, 6);
         snprintf(score_buf, sizeof(score_buf), "%d", rows[i].deaths);
-        draw_string(score_buf, 860, y, 6);
-        y -= 24.0f;
+        draw_string(score_buf, deaths_x, y, 6);
     }
 
     glEnable(GL_DEPTH_TEST); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();

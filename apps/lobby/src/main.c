@@ -53,6 +53,8 @@ int skin_menu_selection = 0;
 int skin_menu_open = 0;
 int skin_menu_scroll = 0;
 
+enum { SKIN_MENU_BACK = -1 };
+
 UiState ui_state;
 int ui_use_server = 0;
 unsigned int ui_last_poll = 0;
@@ -2349,32 +2351,51 @@ static int skin_menu_visible_count(void) {
     return 4;
 }
 
+static int skin_menu_row_count(void) {
+    return SKIN_COUNT;
+}
+
+static int skin_menu_visible_skin_count(void) {
+    int visible_skin_rows = skin_menu_visible_count() - 1;
+    return (visible_skin_rows > 0) ? visible_skin_rows : 1;
+}
+
 static int skin_menu_scroll_max(void) {
-    int max_scroll = (SKIN_COUNT + 1) - skin_menu_visible_count();
+    int max_scroll = skin_menu_row_count() - skin_menu_visible_skin_count();
     return (max_scroll > 0) ? max_scroll : 0;
 }
 
 static void ensure_skin_selection_visible(void) {
-    int visible_count = skin_menu_visible_count();
-    if (skin_menu_selection < skin_menu_scroll) {
-        skin_menu_scroll = skin_menu_selection;
-    } else if (skin_menu_selection >= skin_menu_scroll + visible_count) {
-        skin_menu_scroll = skin_menu_selection - visible_count + 1;
+    int max_scroll = skin_menu_scroll_max();
+    if (skin_menu_selection >= 0 && skin_menu_selection < skin_menu_row_count()) {
+        int visible_skin_count = skin_menu_visible_skin_count();
+        if (skin_menu_selection < skin_menu_scroll) {
+            skin_menu_scroll = skin_menu_selection;
+        } else if (skin_menu_selection >= skin_menu_scroll + visible_skin_count) {
+            skin_menu_scroll = skin_menu_selection - visible_skin_count + 1;
+        }
     }
     if (skin_menu_scroll < 0) skin_menu_scroll = 0;
-    int max_scroll = skin_menu_scroll_max();
     if (skin_menu_scroll > max_scroll) skin_menu_scroll = max_scroll;
 }
 
-static int skin_hit_test(float mx, float my, float base_x, float base_y, float w, float h, float gap) {
-    int visible_count = skin_menu_visible_count();
-    for (int row = 0; row < visible_count; row++) {
+static int skin_hit_test_scroll_rows(float mx, float my, float base_x, float base_y, float w, float h, float gap) {
+    int visible_skin_count = skin_menu_visible_skin_count();
+    for (int row = 0; row < visible_skin_count; row++) {
         int i = skin_menu_scroll + row;
-        if (i >= SKIN_COUNT + 1) break;
+        if (i >= skin_menu_row_count()) break;
         float y = base_y - gap * row;
         if (mx >= base_x && mx <= base_x + w && my >= y && my <= y + h) return i;
     }
     return -1;
+}
+
+static int skin_hit_test_back_row(float mx, float my, float base_x, float base_y, float w, float h, float gap) {
+    float y = base_y - gap * skin_menu_visible_skin_count();
+    if (mx >= base_x && mx <= base_x + w && my >= y && my <= y + h) {
+        return SKIN_MENU_BACK;
+    }
+    return -2;
 }
 
 static void draw_skin_chooser_overlay() {
@@ -2408,60 +2429,59 @@ static void draw_skin_chooser_overlay() {
     glColor3f(0.85f, 0.95f, 1.0f);
     draw_string("CHOOSE SKIN", panel_x + 30.0f, panel_y - 30.0f, 5);
 
-    int visible_count = skin_menu_visible_count();
-    int entry_count = SKIN_COUNT + 1;
+    int visible_skin_count = skin_menu_visible_skin_count();
+    int entry_count = skin_menu_row_count();
     int max_scroll = skin_menu_scroll_max();
     if (skin_menu_scroll > max_scroll) skin_menu_scroll = max_scroll;
     if (skin_menu_scroll < 0) skin_menu_scroll = 0;
     ensure_skin_selection_visible();
 
-    for (int row = 0; row < visible_count; row++) {
+    for (int row = 0; row < visible_skin_count; row++) {
         int i = skin_menu_scroll + row;
         if (i >= entry_count) break;
         float y = item_top - item_gap * row;
-        if (i < SKIN_COUNT) {
-            int is_active = (clamp_skin_id(g_selected_skin) == i);
-            int is_cursor = (skin_menu_selection == i);
-            glColor3f(is_active ? 0.35f : 0.16f, is_active ? 0.65f : 0.22f, is_active ? 0.88f : 0.28f);
-            glRectf(item_x, y, item_x + item_w, y + item_h);
-            if (is_cursor) {
-                glColor3f(0.95f, 0.95f, 0.95f);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(item_x, y);
-                glVertex2f(item_x + item_w, y);
-                glVertex2f(item_x + item_w, y + item_h);
-                glVertex2f(item_x, y + item_h);
-                glEnd();
-            }
-            glColor3f(0.05f, 0.05f, 0.06f);
-            draw_string(SKIN_LABELS[i], item_x + 12.0f, y + 29.0f, 5);
-            if (is_active) {
-                draw_string("< ACTIVE >", item_x + item_w - 120.0f, y + 29.0f, 4);
-            }
-        } else {
-            int back_selected = (skin_menu_selection == SKIN_COUNT);
-            glColor3f(0.34f, 0.30f, 0.34f);
-            glRectf(item_x, y, item_x + item_w, y + item_h);
-            if (back_selected) {
-                glColor3f(0.95f, 0.95f, 0.95f);
-                glBegin(GL_LINE_LOOP);
-                glVertex2f(item_x, y);
-                glVertex2f(item_x + item_w, y);
-                glVertex2f(item_x + item_w, y + item_h);
-                glVertex2f(item_x, y + item_h);
-                glEnd();
-            }
-            glColor3f(0.05f, 0.05f, 0.06f);
-            draw_string("BACK", item_x + 12.0f, y + 29.0f, 5);
+        int is_active = (clamp_skin_id(g_selected_skin) == i);
+        int is_cursor = (skin_menu_selection == i);
+        glColor3f(is_active ? 0.35f : 0.16f, is_active ? 0.65f : 0.22f, is_active ? 0.88f : 0.28f);
+        glRectf(item_x, y, item_x + item_w, y + item_h);
+        if (is_cursor) {
+            glColor3f(0.95f, 0.95f, 0.95f);
+            glBegin(GL_LINE_LOOP);
+            glVertex2f(item_x, y);
+            glVertex2f(item_x + item_w, y);
+            glVertex2f(item_x + item_w, y + item_h);
+            glVertex2f(item_x, y + item_h);
+            glEnd();
+        }
+        glColor3f(0.05f, 0.05f, 0.06f);
+        draw_string(SKIN_LABELS[i], item_x + 12.0f, y + 29.0f, 5);
+        if (is_active) {
+            draw_string("< ACTIVE >", item_x + item_w - 120.0f, y + 29.0f, 4);
         }
     }
 
-    if (entry_count > visible_count) {
+    float back_y = item_top - item_gap * visible_skin_count;
+    int back_selected = (skin_menu_selection == SKIN_MENU_BACK);
+    glColor3f(0.34f, 0.30f, 0.34f);
+    glRectf(item_x, back_y, item_x + item_w, back_y + item_h);
+    if (back_selected) {
+        glColor3f(0.95f, 0.95f, 0.95f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(item_x, back_y);
+        glVertex2f(item_x + item_w, back_y);
+        glVertex2f(item_x + item_w, back_y + item_h);
+        glVertex2f(item_x, back_y + item_h);
+        glEnd();
+    }
+    glColor3f(0.05f, 0.05f, 0.06f);
+    draw_string("BACK", item_x + 12.0f, back_y + 29.0f, 5);
+
+    if (entry_count > visible_skin_count) {
         float track_x = panel_x + panel_w - 12.0f;
         float track_y0 = item_top;
-        float track_y1 = item_top - item_gap * (visible_count - 1) + item_h;
+        float track_y1 = item_top - item_gap * (visible_skin_count - 1) + item_h;
         float track_h = track_y0 - track_y1;
-        float knob_h = track_h * ((float)visible_count / (float)entry_count);
+        float knob_h = track_h * ((float)visible_skin_count / (float)entry_count);
         if (knob_h < 18.0f) knob_h = 18.0f;
         float t = (max_scroll > 0) ? ((float)skin_menu_scroll / (float)max_scroll) : 0.0f;
         float knob_y = track_y0 - t * (track_h - knob_h);
@@ -3110,18 +3130,32 @@ int main(int argc, char* argv[]) {
                     }
                     if (skin_menu_open) {
                         if (e.key.keysym.sym == SDLK_UP) {
-                            skin_menu_selection = (skin_menu_selection + SKIN_COUNT) % (SKIN_COUNT + 1);
-                            ensure_skin_selection_visible();
+                            if (skin_menu_selection == SKIN_MENU_BACK) {
+                                skin_menu_selection = SKIN_COUNT - 1;
+                                ensure_skin_selection_visible();
+                            } else if (skin_menu_selection == 0) {
+                                skin_menu_selection = SKIN_MENU_BACK;
+                            } else {
+                                skin_menu_selection--;
+                                ensure_skin_selection_visible();
+                            }
                         } else if (e.key.keysym.sym == SDLK_DOWN) {
-                            skin_menu_selection = (skin_menu_selection + 1) % (SKIN_COUNT + 1);
-                            ensure_skin_selection_visible();
+                            if (skin_menu_selection == SKIN_MENU_BACK) {
+                                skin_menu_selection = 0;
+                                ensure_skin_selection_visible();
+                            } else if (skin_menu_selection >= SKIN_COUNT - 1) {
+                                skin_menu_selection = SKIN_MENU_BACK;
+                            } else {
+                                skin_menu_selection++;
+                                ensure_skin_selection_visible();
+                            }
                         } else if (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_BACKSPACE) {
                             skin_menu_open = 0;
                         } else if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) {
-                            if (skin_menu_selection < SKIN_COUNT) {
+                            if (skin_menu_selection >= 0 && skin_menu_selection < SKIN_COUNT) {
                                 g_selected_skin = clamp_skin_id(skin_menu_selection);
                                 save_skin_selection();
-                            } else {
+                            } else if (skin_menu_selection == SKIN_MENU_BACK) {
                                 skin_menu_open = 0;
                             }
                         }
@@ -3140,72 +3174,36 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 if (e.type == SDL_MOUSEWHEEL && skin_menu_open) {
-                    if (e.wheel.y > 0 && skin_menu_scroll > 0) {
-                        skin_menu_scroll--;
-                    } else if (e.wheel.y < 0 && skin_menu_scroll < skin_menu_scroll_max()) {
-                        skin_menu_scroll++;
-                    }
+                    skin_menu_scroll -= e.wheel.y;
+                    int max_scroll = skin_menu_scroll_max();
+                    if (skin_menu_scroll < 0) skin_menu_scroll = 0;
+                    if (skin_menu_scroll > max_scroll) skin_menu_scroll = max_scroll;
                 }
                 if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
                     float mx = (float)e.button.x;
                     float my = 720.0f - (float)e.button.y;
                     if (skin_menu_open) {
-                        int hit = skin_hit_test(mx, my, 790.0f, 455.0f, 290.0f, 50.0f, 60.0f);
-                        if (hit >= 0) {
+                        int back_hit = skin_hit_test_back_row(mx, my, 790.0f, 455.0f, 290.0f, 50.0f, 60.0f);
+                        if (back_hit == SKIN_MENU_BACK) {
+                            skin_menu_selection = SKIN_MENU_BACK;
+                            skin_menu_open = 0;
+                            continue;
+                        }
+                        int hit = skin_hit_test_scroll_rows(mx, my, 790.0f, 455.0f, 290.0f, 50.0f, 60.0f);
+                        if (hit >= 0 && hit < SKIN_COUNT) {
                             skin_menu_selection = hit;
                             ensure_skin_selection_visible();
-                            if (hit < SKIN_COUNT) {
-                                g_selected_skin = clamp_skin_id(hit);
-                                save_skin_selection();
-                            } else {
-                                skin_menu_open = 0;
-                            }
+                            g_selected_skin = clamp_skin_id(hit);
+                            save_skin_selection();
                         }
-                    } else {
-                        int menu_count = lobby_menu_count();
-                        float base_x = 360.0f;
-                        float base_y = 520.0f;
-                        float size = 70.0f;
-                        float gap = 85.0f;
-                        int hit = lobby_hit_test(mx, my, menu_count, base_x, base_y, gap, size);
-                        if (hit >= 0) {
-                            unsigned int now = SDL_GetTicks();
-                            if (ui_last_click_index == hit && ui_last_click_ms > 0) {
-                                unsigned int delta = now - ui_last_click_ms;
-                                if (delta <= 250) {
-                                    lobby_selection = hit;
-                                    lobby_start_action(hit);
-                                    ui_last_click_ms = 0;
-                                    ui_last_click_index = -1;
-                                } else if (delta <= 700) {
-                                    lobby_selection = hit;
-                                    if (hit != lobby_menu_count() - 1) {
-                                        lobby_start_edit(hit);
-                                    } else {
-                                        lobby_start_action(hit);
-                                    }
-                                    ui_last_click_ms = 0;
-                                    ui_last_click_index = -1;
-                                } else {
-                                    ui_last_click_ms = now;
-                                    ui_last_click_index = hit;
-                                }
-                            } else {
-                                ui_last_click_ms = now;
-                                ui_last_click_index = hit;
-                            }
-                        }
+                        continue;
                     }
-                }
-                if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-                    if (skin_menu_open) continue;
+
                     int menu_count = lobby_menu_count();
                     float base_x = 360.0f;
                     float base_y = 520.0f;
                     float size = 70.0f;
                     float gap = 85.0f;
-                    float mx = (float)e.button.x;
-                    float my = 720.0f - (float)e.button.y;
                     int hit = lobby_hit_test(mx, my, menu_count, base_x, base_y, gap, size);
                     if (hit >= 0) {
                         unsigned int now = SDL_GetTicks();
@@ -3217,10 +3215,25 @@ int main(int argc, char* argv[]) {
                                 ui_last_click_ms = 0;
                                 ui_last_click_index = -1;
                             } else if (delta <= 700) {
-                                    lobby_selection = hit;
+                                lobby_selection = hit;
                                 if (hit != lobby_menu_count() - 1) {
                                     lobby_start_edit(hit);
                                 } else {
+                                    lobby_start_action(hit);
+                                }
+                                ui_last_click_ms = 0;
+                                ui_last_click_index = -1;
+                            } else {
+                                ui_last_click_ms = now;
+                                ui_last_click_index = hit;
+                            }
+                        } else {
+                            ui_last_click_ms = now;
+                            ui_last_click_index = hit;
+                        }
+                    }
+                }
+            } else {
                                     lobby_start_action(hit);
                                 }
                                 ui_last_click_ms = 0;

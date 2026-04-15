@@ -1911,6 +1911,49 @@ void draw_circle(float x, float y, float r, int segments) {
     glEnd();
 }
 
+static void draw_ammo_bars(const PlayerState *p) {
+    if (!p) return;
+    if (p->current_weapon == WPN_KNIFE || p->current_weapon == WPN_KATANA) return;
+    if (p->current_weapon < 0 || p->current_weapon >= MAX_WEAPONS) return;
+
+    int ammo = p->ammo[p->current_weapon];
+    if (ammo < 0) ammo = 0;
+    if (ammo == 0) return;
+
+    const float bar_w = 12.0f;
+    const float bar_h = 20.0f;
+    const float gap = 4.0f;
+    const int max_cols = 10;
+    const float anchor_right = 1230.0f;
+    const float anchor_bottom = 36.0f;
+
+    int rows = (ammo + max_cols - 1) / max_cols;
+    float bg_left = anchor_right - ((bar_w + gap) * max_cols) - 6.0f;
+    float bg_right = anchor_right + 6.0f;
+    float bg_bottom = anchor_bottom - 6.0f;
+    float bg_top = anchor_bottom + rows * (bar_h + gap) - gap + 6.0f;
+
+    glColor4f(0.10f, 0.08f, 0.04f, 0.45f);
+    glRectf(bg_left, bg_bottom, bg_right, bg_top);
+
+    float shade = (p->reload_timer > 0) ? 0.72f : 1.0f;
+    glColor3f(1.0f * shade, 0.9f * shade, 0.15f * shade);
+    glBegin(GL_QUADS);
+    for (int i = 0; i < ammo; i++) {
+        int col = i % max_cols;
+        int row = i / max_cols;
+        float x1 = anchor_right - col * (bar_w + gap);
+        float x0 = x1 - bar_w;
+        float y0 = anchor_bottom + row * (bar_h + gap);
+        float y1 = y0 + bar_h;
+        glVertex2f(x0, y0);
+        glVertex2f(x1, y0);
+        glVertex2f(x1, y1);
+        glVertex2f(x0, y1);
+    }
+    glEnd();
+}
+
 void draw_hud(PlayerState *p) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 1280, 0, 720);
@@ -1994,13 +2037,14 @@ void draw_hud(PlayerState *p) {
         draw_string(storm_buf, 50, 132, vs0_art_direction_enabled ? 6 : 8);
     } else if (p->ability_cooldown == 0) {
         glColor3f(0.0f, 0.8f, 1.0f);
-        draw_string("E: STORM ARROWS READY", 50, 132, vs0_art_direction_enabled ? 6 : 8);
+        draw_string("E: STORM ARROWS READY", 50, 132, vs0_art_direction_enabled ? 3 : 4);
     }
     
     float raw_speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
     char vel_buf[32]; sprintf(vel_buf, "VEL: %.2f", raw_speed);
     glColor3f(vs0_art_direction_enabled ? 0.80f : 1.0f, vs0_art_direction_enabled ? 0.78f : 1.0f, vs0_art_direction_enabled ? 0.44f : 0.0f);
     draw_string(vel_buf, 1120, 50, vs0_art_direction_enabled ? 5 : 8); 
+    draw_ammo_bars(p);
 
     glEnable(GL_DEPTH_TEST); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
 }

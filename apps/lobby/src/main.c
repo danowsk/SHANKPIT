@@ -1344,6 +1344,189 @@ void draw_gun_model(int weapon_id) {
     glEnd();
 }
 
+typedef struct ViewmodelPalette {
+    float body_r, body_g, body_b;
+    float support_r, support_g, support_b;
+    float accent_r, accent_g, accent_b;
+} ViewmodelPalette;
+
+typedef struct ViewmodelTuning {
+    float base_x, base_y, base_z;
+    float recoil_pitch;
+    float recoil_back;
+    float recoil_roll;
+    float kick_scale;
+    float idle_scale;
+} ViewmodelTuning;
+
+/*
+ * Viewmodel art-direction contract:
+ * - silhouette first (chunky 5-8 major masses)
+ * - explicit 3-tone plane grouping (top / side / underside)
+ * - minimal accent strips only
+ * - punchy recoil + muzzle VFX carries impact
+ */
+static ViewmodelPalette viewmodel_palette_for_weapon(int weapon_id) {
+    ViewmodelPalette p = {0.22f, 0.24f, 0.27f, 0.17f, 0.19f, 0.22f, 0.95f, 0.85f, 0.20f};
+    switch (weapon_id) {
+        case WPN_MAGNUM:  p = (ViewmodelPalette){0.24f, 0.26f, 0.29f, 0.15f, 0.17f, 0.20f, 0.95f, 0.84f, 0.22f}; break;
+        case WPN_AR:      p = (ViewmodelPalette){0.22f, 0.24f, 0.26f, 0.29f, 0.32f, 0.35f, 0.95f, 0.82f, 0.18f}; break;
+        case WPN_SHOTGUN: p = (ViewmodelPalette){0.23f, 0.22f, 0.21f, 0.31f, 0.27f, 0.24f, 0.96f, 0.83f, 0.16f}; break;
+        case WPN_SNIPER:  p = (ViewmodelPalette){0.20f, 0.22f, 0.26f, 0.30f, 0.33f, 0.37f, 0.36f, 0.83f, 0.88f}; break;
+        case WPN_KNIFE:   p = (ViewmodelPalette){0.34f, 0.36f, 0.40f, 0.16f, 0.17f, 0.19f, 0.34f, 0.82f, 0.86f}; break;
+        default: break;
+    }
+    if (!vs0_art_direction_enabled) {
+        p.body_r *= 1.25f; p.body_g *= 1.25f; p.body_b *= 1.25f;
+        p.support_r *= 1.35f; p.support_g *= 1.35f; p.support_b *= 1.35f;
+    }
+    return p;
+}
+
+static ViewmodelTuning viewmodel_tuning_for_weapon(int weapon_id) {
+    ViewmodelTuning t = {0.48f, -0.60f, -1.34f, 13.0f, 0.13f, 1.8f, 0.24f, 0.10f};
+    switch (weapon_id) {
+        case WPN_MAGNUM:  t = (ViewmodelTuning){0.56f, -0.62f, -1.30f, 19.0f, 0.18f, 2.4f, 0.26f, 0.09f}; break;
+        case WPN_AR:      t = (ViewmodelTuning){0.52f, -0.64f, -1.46f, 12.0f, 0.12f, 1.4f, 0.22f, 0.12f}; break;
+        case WPN_SHOTGUN: t = (ViewmodelTuning){0.58f, -0.66f, -1.38f, 24.0f, 0.24f, 3.4f, 0.30f, 0.08f}; break;
+        case WPN_SNIPER:  t = (ViewmodelTuning){0.50f, -0.63f, -1.55f, 21.0f, 0.20f, 2.2f, 0.23f, 0.07f}; break;
+        case WPN_KNIFE:   t = (ViewmodelTuning){0.62f, -0.60f, -1.08f, 7.0f, 0.04f, 8.0f, 0.08f, 0.14f}; break;
+        case WPN_KATANA:  t = (ViewmodelTuning){0.64f, -0.58f, -1.05f, 7.0f, 0.03f, 8.0f, 0.06f, 0.14f}; break;
+        default: break;
+    }
+    return t;
+}
+
+static void draw_viewmodel_box_tone(const ViewmodelPalette *p, float w, float h, float d, int support_tone) {
+    float base_r = support_tone ? p->support_r : p->body_r;
+    float base_g = support_tone ? p->support_g : p->body_g;
+    float base_b = support_tone ? p->support_b : p->body_b;
+    float top = vs0_art_direction_enabled ? 1.34f : 1.08f;
+    float side = vs0_art_direction_enabled ? 0.92f : 1.0f;
+    float under = vs0_art_direction_enabled ? 0.58f : 0.92f;
+    float back = vs0_art_direction_enabled ? 0.68f : 0.94f;
+
+    glPushMatrix();
+    glScalef(w, h, d);
+    glBegin(GL_QUADS);
+    glColor3f(base_r * side, base_g * side, base_b * side);
+    glVertex3f(-0.5f,-0.5f,0.5f); glVertex3f(0.5f,-0.5f,0.5f); glVertex3f(0.5f,0.5f,0.5f); glVertex3f(-0.5f,0.5f,0.5f);
+    glColor3f(base_r * back, base_g * back, base_b * back);
+    glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(-0.5f,0.5f,-0.5f); glVertex3f(0.5f,0.5f,-0.5f); glVertex3f(0.5f,-0.5f,-0.5f);
+    glColor3f(base_r * 0.84f, base_g * 0.84f, base_b * 0.84f);
+    glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(-0.5f,-0.5f,0.5f); glVertex3f(-0.5f,0.5f,0.5f); glVertex3f(-0.5f,0.5f,-0.5f);
+    glColor3f(base_r * 0.94f, base_g * 0.94f, base_b * 0.94f);
+    glVertex3f(0.5f,-0.5f,-0.5f); glVertex3f(0.5f,0.5f,-0.5f); glVertex3f(0.5f,0.5f,0.5f); glVertex3f(0.5f,-0.5f,0.5f);
+    glColor3f(base_r * top, base_g * top, base_b * top);
+    glVertex3f(-0.5f,0.5f,0.5f); glVertex3f(0.5f,0.5f,0.5f); glVertex3f(0.5f,0.5f,-0.5f); glVertex3f(-0.5f,0.5f,-0.5f);
+    glColor3f(base_r * under, base_g * under, base_b * under);
+    glVertex3f(-0.5f,-0.5f,0.5f); glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(0.5f,-0.5f,-0.5f); glVertex3f(0.5f,-0.5f,0.5f);
+    glEnd();
+    if (vs0_art_direction_enabled) {
+        glLineWidth(1.0f);
+        glColor3f(0.11f, 0.13f, 0.16f);
+        glBegin(GL_LINE_LOOP);
+        glVertex3f(-0.5f,0.5f,0.5f); glVertex3f(0.5f,0.5f,0.5f); glVertex3f(0.5f,0.5f,-0.5f); glVertex3f(-0.5f,0.5f,-0.5f);
+        glEnd();
+    }
+    glPopMatrix();
+}
+
+static void draw_viewmodel_accent_strip(const ViewmodelPalette *p, float w, float h, float d) {
+    glColor3f(p->accent_r, p->accent_g, p->accent_b);
+    draw_box(w, h, d);
+}
+
+static void draw_viewmodel_magnum(const ViewmodelPalette *p) {
+    glPushMatrix(); glTranslatef(0.00f, 0.10f, 0.00f); draw_viewmodel_box_tone(p, 1.35f, 0.38f, 1.65f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.26f, -0.08f); draw_viewmodel_box_tone(p, 0.74f, 0.66f, 0.76f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.02f, 0.92f); draw_viewmodel_box_tone(p, 0.88f, 0.26f, 0.44f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.31f, 0.97f); draw_viewmodel_box_tone(p, 0.22f, 0.12f, 0.15f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.16f, -0.68f); draw_viewmodel_accent_strip(p, 0.22f, 0.05f, 0.22f); glPopMatrix();
+}
+
+static void draw_viewmodel_ar(const ViewmodelPalette *p) {
+    glPushMatrix(); glTranslatef(0.00f, 0.12f, 0.08f); draw_viewmodel_box_tone(p, 1.20f, 0.34f, 2.55f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.17f, -0.06f); draw_viewmodel_box_tone(p, 1.00f, 0.44f, 1.35f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.32f, -0.50f); draw_viewmodel_box_tone(p, 0.42f, 0.58f, 0.55f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.06f, 1.25f); draw_viewmodel_box_tone(p, 0.92f, 0.42f, 0.78f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.28f, -0.20f, -0.48f); draw_viewmodel_accent_strip(p, 0.08f, 0.28f, 0.12f); glPopMatrix();
+}
+
+static void draw_viewmodel_shotgun(const ViewmodelPalette *p) {
+    glPushMatrix(); glTranslatef(0.00f, 0.12f, -0.02f); draw_viewmodel_box_tone(p, 1.24f, 0.34f, 2.02f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.16f, -0.16f); draw_viewmodel_box_tone(p, 1.02f, 0.46f, 1.24f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.30f, 0.64f); draw_viewmodel_box_tone(p, 0.94f, 0.34f, 1.12f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.08f, 1.18f); draw_viewmodel_box_tone(p, 1.12f, 0.44f, 0.76f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.22f, -0.22f, -0.36f); draw_viewmodel_accent_strip(p, 0.09f, 0.32f, 0.10f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.12f, -0.22f, -0.20f); draw_viewmodel_accent_strip(p, 0.09f, 0.32f, 0.10f); glPopMatrix();
+}
+
+static void draw_viewmodel_sniper(const ViewmodelPalette *p) {
+    glPushMatrix(); glTranslatef(0.00f, 0.04f, 0.28f); draw_viewmodel_box_tone(p, 0.90f, 0.28f, 3.58f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.16f, -0.42f); draw_viewmodel_box_tone(p, 0.74f, 0.34f, 1.08f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.32f, 0.20f); draw_viewmodel_box_tone(p, 0.58f, 0.30f, 1.12f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.02f, 1.55f); draw_viewmodel_box_tone(p, 0.42f, 0.18f, 0.78f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.18f, -0.40f); draw_viewmodel_accent_strip(p, 0.42f, 0.05f, 0.09f); glPopMatrix();
+}
+
+static void draw_viewmodel_knife(const ViewmodelPalette *p) {
+    glPushMatrix(); glTranslatef(0.00f, -0.24f, -0.26f); draw_viewmodel_box_tone(p, 0.42f, 0.30f, 0.64f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.04f, 0.30f); glRotatef(-8.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.26f, 0.22f, 1.70f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.10f, 0.88f); glRotatef(-12.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.08f, 0.16f, 0.62f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.10f, -0.24f, -0.24f); draw_viewmodel_accent_strip(p, 0.05f, 0.18f, 0.18f); glPopMatrix();
+}
+
+static void draw_viewmodel_weapon(int weapon_id) {
+    if (weapon_id == WPN_KATANA) {
+        draw_gun_model(weapon_id);
+        return;
+    }
+    ViewmodelPalette p = viewmodel_palette_for_weapon(weapon_id);
+    switch (weapon_id) {
+        case WPN_MAGNUM: draw_viewmodel_magnum(&p); break;
+        case WPN_AR: draw_viewmodel_ar(&p); break;
+        case WPN_SHOTGUN: draw_viewmodel_shotgun(&p); break;
+        case WPN_SNIPER: draw_viewmodel_sniper(&p); break;
+        case WPN_KNIFE: draw_viewmodel_knife(&p); break;
+        default: draw_viewmodel_magnum(&p); break;
+    }
+}
+
+static void draw_weapon_muzzle_flash(int weapon_id, float intensity) {
+    if (weapon_id == WPN_KNIFE || weapon_id == WPN_KATANA || intensity <= 0.01f) return;
+    float size = 0.28f;
+    float length = 0.56f;
+    switch (weapon_id) {
+        case WPN_MAGNUM:  size = 0.32f; length = 0.62f; break;
+        case WPN_AR:      size = 0.22f; length = 0.72f; break;
+        case WPN_SHOTGUN: size = 0.44f; length = 0.80f; break;
+        case WPN_SNIPER:  size = 0.19f; length = 0.86f; break;
+        default: break;
+    }
+    glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_LINE_BIT);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glTranslatef(0.0f, 0.08f, 1.95f);
+
+    float alpha_core = clamp01f(intensity) * 0.80f;
+    glColor4f(1.0f, 0.95f, 0.74f, alpha_core);
+    glBegin(GL_QUADS);
+    glVertex3f(-size, 0.0f, 0.0f); glVertex3f(size, 0.0f, 0.0f); glVertex3f(size * 0.30f, 0.0f, length); glVertex3f(-size * 0.30f, 0.0f, length);
+    glVertex3f(0.0f, -size, 0.0f); glVertex3f(0.0f, size, 0.0f); glVertex3f(0.0f, size * 0.30f, length); glVertex3f(0.0f, -size * 0.30f, length);
+    glEnd();
+
+    glColor4f(1.0f, 0.62f, 0.18f, alpha_core * 0.8f);
+    glBegin(GL_TRIANGLES);
+    glVertex3f(0.0f, 0.0f, length + size * 0.24f);
+    glVertex3f(size * 0.28f, size * 0.18f, length * 0.52f);
+    glVertex3f(-size * 0.28f, -size * 0.18f, length * 0.52f);
+    glEnd();
+    glPopAttrib();
+}
+
 static void draw_box(float w, float h, float d) {
     glPushMatrix();
     glScalef(w, h, d);
@@ -1845,18 +2028,32 @@ void draw_weapon_p(PlayerState *p) {
     if (p->in_vehicle) return; 
     glPushMatrix();
     glLoadIdentity();
-    float kick = p->recoil_anim * 0.2f;
+    ViewmodelTuning tune = viewmodel_tuning_for_weapon(p->current_weapon);
+    float kick = p->recoil_anim * tune.kick_scale;
     float reload_dip = (p->reload_timer > 0) ? sinf(p->reload_timer * 0.2f) * 0.5f - 0.5f : 0.0f;
     float slash_swing = (p->current_weapon == WPN_KATANA && p->katana_slash_timer > 0) ? ((float)p->katana_slash_timer / (float)KATANA_SLASH_ACTIVE_TICKS) : 0.0f;
     float dash_push = (p->current_weapon == WPN_KATANA && p->dash_timer > 0) ? 0.22f : 0.0f;
     float speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
-    float bob = sinf(SDL_GetTicks() * 0.015f) * speed * 0.15f; 
-    float x_offset = (current_fov < 50.0f) ? 0.25f : 0.4f;
-    if (p->current_weapon == WPN_KATANA) x_offset += 0.08f;
-    glTranslatef(x_offset + slash_swing * 0.18f, -0.5f + kick + reload_dip + (bob * 0.5f), -1.2f + (kick * 0.5f) + bob - dash_push);
-    glRotatef(-p->recoil_anim * 10.0f - slash_swing * 65.0f, 1, 0, 0);
+    float bob = sinf(SDL_GetTicks() * 0.015f) * speed * tune.idle_scale;
+    float ads_blend = (current_fov < 50.0f) ? 0.22f : 0.0f;
+    glTranslatef(
+        tune.base_x - ads_blend + slash_swing * 0.18f,
+        tune.base_y + kick + reload_dip * 0.7f + (bob * 0.4f),
+        tune.base_z + (kick * 0.45f) + bob - dash_push - p->recoil_anim * tune.recoil_back
+    );
+    glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f, 1, 0, 0);
+    glRotatef(-p->recoil_anim * tune.recoil_roll, 0, 0, 1);
     glRotatef(-slash_swing * 40.0f, 0, 0, 1);
-    draw_gun_model(p->current_weapon);
+    draw_viewmodel_weapon(p->current_weapon);
+    if (p->is_shooting > 0) {
+        float flash = 1.0f;
+        if (p->current_weapon == WPN_AR) flash = 0.85f;
+        else if (p->current_weapon == WPN_SHOTGUN) flash = 1.25f;
+        else if (p->current_weapon == WPN_SNIPER) flash = 0.95f;
+        draw_weapon_muzzle_flash(p->current_weapon, flash);
+    } else if (p->recoil_anim > 0.0f) {
+        draw_weapon_muzzle_flash(p->current_weapon, p->recoil_anim * 0.55f);
+    }
     glPopMatrix();
 }
 

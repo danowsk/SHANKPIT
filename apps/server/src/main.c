@@ -61,7 +61,7 @@ static RecorderState recorder = {0};
 #define TDMO_TEAM_SIZE 6
 #define TDMO_SCORE_LIMIT 25
 
-static const int g_dm_rotation[] = { SCENE_STADIUM, SCENE_VOXWORLD, SCENE_OIL_TANKER };
+static const int g_dm_rotation[] = { SCENE_STADIUM, SCENE_VOXWORLD, SCENE_OIL_TANKER, SCENE_POO_POO_ISLAND };
 static int g_dm_rotation_idx = 0;
 static int g_server_match_scene = SCENE_GARAGE_OSAKA;
 static unsigned int g_round_start_ms = 0;
@@ -86,7 +86,8 @@ static double now_seconds(void) {
 }
 
 static int server_scene_is_dm_map(int scene_id) {
-    return scene_id == SCENE_STADIUM || scene_id == SCENE_VOXWORLD || scene_id == SCENE_OIL_TANKER;
+    return scene_id == SCENE_STADIUM || scene_id == SCENE_VOXWORLD ||
+           scene_id == SCENE_OIL_TANKER || scene_id == SCENE_POO_POO_ISLAND;
 }
 
 static int server_scene_heli_count(int scene_id) {

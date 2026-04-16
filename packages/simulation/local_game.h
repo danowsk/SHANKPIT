@@ -28,7 +28,8 @@ static int scene_random_tdmb_map(void) {
         SCENE_DUST_COMPOUND,
         SCENE_OIL_TANKER,
         SCENE_STADIUM,
-        SCENE_VOXWORLD
+        SCENE_VOXWORLD,
+        SCENE_POO_POO_ISLAND
     };
     if (!seeded) {
         srand((unsigned int)time(NULL));
@@ -43,6 +44,7 @@ static const char *scene_name_debug(int scene_id) {
         case SCENE_OIL_TANKER: return "OIL_TANKER";
         case SCENE_STADIUM: return "STADIUM";
         case SCENE_VOXWORLD: return "VOXWORLD";
+        case SCENE_POO_POO_ISLAND: return "POO_POO_ISLAND";
         default: return "UNKNOWN";
     }
 }

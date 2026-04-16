@@ -294,6 +294,10 @@ func (s *Server) handleScenes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, SceneList{Scenes: []Scene{
 		{SceneID: "GARAGE_OSAKA", Label: "Osaka Garage"},
 		{SceneID: "STADIUM", Label: "Stadium"},
+		{SceneID: "VOXWORLD", Label: "Voxworld"},
+		{SceneID: "DUST_COMPOUND", Label: "Dust Compound"},
+		{SceneID: "OIL_TANKER", Label: "Oil Tanker"},
+		{SceneID: "POO_POO_ISLAND", Label: "Poo Poo Island"},
 		{SceneID: "CITY", Label: "City"},
 	}})
 }

@@ -824,6 +824,56 @@ void draw_map() {
     }
 }
 
+
+static int get_team_base_marker(int scene_id, int team_id, float *x, float *y, float *z, float *sx, float *sy, float *sz) {
+    if (scene_id == SCENE_VOXWORLD) {
+        *x = (team_id == 0) ? VOXWORLD_BASE_RED_X : VOXWORLD_BASE_BLUE_X;
+        *z = VOXWORLD_BASE_Z;
+        *y = voxworld_height_at(*x, *z) + 9.0f;
+        *sx = 22.0f; *sy = 8.0f; *sz = 22.0f;
+        return 1;
+    }
+    if (scene_id == SCENE_DUST_COMPOUND) {
+        *x = (team_id == 0) ? -430.0f : 430.0f;
+        *z = (team_id == 0) ? -220.0f : 220.0f;
+        *y = dust_height_at(*x, *z) + 8.0f;
+        *sx = 24.0f; *sy = 14.0f; *sz = 24.0f;
+        return 1;
+    }
+    if (scene_id == SCENE_OIL_TANKER) {
+        *x = (team_id == 0) ? -270.0f : 270.0f;
+        *z = 0.0f;
+        *y = 9.0f;
+        *sx = 26.0f; *sy = 12.0f; *sz = 22.0f;
+        return 1;
+    }
+    if (scene_id == SCENE_STADIUM) {
+        *x = (team_id == 0) ? -310.0f : 310.0f;
+        *z = 0.0f;
+        *y = 6.5f;
+        *sx = 24.0f; *sy = 12.0f; *sz = 24.0f;
+        return 1;
+    }
+    return 0;
+}
+
+static void draw_team_map_markers(int scene_id, int game_mode) {
+    if (game_mode != MODE_TDMB && game_mode != MODE_TDMO) return;
+    for (int team = 0; team <= 1; team++) {
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+        float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+        if (!get_team_base_marker(scene_id, team, &x, &y, &z, &sx, &sy, &sz)) continue;
+
+        if (team == 0) glColor3f(1.0f, 0.25f, 0.25f);
+        else glColor3f(0.28f, 0.55f, 1.0f);
+        glPushMatrix(); glTranslatef(x, y, z); draw_box(sx, sy, sz); glPopMatrix();
+
+        if (team == 0) glColor3f(1.0f, 0.40f, 0.30f);
+        else glColor3f(0.36f, 0.72f, 1.0f);
+        glPushMatrix(); glTranslatef(x, y + sy * 0.9f, z); draw_box(sx * 0.28f, sy * 1.4f, sz * 0.28f); glPopMatrix();
+    }
+}
+
 void draw_terrain() {
     TerrainHeightfield *t = scene_active_terrain();
     if (!t || !t->active || !t->heights || t->width < 2 || t->height < 2) return;
@@ -2615,14 +2665,7 @@ void draw_scene(PlayerState *render_p) {
     draw_terrain();
     draw_voxworld_bushes();
     draw_map();
-    if ((local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO) && local_state.scene_id == SCENE_VOXWORLD) {
-        float ry = voxworld_height_at(VOXWORLD_BASE_RED_X, VOXWORLD_BASE_Z) + 9.0f;
-        float by = voxworld_height_at(VOXWORLD_BASE_BLUE_X, VOXWORLD_BASE_Z) + 9.0f;
-        glColor3f(1.0f, 0.25f, 0.25f);
-        glPushMatrix(); glTranslatef(VOXWORLD_BASE_RED_X, ry, VOXWORLD_BASE_Z); draw_box(22.0f, 8.0f, 22.0f); glPopMatrix();
-        glColor3f(0.28f, 0.55f, 1.0f);
-        glPushMatrix(); glTranslatef(VOXWORLD_BASE_BLUE_X, by, VOXWORLD_BASE_Z); draw_box(22.0f, 8.0f, 22.0f); glPopMatrix();
-    }
+    draw_team_map_markers(local_state.scene_id, local_state.game_mode);
     draw_garage_vehicle_pads();
     draw_garage_portal_frame();
     for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {

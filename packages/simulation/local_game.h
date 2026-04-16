@@ -5,6 +5,8 @@
 #include "../common/physics.h"
 #include "../common/shared_movement.h"
 #include <string.h>
+#include <stdlib.h>
+#include <time.h>
 
 ServerState local_state;
 int was_holding_jump = 0;
@@ -18,6 +20,31 @@ static int tdmb_last_kills[MAX_CLIENTS];
 
 static int mode_uses_team_scores(int mode) {
     return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO;
+}
+
+static int scene_random_tdmb_map(void) {
+    static int seeded = 0;
+    static const int tdmb_maps[] = {
+        SCENE_DUST_COMPOUND,
+        SCENE_OIL_TANKER,
+        SCENE_STADIUM,
+        SCENE_VOXWORLD
+    };
+    if (!seeded) {
+        srand((unsigned int)time(NULL));
+        seeded = 1;
+    }
+    return tdmb_maps[rand() % (int)(sizeof(tdmb_maps) / sizeof(tdmb_maps[0]))];
+}
+
+static const char *scene_name_debug(int scene_id) {
+    switch (scene_id) {
+        case SCENE_DUST_COMPOUND: return "DUST_COMPOUND";
+        case SCENE_OIL_TANKER: return "OIL_TANKER";
+        case SCENE_STADIUM: return "STADIUM";
+        case SCENE_VOXWORLD: return "VOXWORLD";
+        default: return "UNKNOWN";
+    }
 }
 
 static int team_id_is_valid(int team_id) {
@@ -452,7 +479,8 @@ void local_init_match(int num_players, int mode) {
 
     if (mode == MODE_TDMB) {
         num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
-        local_state.scene_id = SCENE_VOXWORLD;
+        local_state.scene_id = scene_random_tdmb_map();
+        printf("[TDMB] random map selected: %s\n", scene_name_debug(local_state.scene_id));
     } else {
         local_state.scene_id = SCENE_GARAGE_OSAKA;
     }

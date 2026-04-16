@@ -2028,6 +2028,7 @@ void draw_weapon_p(PlayerState *p) {
     if (p->in_vehicle) return; 
     glPushMatrix();
     glLoadIdentity();
+    const float viewmodel_global_scale = 0.72f;
     ViewmodelTuning tune = viewmodel_tuning_for_weapon(p->current_weapon);
     float kick = p->recoil_anim * tune.kick_scale;
     float reload_dip = (p->reload_timer > 0) ? sinf(p->reload_timer * 0.2f) * 0.5f - 0.5f : 0.0f;
@@ -2044,6 +2045,7 @@ void draw_weapon_p(PlayerState *p) {
     glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f, 1, 0, 0);
     glRotatef(-p->recoil_anim * tune.recoil_roll, 0, 0, 1);
     glRotatef(-slash_swing * 40.0f, 0, 0, 1);
+    glScalef(viewmodel_global_scale, viewmodel_global_scale, viewmodel_global_scale);
     draw_viewmodel_weapon(p->current_weapon);
     if (p->is_shooting > 0) {
         float flash = 1.0f;

@@ -1434,7 +1434,7 @@ static ViewmodelTuning viewmodel_tuning_for_weapon(int weapon_id) {
         case WPN_AR:      t = (ViewmodelTuning){0.52f, -0.64f, -1.46f, 12.0f, 0.12f, 1.4f, 0.22f, 0.12f}; break;
         case WPN_SHOTGUN: t = (ViewmodelTuning){0.58f, -0.66f, -1.38f, 24.0f, 0.24f, 3.4f, 0.30f, 0.08f}; break;
         case WPN_SNIPER:  t = (ViewmodelTuning){0.50f, -0.63f, -1.55f, 21.0f, 0.20f, 2.2f, 0.23f, 0.07f}; break;
-        case WPN_KNIFE:   t = (ViewmodelTuning){0.62f, -0.60f, -1.08f, 7.0f, 0.04f, 8.0f, 0.08f, 0.14f}; break;
+        case WPN_KNIFE:   t = (ViewmodelTuning){0.70f, -0.70f, -0.96f, 4.5f, 0.02f, 5.0f, 0.06f, 0.06f}; break;
         case WPN_KATANA:  t = (ViewmodelTuning){0.64f, -0.58f, -1.05f, 7.0f, 0.03f, 8.0f, 0.06f, 0.14f}; break;
         default: break;
     }
@@ -1515,10 +1515,24 @@ static void draw_viewmodel_sniper(const ViewmodelPalette *p) {
 }
 
 static void draw_viewmodel_knife(const ViewmodelPalette *p) {
-    glPushMatrix(); glTranslatef(0.00f, -0.24f, -0.26f); draw_viewmodel_box_tone(p, 0.42f, 0.30f, 0.64f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.04f, 0.30f); glRotatef(-8.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.26f, 0.22f, 1.70f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.10f, 0.88f); glRotatef(-12.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.08f, 0.16f, 0.62f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.10f, -0.24f, -0.24f); draw_viewmodel_accent_strip(p, 0.05f, 0.18f, 0.18f); glPopMatrix();
+    /* compact grip + long narrow blade silhouette (CS1-inspired) */
+    glPushMatrix();
+    glRotatef(-5.0f, 1, 0, 0);
+
+    /* Handle / grip block (~28% length) */
+    glPushMatrix(); glTranslatef(0.00f, -0.24f, -0.54f); draw_viewmodel_box_tone(p, 0.26f, 0.34f, 0.82f, 1); glPopMatrix();
+    /* Pommel cap */
+    glPushMatrix(); glTranslatef(0.00f, -0.22f, -1.00f); draw_viewmodel_box_tone(p, 0.30f, 0.26f, 0.16f, 1); glPopMatrix();
+    /* Subtle guard / finger stop */
+    glPushMatrix(); glTranslatef(0.00f, -0.10f, -0.10f); draw_viewmodel_box_tone(p, 0.34f, 0.12f, 0.12f, 1); glPopMatrix();
+    /* Ricasso / blade root */
+    glPushMatrix(); glTranslatef(0.00f, -0.03f, 0.04f); draw_viewmodel_box_tone(p, 0.20f, 0.08f, 0.26f, 0); glPopMatrix();
+    /* Long blade body (~72% length), thin and narrow */
+    glPushMatrix(); glTranslatef(0.00f, 0.09f, 0.74f); glRotatef(-4.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.12f, 0.10f, 1.88f, 0); glPopMatrix();
+    /* Tapered tip wedge for a clear point */
+    glPushMatrix(); glTranslatef(0.00f, 0.18f, 1.76f); glRotatef(-17.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.08f, 0.08f, 0.50f, 0); glPopMatrix();
+
+    glPopMatrix();
 }
 
 static void draw_viewmodel_weapon(int weapon_id) {
@@ -2145,13 +2159,64 @@ void draw_weapon_p(PlayerState *p) {
     float speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
     float bob = sinf(SDL_GetTicks() * 0.015f) * speed * tune.idle_scale;
     float ads_blend = (current_fov < 50.0f) ? 0.22f : 0.0f;
+    float knife_stab = 0.0f;
+    float knife_stab_forward = 0.0f;
+    float knife_stab_pitch = 0.0f;
+    float knife_stab_roll = 0.0f;
+    float knife_stab_yaw = 0.0f;
+    float knife_stab_x = 0.0f;
+    float knife_stab_y = 0.0f;
+    float knife_idle = 0.0f;
+    if (p->current_weapon == WPN_KNIFE) {
+        /* recoil_anim falls 1->0 after attack trigger; remap to forward time 0->1 */
+        knife_stab = clamp01f(1.0f - p->recoil_anim);
+        if (knife_stab < 0.12f) { /* wind-up */
+            float u = knife_stab / 0.12f;
+            knife_stab_forward = -0.12f * u;
+            knife_stab_pitch = -4.0f * u;
+            knife_stab_roll = 3.0f * u;
+            knife_stab_x = 0.02f * u;
+        } else if (knife_stab < 0.42f) { /* thrust */
+            float u = (knife_stab - 0.12f) / 0.30f;
+            knife_stab_forward = -0.12f + (0.66f * u);
+            knife_stab_pitch = -4.0f + (22.0f * u);
+            knife_stab_roll = 3.0f + (-12.0f * u);
+            knife_stab_yaw = -5.0f * u;
+            knife_stab_x = 0.02f + (-0.18f * u);
+            knife_stab_y = -0.08f * u;
+        } else if (knife_stab < 0.70f) { /* recovery */
+            float u = (knife_stab - 0.42f) / 0.28f;
+            knife_stab_forward = 0.54f * (1.0f - u);
+            knife_stab_pitch = 18.0f * (1.0f - u);
+            knife_stab_roll = -9.0f * (1.0f - u);
+            knife_stab_yaw = -5.0f * (1.0f - u);
+            knife_stab_x = -0.16f * (1.0f - u);
+            knife_stab_y = -0.08f * (1.0f - u);
+        } else { /* settle */
+            float u = (knife_stab - 0.70f) / 0.30f;
+            float e = (1.0f - u);
+            knife_stab_forward = 0.08f * e * e;
+            knife_stab_pitch = 2.5f * e * e;
+            knife_stab_roll = -1.8f * e * e;
+            knife_stab_yaw = -1.5f * e * e;
+            knife_stab_x = -0.03f * e * e;
+            knife_stab_y = -0.01f * e * e;
+        }
+        knife_idle = bob * 0.35f;
+    }
     glTranslatef(
-        tune.base_x - ads_blend + slash_swing * 0.18f,
-        tune.base_y + kick + reload_dip * 0.7f + (bob * 0.4f),
-        tune.base_z + (kick * 0.45f) + bob - dash_push - p->recoil_anim * tune.recoil_back
+        tune.base_x - ads_blend + slash_swing * 0.18f + knife_stab_x,
+        tune.base_y + kick + reload_dip * 0.7f + (bob * 0.4f) + knife_stab_y,
+        tune.base_z + (kick * 0.45f) + bob - dash_push - p->recoil_anim * tune.recoil_back + knife_stab_forward + knife_idle
     );
-    glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f, 1, 0, 0);
-    glRotatef(-p->recoil_anim * tune.recoil_roll, 0, 0, 1);
+    if (p->current_weapon == WPN_KNIFE) {
+        glRotatef(9.0f, 1, 0, 0);
+        glRotatef(18.0f, 0, 1, 0);
+        glRotatef(-31.0f, 0, 0, 1);
+    }
+    glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f + knife_stab_pitch, 1, 0, 0);
+    glRotatef(knife_stab_yaw, 0, 1, 0);
+    glRotatef(-p->recoil_anim * tune.recoil_roll + knife_stab_roll, 0, 0, 1);
     glRotatef(-slash_swing * 40.0f, 0, 0, 1);
     glScalef(viewmodel_global_scale, viewmodel_global_scale, viewmodel_global_scale);
     draw_viewmodel_weapon(p->current_weapon);

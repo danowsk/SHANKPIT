@@ -110,6 +110,7 @@ typedef struct {
     float reward_feedback; 
     unsigned char ammo;
     unsigned char in_vehicle;
+    signed char carried_flag_team_id;
     unsigned char hit_feedback; 
     unsigned char storm_charges;
     unsigned short kills;
@@ -180,6 +181,14 @@ typedef struct {
     unsigned int stun_immune_until_ms;
     float run_phase;
     float run_weight;
+    int carried_flag_team_id;
+    unsigned int ctf_last_flag_event_ms;
+    unsigned int ctf_melee_cooldown_ms;
+    int ctf_bot_intent;
+    float ctf_cumulative_reward;
+    float ctf_last_reward;
+    unsigned int ctf_last_stuck_ms;
+    float ctf_last_objective_progress;
 } PlayerState;
 
 typedef struct {
@@ -214,7 +223,33 @@ typedef struct {
     HeliInputState input;
 } HelicopterState;
 
-typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100, MODE_TDMB=101, MODE_TDMO=102 } GameMode;
+typedef enum {
+    FLAG_AT_HOME = 0,
+    FLAG_CARRIED = 1,
+    FLAG_DROPPED = 2
+} FlagState;
+
+typedef struct {
+    int owning_team_id;
+    int scene_id;
+    float home_x, home_y, home_z;
+    float x, y, z;
+    int state;
+    int carrier_id;
+    unsigned int dropped_until_ms;
+    unsigned int last_interaction_ms;
+} CtfFlagState;
+
+typedef struct {
+    int active;
+    int scene_id;
+    int score_limit;
+    int capture_scores[2];
+    CtfFlagState flags[2];
+    unsigned int event_counter;
+} CtfMatchState;
+
+typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100, MODE_TDMB=101, MODE_TDMO=102, MODE_CTFB=103, MODE_CTFO=104 } GameMode;
 
 typedef struct {
     PlayerState players[MAX_CLIENTS];
@@ -230,6 +265,7 @@ typedef struct {
     int score_limit;
     int match_over;
     int winning_team;
+    CtfMatchState ctf;
     struct sockaddr_in clients[MAX_CLIENTS];
     ClientMeta client_meta[MAX_CLIENTS];
 } ServerState;

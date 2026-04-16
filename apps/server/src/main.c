@@ -123,7 +123,7 @@ static int addr_equal(const struct sockaddr_in *a, const struct sockaddr_in *b) 
 }
 
 static int server_team_mode_enabled(int mode) {
-    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTF;
+    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTF || mode == MODE_CTFB || mode == MODE_CTFO;
 }
 
 static int tdmo_bot_slot_available(int slot) {
@@ -640,6 +640,7 @@ void server_broadcast() {
             np.reward_feedback = p->accumulated_reward;
             np.ammo = (unsigned char)p->ammo[p->current_weapon];
             np.in_vehicle = (unsigned char)p->in_vehicle;
+            np.carried_flag_team_id = (signed char)p->carried_flag_team_id;
             np.hit_feedback = (unsigned char)p->hit_feedback;
             np.storm_charges = (unsigned char)p->storm_charges;
             np.kills = (unsigned short)(p->kills < 0 ? 0 : p->kills);

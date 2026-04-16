@@ -3,6 +3,12 @@
 ## Recent changes
 
 ### 2026-04-15
+- Added **TDMO** online team deathmatch mode with server-side bot fill and team snapshot handling to expand online match options (`760798a`, merged in #169).
+- Added bottom-right HUD ammo bars in the lobby/game HUD pass for clearer at-a-glance ammo tracking (`dba280d`, merged in #168).
+- Polished the lobby menu into a two-column, launch-ready layout for improved readability and navigation (`5e38d39`, merged in #167).
+- Converted TAB scoring for TDM/TDMB into a truly team-based scoreboard presentation (`ed071a4`, merged in #164).
+- Added hard-coded **TDMB** mode flow and server-authoritative team rules while removing the earlier evolution-mode path (`deb1d91`, merged in #163).
+- Fixed skin chooser behavior by pinning the BACK row for correct scrolling and corrected a malformed lobby click block that caused build failures (`60cb38b`, `ca83a38`, merged in #161).
 - Polished TAB scoreboard readability with improved row layout and slightly increased row spacing for easier scanning during matches (`76f1945`, `33e783a`, merged in #159).
 
 ### 2026-04-14

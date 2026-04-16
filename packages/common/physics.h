@@ -307,6 +307,27 @@ static const Vec2 tanker_spawn_points_dm[] = {
     {-110.0f, 140.0f}, {-30.0f, -72.0f}, {-20.0f, 82.0f}, {80.0f, -155.0f},
     {90.0f, 155.0f}, {150.0f, -30.0f}, {155.0f, 35.0f}, {220.0f, 0.0f}
 };
+static const Vec2 tanker_spawn_points_red[] = {
+    {-265.0f, -92.0f}, {-258.0f, 88.0f}, {-225.0f, 0.0f},
+    {-190.0f, -130.0f}, {-185.0f, 128.0f}, {-150.0f, 0.0f}
+};
+static const Vec2 tanker_spawn_points_blue[] = {
+    {265.0f, 92.0f}, {258.0f, -88.0f}, {225.0f, 0.0f},
+    {190.0f, 130.0f}, {185.0f, -128.0f}, {150.0f, 0.0f}
+};
+static const Vec2 stadium_spawn_points_dm[] = {
+    {-250.0f, -120.0f}, {-240.0f, 120.0f}, {-160.0f, -220.0f}, {-160.0f, 220.0f},
+    {-80.0f, -160.0f}, {-80.0f, 160.0f}, {0.0f, -220.0f}, {0.0f, 220.0f},
+    {80.0f, -160.0f}, {80.0f, 160.0f}, {160.0f, -220.0f}, {160.0f, 220.0f}
+};
+static const Vec2 stadium_spawn_points_red[] = {
+    {-295.0f, -140.0f}, {-285.0f, 140.0f}, {-250.0f, 0.0f},
+    {-210.0f, -220.0f}, {-210.0f, 220.0f}, {-160.0f, 0.0f}
+};
+static const Vec2 stadium_spawn_points_blue[] = {
+    {295.0f, 140.0f}, {285.0f, -140.0f}, {250.0f, 0.0f},
+    {210.0f, 220.0f}, {210.0f, -220.0f}, {160.0f, 0.0f}
+};
 static const VoxRouteAnchor dust_route_anchors[] = {
     {DUST_MID_X, DUST_MID_Z, "MID"},
     {DUST_UNDERPASS_X, DUST_UNDERPASS_Z, "UNDERPASS"},
@@ -982,6 +1003,14 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
         *out_y = 6.0f;
         return;
     }
+    if (scene_id == SCENE_STADIUM) {
+        int count = (int)(sizeof(stadium_spawn_points_dm) / sizeof(Vec2));
+        int idx = slot % count;
+        *out_x = stadium_spawn_points_dm[idx].x;
+        *out_z = stadium_spawn_points_dm[idx].y;
+        *out_y = 3.0f;
+        return;
+    }
     if (slot % 2 == 0) {
         *out_x = 0.0f; *out_z = 0.0f; *out_y = 80.0f;
     } else {
@@ -993,19 +1022,28 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
 }
 
 static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *out_y, float *out_z) {
-    if (p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND && p->scene_id != SCENE_OIL_TANKER) {
+    if (p->scene_id != SCENE_VOXWORLD && p->scene_id != SCENE_DUST_COMPOUND &&
+        p->scene_id != SCENE_OIL_TANKER && p->scene_id != SCENE_STADIUM) {
         scene_spawn_point(p->scene_id, p->id, out_x, out_y, out_z);
         return;
     }
-    const Vec2 *pts = (p->scene_id == SCENE_DUST_COMPOUND) ? dust_spawn_points_dm
-                    : (p->scene_id == SCENE_OIL_TANKER ? tanker_spawn_points_dm : voxworld_spawn_points_ffa);
-    int count = (p->scene_id == SCENE_DUST_COMPOUND)
-        ? (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2))
-        : (p->scene_id == SCENE_OIL_TANKER ? (int)(sizeof(tanker_spawn_points_dm) / sizeof(Vec2))
-                                           : (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2)));
+    const Vec2 *pts = voxworld_spawn_points_ffa;
+    int count = (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(Vec2));
     int team_mode = phys_team_mode_enabled();
     int team = p->team_id;
     if (team_mode && (team != 0 && team != 1)) team = (p->id % 2);
+
+    if (p->scene_id == SCENE_DUST_COMPOUND) {
+        pts = dust_spawn_points_dm;
+        count = (int)(sizeof(dust_spawn_points_dm) / sizeof(Vec2));
+    } else if (p->scene_id == SCENE_OIL_TANKER) {
+        pts = tanker_spawn_points_dm;
+        count = (int)(sizeof(tanker_spawn_points_dm) / sizeof(Vec2));
+    } else if (p->scene_id == SCENE_STADIUM) {
+        pts = stadium_spawn_points_dm;
+        count = (int)(sizeof(stadium_spawn_points_dm) / sizeof(Vec2));
+    }
+
     if (team_mode && p->scene_id == SCENE_VOXWORLD) {
         if (team == 0) {
             pts = voxworld_spawn_points_red;
@@ -1022,13 +1060,37 @@ static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *o
             pts = dust_spawn_points_defend;
             count = (int)(sizeof(dust_spawn_points_defend) / sizeof(Vec2));
         }
+    } else if (team_mode && p->scene_id == SCENE_OIL_TANKER) {
+        if (team == 0) {
+            pts = tanker_spawn_points_red;
+            count = (int)(sizeof(tanker_spawn_points_red) / sizeof(Vec2));
+        } else if (team == 1) {
+            pts = tanker_spawn_points_blue;
+            count = (int)(sizeof(tanker_spawn_points_blue) / sizeof(Vec2));
+        }
+    } else if (team_mode && p->scene_id == SCENE_STADIUM) {
+        if (team == 0) {
+            pts = stadium_spawn_points_red;
+            count = (int)(sizeof(stadium_spawn_points_red) / sizeof(Vec2));
+        } else if (team == 1) {
+            pts = stadium_spawn_points_blue;
+            count = (int)(sizeof(stadium_spawn_points_blue) / sizeof(Vec2));
+        }
     }
+
     int idx = (p->id + (int)(p->deaths * 3)) % count;
     *out_x = pts[idx].x;
     *out_z = pts[idx].y;
     *out_y = (p->scene_id == SCENE_DUST_COMPOUND)
         ? (dust_height_at(*out_x, *out_z) + 5.5f)
-        : (p->scene_id == SCENE_OIL_TANKER ? 6.0f : (voxworld_height_at(*out_x, *out_z) + 6.0f));
+        : (p->scene_id == SCENE_OIL_TANKER ? 6.0f : (p->scene_id == SCENE_STADIUM ? 3.0f : (voxworld_height_at(*out_x, *out_z) + 6.0f)));
+
+    if (team_mode && (p->scene_id == SCENE_OIL_TANKER || p->scene_id == SCENE_STADIUM) && p->deaths == 0) {
+        printf("[%s] team spawn sets red=%d blue=%d\n",
+               p->scene_id == SCENE_OIL_TANKER ? "OIL_TANKER" : "STADIUM",
+               p->scene_id == SCENE_OIL_TANKER ? (int)(sizeof(tanker_spawn_points_red) / sizeof(Vec2)) : (int)(sizeof(stadium_spawn_points_red) / sizeof(Vec2)),
+               p->scene_id == SCENE_OIL_TANKER ? (int)(sizeof(tanker_spawn_points_blue) / sizeof(Vec2)) : (int)(sizeof(stadium_spawn_points_blue) / sizeof(Vec2)));
+    }
 }
 
 static inline void scene_force_spawn(PlayerState *p) {

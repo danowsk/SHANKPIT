@@ -430,7 +430,7 @@ char lobby_labels_mutable[LOBBY_COUNT][64];
 static const char *LOBBY_LABELS[LOBBY_COUNT] = {
     "JOIN",
     "SOLO",
-    "BATTLE (BOTS)",
+    "TRAIN",
     "TDMB",
     "LAN CTF"
 };

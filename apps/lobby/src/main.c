@@ -433,7 +433,7 @@ static const char *LOBBY_LABELS[LOBBY_COUNT] = {
     "JOIN",
     "TDMO",
     "SOLO",
-    "BATTLE (BOTS)",
+    "TRAIN",
     "TDMB",
     "LAN CTF"
 };

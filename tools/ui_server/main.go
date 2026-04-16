@@ -139,7 +139,7 @@ func newServer() *Server {
 func defaultMenuEntries() []MenuEntry {
 	return []MenuEntry{
 		{ID: "mode.demo", Label: "DEMO (SOLO)", Kind: "action", Enabled: true},
-		{ID: "mode.battle", Label: "BATTLE (BOTS)", Kind: "action", Enabled: true},
+		{ID: "mode.battle", Label: "TRAIN", Kind: "action", Enabled: true},
 		{ID: "mode.tdm", Label: "TEAM DM (BOTS)", Kind: "action", Enabled: true},
 		{ID: "mode.ctf", Label: "LAN CTF", Kind: "action", Enabled: true},
 		{ID: "mode.training", Label: "TRAINING", Kind: "action", Enabled: true},

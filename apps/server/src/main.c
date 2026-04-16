@@ -551,6 +551,8 @@ void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
         p->in_ability = 0;
         p->use_was_down = 0;
         p->portal_cooldown_until_ms = 0;
+        p->use_buffer_until_ms = 0;
+        p->portal_focus_id = -1;
         p->vehicle_cooldown = 0;
         send_welcome(sender, client_id);
     }
@@ -794,9 +796,18 @@ int main(int argc, char *argv[]) {
             if (p->active && p->state != STATE_DEAD) {
                 phys_set_scene(p->scene_id);
                 int use_pressed = p->in_use && !p->use_was_down;
+                if (use_pressed) p->use_buffer_until_ms = now + PORTAL_USE_BUFFER_MS;
                 int portal_id = -1;
-                if (use_pressed && now >= p->portal_cooldown_until_ms &&
-                    scene_portal_active(p->scene_id) && scene_portal_triggered(p, &portal_id)) {
+                float portal_dist_sq = 0.0f;
+                int has_portal_candidate = scene_find_nearest_portal(p, PORTAL_INTERACT_RADIUS, &portal_id, &portal_dist_sq);
+                p->portal_focus_id = has_portal_candidate ? portal_id : -1;
+                if (has_portal_candidate) {
+                    int buffered = (now <= p->use_buffer_until_ms || p->in_use) ? 1 : 0;
+                    printf("[PORTAL] candidate=%d dist=%.1f buffered=%d\n", portal_id, sqrtf(portal_dist_sq), buffered);
+                }
+                int portal_intent_ready = (now <= p->use_buffer_until_ms || p->in_use);
+                if (has_portal_candidate && portal_intent_ready &&
+                    now >= p->portal_cooldown_until_ms) {
                     int dest_scene = -1;
                     float sx = 0.0f, sy = 0.0f, sz = 0.0f;
                     if (portal_resolve_destination(p->scene_id, portal_id, p->id,
@@ -808,11 +819,13 @@ int main(int argc, char *argv[]) {
                         p->vx = 0.0f; p->vy = 0.0f; p->vz = 0.0f;
                         p->in_vehicle = 0;
                         p->vehicle_type = VEH_NONE;
-                        p->portal_cooldown_until_ms = now + 1000;
+                        p->portal_cooldown_until_ms = now + PORTAL_RETRIGGER_COOLDOWN_MS;
+                        p->use_buffer_until_ms = 0;
+                        p->portal_focus_id = -1;
                         p->in_use = 0;
-                        printf("PORTAL_TRAVEL client=%d from=%d to=%d\n", i, from_scene, dest_scene);
+                        printf("[PORTAL] travel src=%d portal=%d dst=%d\n", from_scene, portal_id, dest_scene);
                     }
-                } else if (use_pressed && p->vehicle_cooldown == 0) {
+                } else if (use_pressed && p->vehicle_cooldown == 0 && !has_portal_candidate) {
                     if (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER) {
                         for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
                             HelicopterState *h = &local_state.helicopters[hi];

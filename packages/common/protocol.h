@@ -162,6 +162,8 @@ typedef struct {
     int bike_gear;
     int vehicle_cooldown;
     unsigned int portal_cooldown_until_ms;
+    unsigned int use_buffer_until_ms;
+    int portal_focus_id;
     float accumulated_reward; 
     BotGenome brain;
     unsigned int last_hit_time;

@@ -90,24 +90,42 @@ static const Box map_geo_stadium[] = {
 };
 
 static const Box map_geo_garage[] = {
-    {0.00, -2.00, 0.00, 160.00, 4.00, 160.00},
-    {0.00, -8.00, 0.00, 170.00, 2.00, 170.00},
-    {0.00, 18.00, 0.00, 160.00, 4.00, 160.00},
-    {60.00, 9.00, 0.00, 4.00, 18.00, 160.00},
-    {-60.00, 9.00, 0.00, 4.00, 18.00, 160.00},
-    {0.00, 9.00, 60.00, 160.00, 18.00, 4.00},
-    {0.00, 9.00, -60.00, 160.00, 18.00, 4.00},
-    {64.00, 9.00, 0.00, 4.00, 22.00, 170.00},
-    {-64.00, 9.00, 0.00, 4.00, 22.00, 170.00},
-    {0.00, 9.00, 64.00, 170.00, 22.00, 4.00},
-    {0.00, 9.00, -64.00, 170.00, 22.00, 4.00},
-    {0.00, 21.00, 64.50, 174.00, 2.00, 6.00},
-    {0.00, 21.00, -64.50, 174.00, 2.00, 6.00},
-    {64.50, 21.00, 0.00, 6.00, 2.00, 174.00},
-    {-64.50, 21.00, 0.00, 6.00, 2.00, 174.00},
-    {0.00, 9.00, 52.00, 14.00, 12.00, 2.00},
-    {-10.00, 5.00, -20.00, 12.00, 4.00, 12.00},
-    {10.00, 5.00, -20.00, 12.00, 4.00, 12.00}
+    {0.00f, -2.00f, 0.00f, 460.00f, 4.00f, 380.00f},
+    {0.00f, -8.00f, 0.00f, 470.00f, 2.00f, 390.00f},
+    {0.00f, 30.00f, 0.00f, 460.00f, 4.00f, 380.00f},
+    {0.00f, 14.00f, 178.00f, 460.00f, 28.00f, 4.00f},
+    {0.00f, 14.00f, -178.00f, 460.00f, 28.00f, 4.00f},
+    {228.00f, 14.00f, 0.00f, 4.00f, 28.00f, 360.00f},
+    {-228.00f, 14.00f, 0.00f, 4.00f, 28.00f, 360.00f},
+    {0.00f, 34.00f, 182.00f, 468.00f, 4.00f, 8.00f},
+    {0.00f, 34.00f, -182.00f, 468.00f, 4.00f, 8.00f},
+    {232.00f, 34.00f, 0.00f, 8.00f, 4.00f, 368.00f},
+    {-232.00f, 34.00f, 0.00f, 8.00f, 4.00f, 368.00f},
+    {74.00f, 6.00f, -10.00f, 6.00f, 12.00f, 300.00f},
+    {-74.00f, 6.00f, 8.00f, 6.00f, 12.00f, 300.00f},
+    {-156.00f, 5.00f, -128.00f, 50.00f, 10.00f, 8.00f},
+    {-156.00f, 5.00f, -86.00f, 50.00f, 10.00f, 8.00f},
+    {-156.00f, 5.00f, -44.00f, 50.00f, 10.00f, 8.00f},
+    {-156.00f, 5.00f, -2.00f, 50.00f, 10.00f, 8.00f},
+    {-156.00f, 5.00f, 40.00f, 50.00f, 10.00f, 8.00f},
+    {-156.00f, 5.00f, 82.00f, 50.00f, 10.00f, 8.00f},
+    {-156.00f, 5.00f, 124.00f, 50.00f, 10.00f, 8.00f},
+    {-122.00f, 5.00f, -104.00f, 14.00f, 10.00f, 14.00f},
+    {-112.00f, 5.00f, -40.00f, 18.00f, 10.00f, 18.00f},
+    {-122.00f, 5.00f, 32.00f, 14.00f, 10.00f, 14.00f},
+    {-112.00f, 5.00f, 96.00f, 18.00f, 10.00f, 18.00f},
+    {168.00f, 6.00f, -138.00f, 100.00f, 12.00f, 6.00f},
+    {168.00f, 6.00f, -58.00f, 100.00f, 12.00f, 6.00f},
+    {168.00f, 6.00f, 22.00f, 100.00f, 12.00f, 6.00f},
+    {168.00f, 6.00f, 102.00f, 100.00f, 12.00f, 6.00f},
+    {120.00f, 6.00f, -98.00f, 8.00f, 12.00f, 44.00f},
+    {120.00f, 6.00f, 62.00f, 8.00f, 12.00f, 44.00f},
+    {-178.00f, 18.00f, 0.00f, 36.00f, 2.00f, 320.00f},
+    {-178.00f, 13.00f, -148.00f, 4.00f, 12.00f, 22.00f},
+    {-178.00f, 13.00f, 148.00f, 4.00f, 12.00f, 22.00f},
+    {-60.00f, 18.00f, -168.00f, 200.00f, 2.00f, 20.00f},
+    {-148.00f, 18.00f, -150.00f, 24.00f, 2.00f, 24.00f},
+    {-90.00f, 6.00f, -152.00f, 20.00f, 12.00f, 18.00f}
 };
 
 
@@ -126,8 +144,8 @@ static const Box *map_geo = map_geo_stadium;
 static int map_count = 0;
 
 #define GARAGE_KILL_Y -30.0f
-#define GARAGE_BOUNDS_X 70.0f
-#define GARAGE_BOUNDS_Z 70.0f
+#define GARAGE_BOUNDS_X 235.0f
+#define GARAGE_BOUNDS_Z 185.0f
 
 #define STADIUM_KILL_Y -80.0f
 #define STADIUM_BOUNDS_X 420.0f
@@ -182,19 +200,19 @@ static int map_count = 0;
 
 #define GARAGE_PORTAL_X 0.0f
 #define GARAGE_PORTAL_Y 6.0f
-#define GARAGE_PORTAL_Z 56.0f
+#define GARAGE_PORTAL_Z 166.0f
 #define GARAGE_PORTAL_RADIUS 6.0f
-#define GARAGE_VOX_PORTAL_X 48.0f
+#define GARAGE_VOX_PORTAL_X 24.0f
 #define GARAGE_VOX_PORTAL_Y 6.0f
-#define GARAGE_VOX_PORTAL_Z 0.0f
+#define GARAGE_VOX_PORTAL_Z 166.0f
 #define GARAGE_VOX_PORTAL_RADIUS 6.5f
-#define GARAGE_DUST_PORTAL_X -48.0f
+#define GARAGE_DUST_PORTAL_X -170.0f
 #define GARAGE_DUST_PORTAL_Y 6.0f
-#define GARAGE_DUST_PORTAL_Z -12.0f
+#define GARAGE_DUST_PORTAL_Z 72.0f
 #define GARAGE_DUST_PORTAL_RADIUS 6.0f
-#define GARAGE_TANKER_PORTAL_X -48.0f
+#define GARAGE_TANKER_PORTAL_X -24.0f
 #define GARAGE_TANKER_PORTAL_Y 6.0f
-#define GARAGE_TANKER_PORTAL_Z 0.0f
+#define GARAGE_TANKER_PORTAL_Z -166.0f
 #define GARAGE_TANKER_PORTAL_RADIUS 6.0f
 #define STADIUM_PORTAL_X 0.0f
 #define STADIUM_PORTAL_Y 2.0f
@@ -227,6 +245,9 @@ static int map_count = 0;
 #define PORTAL_ID_DUST_TO_GARAGE 5
 #define PORTAL_ID_GARAGE_TO_TANKER 6
 #define PORTAL_ID_TANKER_TO_GARAGE 7
+#define PORTAL_INTERACT_RADIUS 120.0f
+#define PORTAL_USE_BUFFER_MS 220
+#define PORTAL_RETRIGGER_COOLDOWN_MS 700
 
 typedef struct {
     float x;
@@ -1152,6 +1173,18 @@ static inline int scene_portal_active(int scene_id) {
            scene_id == SCENE_VOXWORLD || scene_id == SCENE_DUST_COMPOUND || scene_id == SCENE_OIL_TANKER;
 }
 
+static inline const char *portal_destination_name(int current_scene, int portal_id) {
+    if (current_scene == SCENE_GARAGE_OSAKA && portal_id == PORTAL_ID_GARAGE_TO_VOXWORLD) return "VOXWORLD";
+    if (current_scene == SCENE_GARAGE_OSAKA && portal_id == PORTAL_ID_GARAGE_TO_DUST) return "DUST COMPOUND";
+    if (current_scene == SCENE_GARAGE_OSAKA && portal_id == PORTAL_ID_GARAGE_TO_TANKER) return "OIL TANKER";
+    if (current_scene == SCENE_STADIUM && portal_id == PORTAL_ID_GARAGE_EXIT) return "OSAKA GARAGE";
+    if (current_scene == SCENE_STADIUM && portal_id == PORTAL_ID_STADIUM_TO_VOXWORLD) return "VOXWORLD";
+    if (current_scene == SCENE_VOXWORLD && portal_id == PORTAL_ID_VOXWORLD_TO_STADIUM) return "STADIUM";
+    if (current_scene == SCENE_DUST_COMPOUND && portal_id == PORTAL_ID_DUST_TO_GARAGE) return "OSAKA GARAGE";
+    if (current_scene == SCENE_OIL_TANKER && portal_id == PORTAL_ID_TANKER_TO_GARAGE) return "OSAKA GARAGE";
+    return "UNKNOWN";
+}
+
 static inline int portal_resolve_destination(int current_scene, int portal_id, int slot,
                                              int *out_scene, float *out_x, float *out_y, float *out_z) {
     if (!out_scene || !out_x || !out_y || !out_z) return 0;
@@ -1202,16 +1235,16 @@ static inline int portal_resolve_destination(int current_scene, int portal_id, i
     }
     if (current_scene == SCENE_DUST_COMPOUND && portal_id == PORTAL_ID_DUST_TO_GARAGE) {
         *out_scene = SCENE_GARAGE_OSAKA;
-        *out_x = GARAGE_DUST_PORTAL_X + 10.0f;
+        *out_x = GARAGE_DUST_PORTAL_X + 12.0f;
         *out_y = GARAGE_DUST_PORTAL_Y;
-        *out_z = GARAGE_DUST_PORTAL_Z;
+        *out_z = GARAGE_DUST_PORTAL_Z - 16.0f;
         return 1;
     }
     if (current_scene == SCENE_OIL_TANKER && portal_id == PORTAL_ID_TANKER_TO_GARAGE) {
         *out_scene = SCENE_GARAGE_OSAKA;
-        *out_x = GARAGE_TANKER_PORTAL_X + 10.0f;
+        *out_x = GARAGE_TANKER_PORTAL_X;
         *out_y = GARAGE_TANKER_PORTAL_Y;
-        *out_z = GARAGE_TANKER_PORTAL_Z;
+        *out_z = GARAGE_TANKER_PORTAL_Z + 16.0f;
         return 1;
     }
     return 0;
@@ -1358,6 +1391,46 @@ static inline int scene_portal_triggered(PlayerState *p, int *out_portal_id) {
         return 1;
     }
     return 0;
+}
+
+static inline int scene_find_nearest_portal(const PlayerState *p, float radius,
+                                            int *out_portal_id, float *out_dist_sq) {
+    if (!p || !scene_portal_active(p->scene_id) || radius <= 0.0f) return 0;
+    float max_dist_sq = radius * radius;
+    int found = 0;
+    int best_portal = -1;
+    float best_dist_sq = max_dist_sq;
+
+#define TRY_PORTAL(px, pz, pid) do { \
+    float dx = p->x - (px); \
+    float dz = p->z - (pz); \
+    float dist_sq = dx * dx + dz * dz; \
+    if (dist_sq <= max_dist_sq && (!found || dist_sq < best_dist_sq)) { \
+        found = 1; \
+        best_dist_sq = dist_sq; \
+        best_portal = (pid); \
+    } \
+} while (0)
+
+    if (p->scene_id == SCENE_GARAGE_OSAKA) {
+        TRY_PORTAL(GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Z, PORTAL_ID_GARAGE_TO_VOXWORLD);
+        TRY_PORTAL(GARAGE_DUST_PORTAL_X, GARAGE_DUST_PORTAL_Z, PORTAL_ID_GARAGE_TO_DUST);
+        TRY_PORTAL(GARAGE_TANKER_PORTAL_X, GARAGE_TANKER_PORTAL_Z, PORTAL_ID_GARAGE_TO_TANKER);
+    } else if (p->scene_id == SCENE_STADIUM) {
+        TRY_PORTAL(STADIUM_PORTAL_X, STADIUM_PORTAL_Z, PORTAL_ID_GARAGE_EXIT);
+        TRY_PORTAL(STADIUM_EDGE_PORTAL_X, STADIUM_EDGE_PORTAL_Z, PORTAL_ID_STADIUM_TO_VOXWORLD);
+    } else if (p->scene_id == SCENE_VOXWORLD) {
+        TRY_PORTAL(VOXWORLD_PORTAL_X, VOXWORLD_PORTAL_Z, PORTAL_ID_VOXWORLD_TO_STADIUM);
+    } else if (p->scene_id == SCENE_DUST_COMPOUND) {
+        TRY_PORTAL(DUST_PORTAL_X, DUST_PORTAL_Z, PORTAL_ID_DUST_TO_GARAGE);
+    } else if (p->scene_id == SCENE_OIL_TANKER) {
+        TRY_PORTAL(TANKER_PORTAL_X, TANKER_PORTAL_Z, PORTAL_ID_TANKER_TO_GARAGE);
+    }
+#undef TRY_PORTAL
+    if (!found) return 0;
+    if (out_portal_id) *out_portal_id = best_portal;
+    if (out_dist_sq) *out_dist_sq = best_dist_sq;
+    return 1;
 }
 
 static inline int scene_near_vehicle_pad(int scene_id, float x, float z, float max_dist, int *out_idx) {
@@ -1722,6 +1795,8 @@ void phys_respawn(PlayerState *p, unsigned int now) {
     p->storm_charges = 0;
     p->ability_cooldown = 0;
     p->portal_cooldown_until_ms = 0;
+    p->use_buffer_until_ms = 0;
+    p->portal_focus_id = -1;
     p->stunned_until_ms = 0;
     p->stun_immune_until_ms = 0;
     if (p->is_bot) {

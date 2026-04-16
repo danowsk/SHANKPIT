@@ -2111,6 +2111,14 @@ void draw_hud(PlayerState *p) {
     char vel_buf[32]; sprintf(vel_buf, "VEL: %.2f", raw_speed);
     glColor3f(vs0_art_direction_enabled ? 0.80f : 1.0f, vs0_art_direction_enabled ? 0.78f : 1.0f, vs0_art_direction_enabled ? 0.44f : 0.0f);
     draw_string(vel_buf, 1120, 50, vs0_art_direction_enabled ? 5 : 8); 
+    int focused_portal = -1;
+    if (scene_find_nearest_portal(p, PORTAL_INTERACT_RADIUS, &focused_portal, NULL)) {
+        const char *dst = portal_destination_name(p->scene_id, focused_portal);
+        char travel_buf[96];
+        snprintf(travel_buf, sizeof(travel_buf), "F: TRAVEL -> %s", dst);
+        glColor3f(1.0f, 0.9f, 0.25f);
+        draw_string(travel_buf, 520, 324, 7);
+    }
     draw_ammo_bars(p);
 
     glEnable(GL_DEPTH_TEST); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
@@ -2471,11 +2479,11 @@ static void draw_garage_overlay(PlayerState *p) {
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
 
     glColor3f(0.2f, 1.0f, 1.0f);
-    draw_string("OSAKA GARAGE", 40, 670, 10);
+    draw_string("OSAKA GARAGE WAREHOUSE", 40, 670, 10);
     glColor3f(0.9f, 0.9f, 0.9f);
-    draw_string("PORTAL -> STADIUM", 40, 640, 6);
-    draw_string("PORTAL -> VOXWORLD TERRAIN", 40, 620, 6);
-    draw_string("PORTAL -> OIL TANKER", 40, 600, 6);
+    draw_string("LOADING BAY PORTAL -> VOXWORLD", 40, 640, 6);
+    draw_string("SIDE ALCOVE PORTAL -> DUST COMPOUND", 40, 620, 6);
+    draw_string("REAR GATE PORTAL -> OIL TANKER", 40, 600, 6);
 
     int pad_count = 0;
     const VehiclePad *pads = scene_vehicle_pads(local_state.scene_id, &pad_count);
@@ -2499,12 +2507,8 @@ static void draw_garage_overlay(PlayerState *p) {
         list_y -= 20.0f;
     }
 
-    float portal_x = 0.0f, portal_y = 0.0f, portal_z = 0.0f, portal_r = 0.0f;
-    scene_portal_info(local_state.scene_id, &portal_x, &portal_y, &portal_z, &portal_r);
-    int portal_target = target_in_view(p, portal_x, portal_y, portal_z, 30.0f, 0.75f);
-    int vox_portal_target = target_in_view(p, GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z, 30.0f, 0.75f);
-    int tanker_portal_target = target_in_view(p, GARAGE_TANKER_PORTAL_X, GARAGE_TANKER_PORTAL_Y, GARAGE_TANKER_PORTAL_Z, 30.0f, 0.75f);
-    int dust_portal_target = target_in_view(p, GARAGE_DUST_PORTAL_X, GARAGE_DUST_PORTAL_Y, GARAGE_DUST_PORTAL_Z, 30.0f, 0.75f);
+    int portal_target = -1;
+    int has_portal_target = scene_find_nearest_portal(p, PORTAL_INTERACT_RADIUS, &portal_target, NULL);
     int pad_target = 0;
     int heli_target = 0;
     if (scene_near_vehicle_pad(local_state.scene_id, p->x, p->z, 12.0f, NULL)) {
@@ -2526,8 +2530,11 @@ static void draw_garage_overlay(PlayerState *p) {
     }
 
     glColor3f(1.0f, 1.0f, 0.0f);
-    if (portal_target || vox_portal_target || tanker_portal_target || dust_portal_target) {
-        draw_string("TRAVEL", 600, 350, 8);
+    if (has_portal_target) {
+        const char *dst = portal_destination_name(p->scene_id, portal_target);
+        char travel_prompt[96];
+        snprintf(travel_prompt, sizeof(travel_prompt), "F: TRAVEL -> %s", dst);
+        draw_string(travel_prompt, 520, 350, 8);
     } else if (heli_target || (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER)) {
         draw_string(p->in_vehicle ? "PRESS F TO EXIT HELICOPTER" : "PRESS F TO ENTER HELICOPTER", 460, 350, 8);
     } else if (pad_target) {
@@ -3805,8 +3812,38 @@ int main(int argc, char* argv[]) {
                 net_apply_remote_interpolation(SDL_GetTicks());
             } else {
                 local_state.players[0].in_use = use;
-                if (use && local_state.players[0].vehicle_cooldown == 0 && local_state.transition_timer == 0) {
-                    PlayerState *p0 = &local_state.players[0];
+                PlayerState *p0 = &local_state.players[0];
+                unsigned int now_ms = SDL_GetTicks();
+                int use_pressed = use && !p0->use_was_down;
+                if (use_pressed) p0->use_buffer_until_ms = now_ms + PORTAL_USE_BUFFER_MS;
+                int portal_id = -1;
+                float portal_dist_sq = 0.0f;
+                int has_portal_candidate = scene_find_nearest_portal(p0, PORTAL_INTERACT_RADIUS, &portal_id, &portal_dist_sq);
+                p0->portal_focus_id = has_portal_candidate ? portal_id : -1;
+                if (has_portal_candidate) {
+                    int buffered = ((now_ms <= p0->use_buffer_until_ms) || use) ? 1 : 0;
+                    printf("[PORTAL] candidate=%d dist=%.1f buffered=%d\n", portal_id, sqrtf(portal_dist_sq), buffered);
+                }
+                int portal_intent_ready = ((now_ms <= p0->use_buffer_until_ms) || use);
+                if (portal_intent_ready && local_state.transition_timer == 0 &&
+                    now_ms >= p0->portal_cooldown_until_ms &&
+                    has_portal_candidate) {
+                    int dest_scene = -1;
+                    float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+                    if (portal_resolve_destination(p0->scene_id, portal_id, p0->id, &dest_scene, &sx, &sy, &sz)) {
+                        int src_scene = p0->scene_id;
+                        p0->scene_id = dest_scene;
+                        p0->x = sx; p0->y = sy; p0->z = sz;
+                        p0->vx = 0.0f; p0->vy = 0.0f; p0->vz = 0.0f;
+                        p0->in_vehicle = 0;
+                        p0->vehicle_type = VEH_NONE;
+                        p0->portal_cooldown_until_ms = now_ms + PORTAL_RETRIGGER_COOLDOWN_MS;
+                        p0->use_buffer_until_ms = 0;
+                        p0->portal_focus_id = -1;
+                        scene_request_transition(dest_scene);
+                        printf("[PORTAL] travel src=%d portal=%d dst=%d\n", src_scene, portal_id, dest_scene);
+                    }
+                } else if (use_pressed && local_state.players[0].vehicle_cooldown == 0 && local_state.transition_timer == 0 && !has_portal_candidate) {
                     HelicopterState *near_h = NULL;
                     for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
                         HelicopterState *h = &local_state.helicopters[hi];
@@ -3817,17 +3854,7 @@ int main(int argc, char* argv[]) {
                         }
                     }
                     int in_garage = local_state.scene_id == SCENE_GARAGE_OSAKA;
-                    int portal_id = -1;
-                    if (scene_portal_triggered(p0, &portal_id)) {
-                        int dest_scene = -1;
-                        float sx = 0.0f, sy = 0.0f, sz = 0.0f;
-                        if (portal_resolve_destination(p0->scene_id, portal_id, p0->id, &dest_scene, &sx, &sy, &sz)) {
-                            p0->scene_id = dest_scene;
-                            p0->x = sx; p0->y = sy; p0->z = sz;
-                            p0->vx = 0.0f; p0->vy = 0.0f; p0->vz = 0.0f;
-                            scene_request_transition(dest_scene);
-                        }
-                    } else if (p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER) {
+                    if (p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER) {
                         for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
                             HelicopterState *h = &local_state.helicopters[hi];
                             if (!h->active || h->occupant_player_id != 0) continue;
@@ -3855,8 +3882,8 @@ int main(int argc, char* argv[]) {
                         p0->vehicle_cooldown = 30;
                     }
                 }
+                p0->use_was_down = use;
                 if(local_state.players[0].vehicle_cooldown > 0) local_state.players[0].vehicle_cooldown--;
-                unsigned int now_ms = SDL_GetTicks();
                 local_update(fwd, str, cam_yaw, cam_pitch, shoot, wpn_req, jump, crouch, reload, ability, NULL, now_ms);
             }
             int render_pid = 0;

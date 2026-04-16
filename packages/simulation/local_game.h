@@ -17,9 +17,15 @@ static int tdmb_last_kills[MAX_CLIENTS];
 #define TDMB_BLUE_BOTS 5
 #define TDMB_RED_BOTS 6
 #define TDMB_SCORE_LIMIT 25
+#define CTFB_SCORE_LIMIT 3
+#define CTFB_DROPPED_RETURN_MS 12000
+#define CTFB_USE_RADIUS 28.0f
+#define CTFB_CAPTURE_RADIUS 40.0f
+#define CTFB_CARRY_MELEE_DAMAGE 80
+#define CTFB_CARRY_MELEE_COOLDOWN_MS 450
 
 static int mode_uses_team_scores(int mode) {
-    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO;
+    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB;
 }
 
 static int scene_random_tdmb_map(void) {
@@ -53,9 +59,58 @@ static int team_id_is_valid(int team_id) {
     return team_id == TDMB_BLUE_TEAM || team_id == TDMB_RED_TEAM;
 }
 
+typedef enum {
+    CTF_BOT_INTENT_ATTACK_FLAG = 0,
+    CTF_BOT_INTENT_RETURN_HOME = 1,
+    CTF_BOT_INTENT_DEFEND_HOME = 2,
+    CTF_BOT_INTENT_RECOVER_FLAG = 3,
+    CTF_BOT_INTENT_CHASE_CARRIER = 4,
+    CTF_BOT_INTENT_ESCORT = 5
+} CtfBotIntent;
+
+typedef struct {
+    int bot_id;
+    int my_team_id;
+    int enemy_team_id;
+    int has_enemy_flag;
+    int my_flag_state;
+    int enemy_flag_state;
+    int my_flag_carrier_id;
+    int enemy_flag_carrier_id;
+    float dist_enemy_flag;
+    float dist_own_flag;
+    float dist_own_capture_zone;
+    float dist_enemy_base;
+    float dist_own_base;
+    float nearest_enemy_dist;
+    float nearest_ally_dist;
+    int health;
+    int current_weapon;
+    int attack_suppressed_for_flag;
+    int intent;
+    int scene_id;
+    float x, y, z, yaw;
+    int team_score;
+    int enemy_score;
+} CtfBotObservation;
+
+typedef struct {
+    float total;
+    float pickup;
+    float return_reward;
+    float capture;
+    float carrier_kill;
+    float objective_progress;
+    float death_penalty;
+    float stuck_penalty;
+} CtfBotRewardBreakdown;
+
+static int ctf_enemy_team(int team_id) { return team_id == 0 ? 1 : 0; }
+
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time);
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time);
 static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z);
+static void ctf_init_match_state(int scene_id);
 void local_init_match(int num_players, int mode);
 
 float rand_weight() { return ((float)(rand()%2000)/1000.0f) - 1.0f; } 
@@ -124,6 +179,9 @@ static inline void scene_load(int scene_id) {
                local_state.helicopters[1].x, local_state.helicopters[1].y, local_state.helicopters[1].z);
 #endif
     }
+    if (local_state.game_mode == MODE_CTFB) {
+        ctf_init_match_state(scene_id);
+    }
 }
 
 static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z) {
@@ -174,12 +232,255 @@ static inline void scene_tick_transition() {
     }
 }
 
+static void ctf_training_on_episode_begin(void) {}
+static void ctf_training_on_step(unsigned int now_ms) { (void)now_ms; }
+static void ctf_training_on_episode_end(int winning_team) { (void)winning_team; }
+
+static void ctf_add_reward(int player_id, float amount, const char *reason, CtfBotRewardBreakdown *b) {
+    if (player_id < 0 || player_id >= MAX_CLIENTS) return;
+    PlayerState *p = &local_state.players[player_id];
+    if (!p->active || !p->is_bot) return;
+    p->ctf_cumulative_reward += amount;
+    p->ctf_last_reward = amount;
+    p->accumulated_reward += amount;
+    if (b) b->total += amount;
+    if (reason && (amount != 0.0f)) {
+        printf("[CTFB_REWARD] bot=%d reason=%s amount=%.2f total=%.2f\n", player_id, reason, amount, p->ctf_cumulative_reward);
+    }
+}
+
+static void ctf_reset_flag(int team_id) {
+    CtfFlagState *f = &local_state.ctf.flags[team_id];
+    f->state = FLAG_AT_HOME;
+    f->carrier_id = -1;
+    f->x = f->home_x; f->y = f->home_y; f->z = f->home_z;
+    f->dropped_until_ms = 0;
+}
+
+static void ctf_init_match_state(int scene_id) {
+    memset(&local_state.ctf, 0, sizeof(local_state.ctf));
+    local_state.ctf.active = 1;
+    local_state.ctf.scene_id = scene_id;
+    local_state.ctf.score_limit = CTFB_SCORE_LIMIT;
+    for (int team = 0; team < 2; team++) {
+        CtfFlagState *f = &local_state.ctf.flags[team];
+        f->owning_team_id = team;
+        f->scene_id = scene_id;
+        if (!get_ctf_flag_home(scene_id, team, &f->home_x, &f->home_y, &f->home_z)) {
+            float sx, sy, sz, ex, ey, ez;
+            if (scene_get_team_base_marker(scene_id, team, &sx, &sy, &sz, &ex, &ey, &ez)) {
+                f->home_x = sx; f->home_y = sy; f->home_z = sz;
+            }
+        }
+        ctf_reset_flag(team);
+    }
+}
+
+static void ctf_drop_flag_from_carrier(int player_id, unsigned int now_ms) {
+    if (player_id < 0 || player_id >= MAX_CLIENTS) return;
+    PlayerState *p = &local_state.players[player_id];
+    if (p->carried_flag_team_id < 0 || p->carried_flag_team_id > 1) return;
+    CtfFlagState *flag = &local_state.ctf.flags[p->carried_flag_team_id];
+    flag->state = FLAG_DROPPED;
+    flag->carrier_id = -1;
+    flag->x = p->x; flag->y = p->y + 2.0f; flag->z = p->z;
+    flag->dropped_until_ms = now_ms + CTFB_DROPPED_RETURN_MS;
+    flag->last_interaction_ms = now_ms;
+    p->carried_flag_team_id = -1;
+}
+
+static void build_ctf_bot_observation(int bot_id, CtfBotObservation *out) {
+    memset(out, 0, sizeof(*out));
+    PlayerState *p = &local_state.players[bot_id];
+    int my_team = p->team_id;
+    int enemy = ctf_enemy_team(my_team);
+    CtfFlagState *my_flag = &local_state.ctf.flags[my_team];
+    CtfFlagState *enemy_flag = &local_state.ctf.flags[enemy];
+    out->bot_id = bot_id; out->my_team_id = my_team; out->enemy_team_id = enemy;
+    out->has_enemy_flag = (p->carried_flag_team_id == enemy);
+    out->my_flag_state = my_flag->state; out->enemy_flag_state = enemy_flag->state;
+    out->my_flag_carrier_id = my_flag->carrier_id; out->enemy_flag_carrier_id = enemy_flag->carrier_id;
+    float dx = enemy_flag->x - p->x, dz = enemy_flag->z - p->z;
+    out->dist_enemy_flag = sqrtf(dx*dx + dz*dz);
+    dx = my_flag->x - p->x; dz = my_flag->z - p->z;
+    out->dist_own_flag = sqrtf(dx*dx + dz*dz);
+    float cx, cy, cz, cr = CTFB_CAPTURE_RADIUS;
+    if (get_ctf_capture_zone(p->scene_id, my_team, &cx, &cy, &cz, &cr)) {
+        dx = cx - p->x; dz = cz - p->z; out->dist_own_capture_zone = sqrtf(dx*dx + dz*dz);
+    }
+    out->health = p->health;
+    out->current_weapon = p->current_weapon;
+    out->attack_suppressed_for_flag = out->has_enemy_flag;
+    out->team_score = local_state.team_scores[my_team];
+    out->enemy_score = local_state.team_scores[enemy];
+}
+
+static int select_ctf_bot_intent(PlayerState *me) {
+    int my_team = me->team_id;
+    int enemy = ctf_enemy_team(my_team);
+    CtfFlagState *my_flag = &local_state.ctf.flags[my_team];
+    CtfFlagState *enemy_flag = &local_state.ctf.flags[enemy];
+    if (me->carried_flag_team_id == enemy) return CTF_BOT_INTENT_RETURN_HOME;
+    if (my_flag->state == FLAG_CARRIED) return CTF_BOT_INTENT_CHASE_CARRIER;
+    if (my_flag->state == FLAG_DROPPED) return CTF_BOT_INTENT_RECOVER_FLAG;
+    if (enemy_flag->state == FLAG_CARRIED && team_id_is_valid(enemy_flag->carrier_id)) return CTF_BOT_INTENT_ESCORT;
+    return CTF_BOT_INTENT_ATTACK_FLAG;
+}
+
+static void ctf_handle_use_interactions(PlayerState *p, unsigned int now_ms) {
+    if (!p->in_use || p->use_was_down) return;
+    int my_team = p->team_id;
+    int enemy = ctf_enemy_team(my_team);
+    CtfFlagState *enemy_flag = &local_state.ctf.flags[enemy];
+    CtfFlagState *my_flag = &local_state.ctf.flags[my_team];
+    if (p->carried_flag_team_id < 0 && enemy_flag->state != FLAG_CARRIED) {
+        float dx = enemy_flag->x - p->x, dz = enemy_flag->z - p->z;
+        if ((dx*dx + dz*dz) <= (CTFB_USE_RADIUS * CTFB_USE_RADIUS)) {
+            enemy_flag->state = FLAG_CARRIED;
+            enemy_flag->carrier_id = p->id;
+            enemy_flag->last_interaction_ms = now_ms;
+            p->carried_flag_team_id = enemy;
+            ctf_add_reward(p->id, 20.0f, "pickup_enemy_flag", NULL);
+            return;
+        }
+    }
+    if (my_flag->state == FLAG_DROPPED) {
+        float dx = my_flag->x - p->x, dz = my_flag->z - p->z;
+        if ((dx*dx + dz*dz) <= (CTFB_USE_RADIUS * CTFB_USE_RADIUS)) {
+            ctf_reset_flag(my_team);
+            my_flag->last_interaction_ms = now_ms;
+            ctf_add_reward(p->id, 12.0f, "return_own_flag", NULL);
+            return;
+        }
+    }
+}
+
+static void ctf_tick_flags(unsigned int now_ms) {
+    if (!local_state.ctf.active) return;
+    for (int t = 0; t < 2; t++) {
+        CtfFlagState *f = &local_state.ctf.flags[t];
+        if (f->state == FLAG_CARRIED) {
+            if (f->carrier_id < 0 || f->carrier_id >= MAX_CLIENTS || !local_state.players[f->carrier_id].active || local_state.players[f->carrier_id].state == STATE_DEAD) {
+                f->state = FLAG_DROPPED;
+                f->carrier_id = -1;
+                f->dropped_until_ms = now_ms + CTFB_DROPPED_RETURN_MS;
+            } else {
+                PlayerState *carrier = &local_state.players[f->carrier_id];
+                f->x = carrier->x; f->y = carrier->y + 10.0f; f->z = carrier->z;
+            }
+        } else if (f->state == FLAG_DROPPED && now_ms >= f->dropped_until_ms) {
+            ctf_reset_flag(t);
+        }
+    }
+}
+
+static void ctf_try_capture(PlayerState *p, unsigned int now_ms) {
+    int my_team = p->team_id;
+    int enemy = ctf_enemy_team(my_team);
+    if (p->carried_flag_team_id != enemy) return;
+    CtfFlagState *my_flag = &local_state.ctf.flags[my_team];
+    if (my_flag->state != FLAG_AT_HOME) return;
+    float cx, cy, cz, radius = CTFB_CAPTURE_RADIUS;
+    if (!get_ctf_capture_zone(p->scene_id, my_team, &cx, &cy, &cz, &radius)) return;
+    float dx = cx - p->x, dz = cz - p->z;
+    if ((dx*dx + dz*dz) > (radius * radius)) return;
+    local_state.team_scores[my_team]++;
+    local_state.ctf.capture_scores[my_team] = local_state.team_scores[my_team];
+    local_state.ctf.event_counter++;
+    ctf_add_reward(p->id, 120.0f, "capture_flag", NULL);
+    ctf_reset_flag(enemy);
+    p->carried_flag_team_id = -1;
+    if (local_state.team_scores[my_team] >= local_state.score_limit) {
+        local_state.match_over = 1;
+        local_state.winning_team = my_team;
+        ctf_training_on_episode_end(my_team);
+    }
+    (void)now_ms;
+}
+
+static void ctf_try_carry_melee(PlayerState *attacker, unsigned int now_ms) {
+    if (attacker->carried_flag_team_id < 0) return;
+    if (attacker->ctf_melee_cooldown_ms > now_ms) return;
+    float r = -attacker->yaw * 0.0174533f;
+    float fx = sinf(r), fz = -cosf(r);
+    float range_sq = 11.0f * 11.0f;
+    float best_dot = 0.75f;
+    int best = -1;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        PlayerState *t = &local_state.players[i];
+        if (t == attacker || !t->active || t->state == STATE_DEAD) continue;
+        if (t->scene_id != attacker->scene_id) continue;
+        if (t->team_id == attacker->team_id) continue;
+        float dx = t->x - attacker->x, dz = t->z - attacker->z;
+        float d2 = dx*dx + dz*dz;
+        if (d2 > range_sq || d2 < 0.001f) continue;
+        float inv = 1.0f / sqrtf(d2);
+        float dot = fx * (dx * inv) + fz * (dz * inv);
+        if (dot > best_dot) { best_dot = dot; best = i; }
+    }
+    attacker->ctf_melee_cooldown_ms = now_ms + CTFB_CARRY_MELEE_COOLDOWN_MS;
+    attacker->is_shooting = 3;
+    if (best >= 0) {
+        PlayerState *t = &local_state.players[best];
+        t->shield_regen_timer = SHIELD_REGEN_DELAY;
+        int damage = CTFB_CARRY_MELEE_DAMAGE;
+        if (t->shield > 0) {
+            if (t->shield >= damage) { t->shield -= damage; damage = 0; }
+            else { damage -= t->shield; t->shield = 0; }
+        }
+        t->health -= damage;
+        attacker->hit_feedback = 16;
+        if (t->health <= 0) {
+            ctf_drop_flag_from_carrier(t->id, now_ms);
+            attacker->kills++;
+            t->deaths++;
+            phys_respawn(t, now_ms);
+        }
+    }
+}
+
 // --- BOT AI ---
 void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw, int *out_buttons) {
     PlayerState *me = &players[bot_idx];
     if (me->state == STATE_DEAD || local_state.match_over) { *out_buttons = 0; return; }
+    if (local_state.game_mode == MODE_CTFB && local_state.ctf.active && team_id_is_valid(me->team_id)) {
+        CtfBotObservation obs;
+        build_ctf_bot_observation(bot_idx, &obs);
+        (void)obs;
+        int intent = select_ctf_bot_intent(me);
+        me->ctf_bot_intent = intent;
+        int my_team = me->team_id;
+        int enemy = ctf_enemy_team(my_team);
+        float tx = 0.0f, tz = 0.0f;
+        if (intent == CTF_BOT_INTENT_RETURN_HOME) {
+            float cy, cr;
+            get_ctf_capture_zone(me->scene_id, my_team, &tx, &cy, &tz, &cr);
+        } else if (intent == CTF_BOT_INTENT_CHASE_CARRIER && local_state.ctf.flags[my_team].carrier_id >= 0) {
+            PlayerState *carrier = &players[local_state.ctf.flags[my_team].carrier_id];
+            tx = carrier->x; tz = carrier->z;
+        } else if (intent == CTF_BOT_INTENT_RECOVER_FLAG) {
+            tx = local_state.ctf.flags[my_team].x;
+            tz = local_state.ctf.flags[my_team].z;
+        } else if (intent == CTF_BOT_INTENT_ESCORT && local_state.ctf.flags[enemy].carrier_id >= 0) {
+            PlayerState *carrier = &players[local_state.ctf.flags[enemy].carrier_id];
+            tx = carrier->x; tz = carrier->z;
+        } else {
+            tx = local_state.ctf.flags[enemy].x;
+            tz = local_state.ctf.flags[enemy].z;
+        }
+        float dx = tx - me->x;
+        float dz = tz - me->z;
+        float target_yaw = atan2f(dx, dz) * (180.0f / 3.14159f);
+        float diff = angle_diff(target_yaw, *out_yaw);
+        if (diff > 8.0f) diff = 8.0f;
+        if (diff < -8.0f) diff = -8.0f;
+        *out_yaw += diff;
+        *out_fwd = 0.9f;
+        float dist_sq = dx*dx + dz*dz;
+        if (dist_sq < (CTFB_USE_RADIUS * CTFB_USE_RADIUS)) *out_buttons |= BTN_USE;
+    }
 
-    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO);
+    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB);
     int target_idx = -1;
     float min_dist = 9999.0f;
 
@@ -283,7 +584,7 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
 
 static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int damage, unsigned int now_ms) {
     if (!target->active || target->state == STATE_DEAD) return;
-    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO);
+    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB);
     if (owner && team_mode && owner->team_id == target->team_id) return;
     target->shield_regen_timer = SHIELD_REGEN_DELAY;
     if (target->shield > 0) {
@@ -292,6 +593,11 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
     }
     target->health -= damage;
     if (target->health <= 0) {
+        if (local_state.game_mode == MODE_CTFB) {
+            ctf_drop_flag_from_carrier(target->id, now_ms);
+            if (owner && local_state.ctf.flags[target->team_id].carrier_id == target->id) ctf_add_reward(owner->id, 25.0f, "kill_enemy_carrier", NULL);
+            if (target->carried_flag_team_id >= 0) ctf_add_reward(target->id, -20.0f, "died_with_flag", NULL);
+        }
         if (owner) {
             owner->kills++;
             owner->accumulated_reward += 500.0f;
@@ -359,7 +665,7 @@ static void update_projectiles(unsigned int now_ms) {
 
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time) {
     PlayerState *p0 = &local_state.players[0];
-    if (local_state.match_over && local_state.game_mode == MODE_TDMB) {
+    if (local_state.match_over && (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_CTFB)) {
         fwd = 0.0f; str = 0.0f; shoot = 0; jump = 0; crouch = 0; reload = 0; ability = 0;
     }
     scene_tick_transition();
@@ -445,20 +751,34 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             p->in_jump = (b_btns & BTN_JUMP);
             p->in_reload = (b_btns & BTN_RELOAD);
             p->crouching = (b_btns & BTN_CROUCH);
+            p->in_use = ((b_btns & BTN_USE) != 0);
             p->in_ability = 0;
             if ((b_btns & BTN_JUMP) && p->on_ground) { p->y += 0.1f; p->vy += JUMP_FORCE; }
         }
+        if (local_state.game_mode == MODE_CTFB) {
+            ctf_handle_use_interactions(p, cmd_time);
+            if (p->in_shoot && p->carried_flag_team_id >= 0) {
+                ctf_try_carry_melee(p, cmd_time);
+                p->in_shoot = 0;
+            }
+        }
         phys_set_scene(p->scene_id);
         update_entity(p, 0.016f, server_context, cmd_time);
+        if (local_state.game_mode == MODE_CTFB) ctf_try_capture(p, cmd_time);
+        p->use_was_down = p->in_use;
     }
     update_projectiles(cmd_time);
+    if (local_state.game_mode == MODE_CTFB) {
+        ctf_tick_flags(cmd_time);
+        ctf_training_on_step(cmd_time);
+    }
     if (mode_uses_team_scores(local_state.game_mode)) {
         for (int i = 0; i < MAX_CLIENTS; i++) {
             PlayerState *pp = &local_state.players[i];
             int prev = tdmb_last_kills[i];
             if (pp->kills > prev && team_id_is_valid(pp->team_id)) {
                 int delta = pp->kills - prev;
-                local_state.team_scores[pp->team_id] += delta;
+                if (local_state.game_mode != MODE_CTFB) local_state.team_scores[pp->team_id] += delta;
                 if (!local_state.match_over && local_state.score_limit > 0 && local_state.team_scores[pp->team_id] >= local_state.score_limit) {
                     local_state.match_over = 1;
                     local_state.winning_team = pp->team_id;
@@ -477,12 +797,15 @@ void local_init_match(int num_players, int mode) {
     local_state.pending_scene = -1;
     local_state.transition_timer = 0;
     local_state.winning_team = -1;
-    local_state.score_limit = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_SCORE_LIMIT : 0;
+    local_state.score_limit = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_SCORE_LIMIT : (mode == MODE_CTFB ? CTFB_SCORE_LIMIT : 0);
 
     if (mode == MODE_TDMB) {
         num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
         local_state.scene_id = scene_random_tdmb_map();
         printf("[TDMB] random map selected: %s\n", scene_name_debug(local_state.scene_id));
+    } else if (mode == MODE_CTFB) {
+        num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
+        local_state.scene_id = SCENE_OIL_TANKER;
     } else {
         local_state.scene_id = SCENE_GARAGE_OSAKA;
     }
@@ -494,23 +817,29 @@ void local_init_match(int num_players, int mode) {
 
     local_state.players[0].active = 1;
     local_state.players[0].is_bot = 0;
-    local_state.players[0].team_id = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_BLUE_TEAM : ((mode == MODE_TDM || mode == MODE_CTF) ? 0 : -1);
+    local_state.players[0].team_id = (mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB) ? TDMB_BLUE_TEAM : ((mode == MODE_TDM || mode == MODE_CTF) ? 0 : -1);
     local_state.players[0].scene_id = local_state.scene_id;
+    local_state.players[0].carried_flag_team_id = -1;
     phys_respawn(&local_state.players[0], 0);
 
     for(int i=1; i<num_players; i++) {
         local_state.players[i].active = 1;
         local_state.players[i].is_bot = 1;
-        if (mode == MODE_TDMB) {
+        if (mode == MODE_TDMB || mode == MODE_CTFB) {
             local_state.players[i].team_id = (i <= TDMB_BLUE_BOTS) ? TDMB_BLUE_TEAM : TDMB_RED_TEAM;
         } else {
             local_state.players[i].team_id = (mode == MODE_TDM || mode == MODE_CTF || mode == MODE_TDMO) ? (i % 2) : -1;
         }
         local_state.players[i].scene_id = local_state.scene_id;
+        local_state.players[i].carried_flag_team_id = -1;
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);
     }
     scene_load(local_state.scene_id);
+    if (mode == MODE_CTFB) {
+        ctf_init_match_state(local_state.scene_id);
+        ctf_training_on_episode_begin();
+    }
 }
 
 #endif

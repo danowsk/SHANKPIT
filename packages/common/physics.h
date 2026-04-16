@@ -427,7 +427,7 @@ float phys_rand_f() { return ((float)(rand()%1000)/500.0f) - 1.0f; }
 
 static int g_phys_game_mode = MODE_DEATHMATCH;
 static inline int phys_team_mode_enabled(void) {
-    return g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF || g_phys_game_mode == MODE_TDMB || g_phys_game_mode == MODE_TDMO;
+    return g_phys_game_mode == MODE_TDM || g_phys_game_mode == MODE_CTF || g_phys_game_mode == MODE_TDMB || g_phys_game_mode == MODE_TDMO || g_phys_game_mode == MODE_CTFB || g_phys_game_mode == MODE_CTFO;
 }
 
 static inline int phys_is_friendly(const PlayerState *a, const PlayerState *b) {
@@ -1173,6 +1173,71 @@ static inline void init_poo_poo_island_terrain(void) {
            g_scene_terrain.width, g_scene_terrain.height, g_scene_terrain.cell_size,
            g_scene_terrain.origin_x, g_scene_terrain.origin_z);
     g_scene_terrain_scene_id = SCENE_POO_POO_ISLAND;
+}
+
+static inline int scene_get_team_base_marker(int scene_id, int team_id,
+                                             float *x, float *y, float *z,
+                                             float *sx, float *sy, float *sz) {
+    if (scene_id == SCENE_VOXWORLD) {
+        *x = (team_id == 0) ? VOXWORLD_BASE_RED_X : VOXWORLD_BASE_BLUE_X;
+        *z = VOXWORLD_BASE_Z;
+        *y = voxworld_height_at(*x, *z) + 9.0f;
+        *sx = 22.0f; *sy = 8.0f; *sz = 22.0f;
+        return 1;
+    }
+    if (scene_id == SCENE_DUST_COMPOUND) {
+        *x = (team_id == 0) ? -430.0f : 430.0f;
+        *z = (team_id == 0) ? -220.0f : 220.0f;
+        *y = dust_height_at(*x, *z) + 8.0f;
+        *sx = 24.0f; *sy = 14.0f; *sz = 24.0f;
+        return 1;
+    }
+    if (scene_id == SCENE_OIL_TANKER) {
+        *x = (team_id == 0) ? -270.0f : 270.0f;
+        *z = 0.0f;
+        *y = 9.0f;
+        *sx = 26.0f; *sy = 12.0f; *sz = 22.0f;
+        return 1;
+    }
+    if (scene_id == SCENE_POO_POO_ISLAND) {
+        *x = (team_id == 0) ? -540.0f : 620.0f;
+        *z = (team_id == 0) ? -220.0f : 460.0f;
+        *y = poo_poo_island_height_at(*x, *z) + 9.0f;
+        *sx = 26.0f; *sy = 14.0f; *sz = 26.0f;
+        return 1;
+    }
+    if (scene_id == SCENE_STADIUM) {
+        *x = (team_id == 0) ? -310.0f : 310.0f;
+        *z = 0.0f;
+        *y = 6.5f;
+        *sx = 24.0f; *sy = 12.0f; *sz = 24.0f;
+        return 1;
+    }
+    return 0;
+}
+
+static inline int get_ctf_flag_home(int scene_id, int team_id, float *x, float *y, float *z) {
+    if (scene_id == SCENE_OIL_TANKER) {
+        *x = (team_id == 0) ? -360.0f : 360.0f;
+        *z = (team_id == 0) ? -84.0f : 84.0f;
+        *y = 8.5f;
+        return 1;
+    }
+    if (scene_id == SCENE_VOXWORLD) {
+        *x = (team_id == 0) ? voxworld_flag_home_red.x : voxworld_flag_home_blue.x;
+        *z = (team_id == 0) ? voxworld_flag_home_red.y : voxworld_flag_home_blue.y;
+        *y = voxworld_height_at(*x, *z) + 8.0f;
+        return 1;
+    }
+    float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+    if (scene_get_team_base_marker(scene_id, team_id, x, y, z, &sx, &sy, &sz)) return 1;
+    return 0;
+}
+
+static inline int get_ctf_capture_zone(int scene_id, int team_id, float *x, float *y, float *z, float *radius) {
+    if (!get_ctf_flag_home(scene_id, team_id, x, y, z)) return 0;
+    if (radius) *radius = (scene_id == SCENE_OIL_TANKER) ? 42.0f : 46.0f;
+    return 1;
 }
 
 static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float *out_y, float *out_z) {
@@ -2021,6 +2086,8 @@ void phys_respawn(PlayerState *p, unsigned int now) {
     p->current_weapon = WPN_MAGNUM;
     for(int i=0; i<MAX_WEAPONS; i++) p->ammo[i] = WPN_STATS[i].ammo_max;
     p->storm_charges = 0;
+    p->carried_flag_team_id = -1;
+    p->ctf_melee_cooldown_ms = 0;
     p->ability_cooldown = 0;
     p->portal_cooldown_until_ms = 0;
     p->stunned_until_ms = 0;

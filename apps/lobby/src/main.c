@@ -425,7 +425,7 @@ typedef enum {
     LOBBY_SOLO,
     LOBBY_BATTLE,
     LOBBY_TDMB,
-    LOBBY_CTF,
+    LOBBY_CTFB,
     LOBBY_COUNT
 } LobbyAction;
 
@@ -437,7 +437,7 @@ static const char *LOBBY_LABELS[LOBBY_COUNT] = {
     "SOLO",
     "TRAIN",
     "TDMB",
-    "LAN CTF"
+    "CTFB"
 };
 
 static void lobby_init_labels() {
@@ -578,9 +578,9 @@ static void lobby_apply_ui_state() {
     } else if (strcmp(ui_state.active_mode_id, "mode.tdm") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(12, MODE_TDM);
-    } else if (strcmp(ui_state.active_mode_id, "mode.ctf") == 0) {
+    } else if (strcmp(ui_state.active_mode_id, "mode.ctfb") == 0 || strcmp(ui_state.active_mode_id, "mode.ctf") == 0) {
         app_state = STATE_GAME_LOCAL;
-        local_init_match(8, MODE_CTF);
+        local_init_match(12, MODE_CTFB);
     } else if (strcmp(ui_state.active_mode_id, "mode.training") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(1, MODE_DEATHMATCH);
@@ -594,7 +594,7 @@ static void lobby_apply_ui_state() {
         return;
     }
 
-    if (local_state.game_mode != MODE_TDMB) lobby_apply_scene_id(ui_state.active_scene_id);
+    if (local_state.game_mode != MODE_TDMB && local_state.game_mode != MODE_CTFB) lobby_apply_scene_id(ui_state.active_scene_id);
 }
 
 static void setup_lobby_2d() {
@@ -645,8 +645,8 @@ static void lobby_start_action(int action) {
             case LOBBY_TDMB:
                 local_init_match(12, MODE_TDMB);
                 break;
-            case LOBBY_CTF:
-                local_init_match(8, MODE_CTF);
+            case LOBBY_CTFB:
+                local_init_match(12, MODE_CTFB);
                 break;
             default:
                 break;
@@ -832,46 +832,11 @@ void draw_map() {
 
 
 static int get_team_base_marker(int scene_id, int team_id, float *x, float *y, float *z, float *sx, float *sy, float *sz) {
-    if (scene_id == SCENE_VOXWORLD) {
-        *x = (team_id == 0) ? VOXWORLD_BASE_RED_X : VOXWORLD_BASE_BLUE_X;
-        *z = VOXWORLD_BASE_Z;
-        *y = voxworld_height_at(*x, *z) + 9.0f;
-        *sx = 22.0f; *sy = 8.0f; *sz = 22.0f;
-        return 1;
-    }
-    if (scene_id == SCENE_DUST_COMPOUND) {
-        *x = (team_id == 0) ? -430.0f : 430.0f;
-        *z = (team_id == 0) ? -220.0f : 220.0f;
-        *y = dust_height_at(*x, *z) + 8.0f;
-        *sx = 24.0f; *sy = 14.0f; *sz = 24.0f;
-        return 1;
-    }
-    if (scene_id == SCENE_OIL_TANKER) {
-        *x = (team_id == 0) ? -270.0f : 270.0f;
-        *z = 0.0f;
-        *y = 9.0f;
-        *sx = 26.0f; *sy = 12.0f; *sz = 22.0f;
-        return 1;
-    }
-    if (scene_id == SCENE_POO_POO_ISLAND) {
-        *x = (team_id == 0) ? -540.0f : 620.0f;
-        *z = (team_id == 0) ? -220.0f : 460.0f;
-        *y = poo_poo_island_height_at(*x, *z) + 9.0f;
-        *sx = 26.0f; *sy = 14.0f; *sz = 26.0f;
-        return 1;
-    }
-    if (scene_id == SCENE_STADIUM) {
-        *x = (team_id == 0) ? -310.0f : 310.0f;
-        *z = 0.0f;
-        *y = 6.5f;
-        *sx = 24.0f; *sy = 12.0f; *sz = 24.0f;
-        return 1;
-    }
-    return 0;
+    return scene_get_team_base_marker(scene_id, team_id, x, y, z, sx, sy, sz);
 }
 
 static void draw_team_map_markers(int scene_id, int game_mode) {
-    if (game_mode != MODE_TDMB && game_mode != MODE_TDMO) return;
+    if (game_mode != MODE_TDMB && game_mode != MODE_TDMO && game_mode != MODE_CTFB) return;
     for (int team = 0; team <= 1; team++) {
         float x = 0.0f, y = 0.0f, z = 0.0f;
         float sx = 0.0f, sy = 0.0f, sz = 0.0f;
@@ -884,6 +849,21 @@ static void draw_team_map_markers(int scene_id, int game_mode) {
         if (team == 0) glColor3f(1.0f, 0.40f, 0.30f);
         else glColor3f(0.36f, 0.72f, 1.0f);
         glPushMatrix(); glTranslatef(x, y + sy * 0.9f, z); draw_box(sx * 0.28f, sy * 1.4f, sz * 0.28f); glPopMatrix();
+    }
+    if (game_mode != MODE_CTFB || !local_state.ctf.active) return;
+    for (int team = 0; team <= 1; team++) {
+        CtfFlagState *flag = &local_state.ctf.flags[team];
+        if (team == 0) glColor3f(1.0f, 0.35f, 0.35f);
+        else glColor3f(0.35f, 0.65f, 1.0f);
+        float fy = flag->y;
+        if (flag->state == FLAG_DROPPED) {
+            glPushMatrix(); glTranslatef(flag->x, fy + 1.0f, flag->z); draw_box(10.0f, 2.0f, 10.0f); glPopMatrix();
+            glPushMatrix(); glTranslatef(flag->x, fy + 7.0f, flag->z); draw_box(2.5f, 10.0f, 2.5f); glPopMatrix();
+        } else if (flag->state == FLAG_CARRIED) {
+            glPushMatrix(); glTranslatef(flag->x, fy + 1.0f, flag->z); draw_box(3.0f, 8.0f, 3.0f); glPopMatrix();
+        } else {
+            glPushMatrix(); glTranslatef(flag->x, fy + 6.0f, flag->z); draw_box(3.0f, 12.0f, 3.0f); glPopMatrix();
+        }
     }
 }
 
@@ -2201,7 +2181,7 @@ void draw_player_3rd(PlayerState *p) {
         draw_buggy_model(p);
     } else {
         int forced_skin = -1;
-        if (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO) {
+        if (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB) {
             forced_skin = (p->team_id == 1) ? SKIN_NINJA : SKIN_PIRATE;
         }
         int draw_skin = (forced_skin >= 0) ? forced_skin : clamp_skin_id(g_selected_skin);
@@ -2363,6 +2343,28 @@ void draw_hud(PlayerState *p) {
         glColor3f(0.8f, 0.85f, 0.9f);
         draw_string("TDMB · SCORE LIMIT 25", 520, 658, 4);
         draw_string(p->team_id == 1 ? "YOU: BLUE TEAM" : "YOU: RED TEAM", 548, 638, 4);
+    } else if (local_state.game_mode == MODE_CTFB && local_state.ctf.active) {
+        const char *my_flag = "HOME";
+        const char *enemy_flag = "HOME";
+        CtfFlagState *mine = &local_state.ctf.flags[p->team_id];
+        CtfFlagState *enemy = &local_state.ctf.flags[p->team_id == 0 ? 1 : 0];
+        if (mine->state == FLAG_DROPPED) my_flag = "DROPPED";
+        else if (mine->state == FLAG_CARRIED) my_flag = "TAKEN";
+        if (enemy->state == FLAG_DROPPED) enemy_flag = "DROPPED";
+        else if (enemy->state == FLAG_CARRIED) enemy_flag = "CARRIED";
+        char score_buf[128];
+        snprintf(score_buf, sizeof(score_buf), "CTFB BLUE %d  -  %d RED", local_state.team_scores[1], local_state.team_scores[0]);
+        glColor3f(0.40f, 0.75f, 1.0f);
+        draw_string(score_buf, 450, 682, 6);
+        glColor3f(0.82f, 0.86f, 0.94f);
+        draw_string("CTFB · FIRST TO 3", 520, 658, 4);
+        char status_buf[160];
+        snprintf(status_buf, sizeof(status_buf), "YOUR FLAG: %s   ENEMY FLAG: %s", my_flag, enemy_flag);
+        draw_string(status_buf, 438, 638, 4);
+        if (p->carried_flag_team_id >= 0) {
+            glColor3f(1.0f, 0.85f, 0.2f);
+            draw_string("YOU HAVE THE FLAG · FIRE = 80 DMG MELEE", 430, 618, 4);
+        }
     }
     float x0 = 50.0f, x1 = vs0_art_direction_enabled ? 220.0f : 250.0f;
     float y_health0 = 50.0f, y_health1 = vs0_art_direction_enabled ? 66.0f : 70.0f;
@@ -2453,7 +2455,7 @@ static int score_row_cmp_desc(const void *a, const void *b) {
 }
 
 static int mode_uses_team_scoreboard(int mode) {
-    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTF;
+    return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTF || mode == MODE_CTFB;
 }
 
 static int is_valid_scoreboard_team_id(int team_id) {
@@ -2463,7 +2465,7 @@ static int is_valid_scoreboard_team_id(int team_id) {
 static void scoreboard_team_totals(int mode, int *out_blue, int *out_red) {
     int blue = 0;
     int red = 0;
-    if (mode == MODE_TDMB || mode == MODE_TDMO) {
+    if (mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB) {
         blue = local_state.team_scores[TDMB_BLUE_TEAM];
         red = local_state.team_scores[TDMB_RED_TEAM];
     } else {
@@ -2914,7 +2916,7 @@ static void draw_travel_overlay() {
 
 
 static void draw_tdmb_match_over_overlay(void) {
-    if ((local_state.game_mode != MODE_TDMB && local_state.game_mode != MODE_TDMO) || !local_state.match_over) return;
+    if ((local_state.game_mode != MODE_TDMB && local_state.game_mode != MODE_TDMO && local_state.game_mode != MODE_CTFB) || !local_state.match_over) return;
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 1280, 0, 720);
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
@@ -2926,7 +2928,7 @@ static void draw_tdmb_match_over_overlay(void) {
     glColor3f(blue_won ? 0.35f : 1.0f, blue_won ? 0.75f : 0.32f, blue_won ? 1.0f : 0.28f);
     draw_string(blue_won ? "BLUE TEAM WINS" : "RED TEAM WINS", 460, 430, 10);
     glColor3f(0.95f, 0.95f, 0.95f);
-    draw_string("R: RESTART TDMB", 500, 340, 6);
+    draw_string(local_state.game_mode == MODE_CTFB ? "R: RESTART CTFB" : "R: RESTART TDMB", 500, 340, 6);
     draw_string("ESC: BACK TO MENU", 486, 300, 6);
     glEnable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glPopMatrix();
@@ -3654,6 +3656,7 @@ void net_process_snapshot(char *buffer, int len) {
 
         p->is_shooting = now_shooting;
         p->in_vehicle = np->in_vehicle;
+        p->carried_flag_team_id = np->carried_flag_team_id;
         p->storm_charges = np->storm_charges;
         p->hit_feedback = np->hit_feedback;
         p->kills = (int)np->kills;
@@ -4020,7 +4023,7 @@ int main(int argc, char* argv[]) {
                 }
             } else {
                 if (e.type == SDL_KEYDOWN) {
-                    if ((local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO) && local_state.match_over && e.key.keysym.sym == SDLK_r) {
+                    if ((local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB) && local_state.match_over && e.key.keysym.sym == SDLK_r) {
                         local_init_match(12, local_state.game_mode);
                     } else if (e.key.keysym.sym == SDLK_ESCAPE) {
                         if (app_state == STATE_GAME_NET) net_shutdown();

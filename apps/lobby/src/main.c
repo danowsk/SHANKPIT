@@ -100,6 +100,7 @@ typedef enum {
     SKIN_PIRATE,
     SKIN_NINJA,
     SKIN_PIMP,
+    SKIN_PINK,
     SKIN_VIKING,
     SKIN_BILL,
     SKIN_GENIE,
@@ -115,6 +116,7 @@ static const char *SKIN_LABELS[SKIN_COUNT] = {
     "PIRATE",
     "NINJA",
     "PIMP",
+    "PINK",
     "VIKING",
     "BILL",
     "GENIE",
@@ -1721,6 +1723,36 @@ static void draw_player_skin_pimp(PlayerState *p, float draw_pitch, float draw_r
     glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
 }
 
+static void draw_player_skin_pink(PlayerState *p, float draw_pitch, float draw_recoil) {
+    glColor3f(0.86f, 0.22f, 0.60f);
+    glPushMatrix(); glTranslatef(0.0f, 0.80f, 0.0f); draw_box(1.28f, 1.46f, 0.72f); draw_box_outline(1.28f, 1.46f, 0.72f); glPopMatrix();
+    glColor3f(0.74f, 0.16f, 0.52f);
+    glPushMatrix(); glTranslatef(0.0f, 1.44f, 0.0f); draw_box(1.44f, 0.20f, 0.90f); draw_box_outline(1.44f, 0.20f, 0.90f); glPopMatrix();
+    glColor3f(0.98f, 0.84f, 0.50f);
+    glPushMatrix(); glTranslatef(0.0f, 0.35f, 0.37f); draw_box(0.18f, 0.56f, 0.06f); draw_box_outline(0.18f, 0.56f, 0.06f); glPopMatrix();
+    glColor3f(0.80f, 0.18f, 0.56f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.82f, 0.0f); draw_box(0.30f, 1.20f, 0.34f); draw_box_outline(0.30f, 1.20f, 0.34f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.72f, 0.82f, 0.0f); draw_box(0.30f, 1.20f, 0.34f); draw_box_outline(0.30f, 1.20f, 0.34f); glPopMatrix();
+    glColor3f(0.50f, 0.08f, 0.30f);
+    glPushMatrix(); glTranslatef(-0.33f, -0.10f, 0.0f); draw_box(0.40f, 1.42f, 0.42f); draw_box_outline(0.40f, 1.42f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.33f, -0.10f, 0.0f); draw_box(0.40f, 1.42f, 0.42f); draw_box_outline(0.40f, 1.42f, 0.42f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.94f, 0.0f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(0.70f, 0.53f, 0.42f); draw_box(0.68f, 0.82f, 0.68f); draw_box_outline(0.68f, 0.82f, 0.68f);
+    glColor3f(0.96f, 0.24f, 0.64f);
+    glPushMatrix(); glTranslatef(0.0f, 0.46f, 0.0f); draw_box(1.54f, 0.20f, 0.96f); draw_box_outline(1.54f, 0.20f, 0.96f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.68f, 0.0f); draw_box(0.62f, 0.22f, 0.52f); draw_box_outline(0.62f, 0.22f, 0.52f); glPopMatrix();
+    glPopMatrix();
+
+    glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
 static void draw_player_skin_viking(PlayerState *p, float draw_pitch, float draw_recoil) {
     glColor3f(0.44f, 0.46f, 0.50f);
     glPushMatrix(); glTranslatef(0.0f, 0.82f, 0.0f); draw_box(1.26f, 1.46f, 0.74f); draw_box_outline(1.26f, 1.46f, 0.74f); glPopMatrix();
@@ -1913,6 +1945,9 @@ void draw_player_3rd(PlayerState *p) {
                 break;
             case SKIN_PIMP:
                 draw_player_skin_pimp(p, draw_pitch, draw_recoil);
+                break;
+            case SKIN_PINK:
+                draw_player_skin_pink(p, draw_pitch, draw_recoil);
                 break;
             case SKIN_NINJA:
                 draw_player_skin_ninja(p, draw_pitch, draw_recoil);

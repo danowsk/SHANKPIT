@@ -540,8 +540,12 @@ static void lobby_apply_scene_id(const char *scene_id) {
         scene_load(SCENE_STADIUM);
     } else if (strcmp(scene_id, "VOXWORLD") == 0) {
         scene_load(SCENE_VOXWORLD);
+    } else if (strcmp(scene_id, "DUST_COMPOUND") == 0) {
+        scene_load(SCENE_DUST_COMPOUND);
     } else if (strcmp(scene_id, "OIL_TANKER") == 0) {
         scene_load(SCENE_OIL_TANKER);
+    } else if (strcmp(scene_id, "POO_POO_ISLAND") == 0) {
+        scene_load(SCENE_POO_POO_ISLAND);
     }
 }
 
@@ -849,6 +853,13 @@ static int get_team_base_marker(int scene_id, int team_id, float *x, float *y, f
         *sx = 26.0f; *sy = 12.0f; *sz = 22.0f;
         return 1;
     }
+    if (scene_id == SCENE_POO_POO_ISLAND) {
+        *x = (team_id == 0) ? -540.0f : 620.0f;
+        *z = (team_id == 0) ? -220.0f : 460.0f;
+        *y = poo_poo_island_height_at(*x, *z) + 9.0f;
+        *sx = 26.0f; *sy = 14.0f; *sz = 26.0f;
+        return 1;
+    }
     if (scene_id == SCENE_STADIUM) {
         *x = (team_id == 0) ? -310.0f : 310.0f;
         *z = 0.0f;
@@ -1045,6 +1056,35 @@ void draw_terrain() {
         const VoxRouteAnchor *routes = dust_get_route_anchors(&route_count);
         glColor3f(0.4f, 0.85f, 1.0f);
         for (int i = 0; i < route_count; i++) glVertex3f(routes[i].x, terrain_sample_height(t, routes[i].x, routes[i].z) + 2.0f, routes[i].z);
+        glEnd();
+    }
+    if (voxworld_points_debug && local_state.scene_id == SCENE_POO_POO_ISLAND) {
+        int count = 0;
+        const Vec2 *spawns = poo_poo_island_get_spawn_points(&count);
+        glPointSize(9.0f);
+        glBegin(GL_POINTS);
+        glColor3f(0.75f, 0.90f, 1.0f);
+        for (int i = 0; i < count; i++) glVertex3f(spawns[i].x, terrain_sample_height(t, spawns[i].x, spawns[i].y) + 1.8f, spawns[i].y);
+        int route_count = 0;
+        const VoxRouteAnchor *routes = poo_poo_island_get_route_anchors(&route_count);
+        glColor3f(0.35f, 0.95f, 0.88f);
+        for (int i = 0; i < route_count; i++) glVertex3f(routes[i].x, terrain_sample_height(t, routes[i].x, routes[i].z) + 2.1f, routes[i].z);
+        int landmark_count = 0;
+        const VoxRouteAnchor *landmarks = poo_poo_island_get_landmark_anchors(&landmark_count);
+        glColor3f(1.0f, 0.88f, 0.22f);
+        for (int i = 0; i < landmark_count; i++) glVertex3f(landmarks[i].x, terrain_sample_height(t, landmarks[i].x, landmarks[i].z) + 2.6f, landmarks[i].z);
+        int hub_count = 0;
+        const VoxRouteAnchor *hubs = poo_poo_island_get_hub_anchors(&hub_count);
+        glColor3f(1.0f, 0.55f, 0.34f);
+        for (int i = 0; i < hub_count; i++) glVertex3f(hubs[i].x, terrain_sample_height(t, hubs[i].x, hubs[i].z) + 2.2f, hubs[i].z);
+        int scenic_count = 0;
+        const VoxRouteAnchor *scenic = poo_poo_island_get_scenic_anchors(&scenic_count);
+        glColor3f(0.5f, 0.72f, 1.0f);
+        for (int i = 0; i < scenic_count; i++) glVertex3f(scenic[i].x, terrain_sample_height(t, scenic[i].x, scenic[i].z) + 2.2f, scenic[i].z);
+        int activity_count = 0;
+        const VoxRouteAnchor *activity = poo_poo_island_get_activity_anchors(&activity_count);
+        glColor3f(0.60f, 1.0f, 0.44f);
+        for (int i = 0; i < activity_count; i++) glVertex3f(activity[i].x, terrain_sample_height(t, activity[i].x, activity[i].z) + 2.0f, activity[i].z);
         glEnd();
     }
 }
@@ -2390,6 +2430,7 @@ static const char *scene_name_ui(int scene_id) {
         case SCENE_VOXWORLD: return "VOXWORLD";
         case SCENE_DUST_COMPOUND: return "DUST_COMPOUND";
         case SCENE_OIL_TANKER: return "OIL_TANKER";
+        case SCENE_POO_POO_ISLAND: return "POO_POO_ISLAND";
         default: return "UNKNOWN";
     }
 }
@@ -2708,6 +2749,18 @@ static void draw_garage_portal_frame() {
         glVertex3f(-GARAGE_DUST_PORTAL_RADIUS, 6.0f, 0.0f);
         glEnd();
         glPopMatrix();
+
+        glPushMatrix();
+        glTranslatef(GARAGE_POO_POO_PORTAL_X, GARAGE_POO_POO_PORTAL_Y, GARAGE_POO_POO_PORTAL_Z);
+        glColor3f(0.30f, 1.0f, 0.72f);
+        glLineWidth(3.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex3f(-GARAGE_POO_POO_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_POO_POO_PORTAL_RADIUS, -2.0f, 0.0f);
+        glVertex3f(GARAGE_POO_POO_PORTAL_RADIUS, 6.0f, 0.0f);
+        glVertex3f(-GARAGE_POO_POO_PORTAL_RADIUS, 6.0f, 0.0f);
+        glEnd();
+        glPopMatrix();
     }
 }
 
@@ -2743,6 +2796,8 @@ static void draw_garage_overlay(PlayerState *p) {
     draw_string("PORTAL -> STADIUM", 40, 640, 6);
     draw_string("PORTAL -> VOXWORLD TERRAIN", 40, 620, 6);
     draw_string("PORTAL -> OIL TANKER", 40, 600, 6);
+    draw_string("PORTAL -> DUST COMPOUND", 40, 580, 6);
+    draw_string("PORTAL -> POO POO ISLAND", 40, 560, 6);
 
     int pad_count = 0;
     const VehiclePad *pads = scene_vehicle_pads(local_state.scene_id, &pad_count);
@@ -2772,6 +2827,7 @@ static void draw_garage_overlay(PlayerState *p) {
     int vox_portal_target = target_in_view(p, GARAGE_VOX_PORTAL_X, GARAGE_VOX_PORTAL_Y, GARAGE_VOX_PORTAL_Z, 30.0f, 0.75f);
     int tanker_portal_target = target_in_view(p, GARAGE_TANKER_PORTAL_X, GARAGE_TANKER_PORTAL_Y, GARAGE_TANKER_PORTAL_Z, 30.0f, 0.75f);
     int dust_portal_target = target_in_view(p, GARAGE_DUST_PORTAL_X, GARAGE_DUST_PORTAL_Y, GARAGE_DUST_PORTAL_Z, 30.0f, 0.75f);
+    int poo_poo_portal_target = target_in_view(p, GARAGE_POO_POO_PORTAL_X, GARAGE_POO_POO_PORTAL_Y, GARAGE_POO_POO_PORTAL_Z, 30.0f, 0.75f);
     int pad_target = 0;
     int heli_target = 0;
     if (scene_near_vehicle_pad(local_state.scene_id, p->x, p->z, 12.0f, NULL)) {
@@ -2793,7 +2849,7 @@ static void draw_garage_overlay(PlayerState *p) {
     }
 
     glColor3f(1.0f, 1.0f, 0.0f);
-    if (portal_target || vox_portal_target || tanker_portal_target || dust_portal_target) {
+    if (portal_target || vox_portal_target || tanker_portal_target || dust_portal_target || poo_poo_portal_target) {
         draw_string("TRAVEL", 600, 350, 8);
     } else if (heli_target || (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER)) {
         draw_string(p->in_vehicle ? "PRESS F TO EXIT HELICOPTER" : "PRESS F TO ENTER HELICOPTER", 460, 350, 8);

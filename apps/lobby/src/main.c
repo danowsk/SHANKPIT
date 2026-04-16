@@ -1815,27 +1815,57 @@ static void draw_player_skin_genie(PlayerState *p, float draw_pitch, float draw_
 
 
 static void draw_player_skin_pink(PlayerState *p, float draw_pitch, float draw_recoil) {
-    glColor3f(0.88f, 0.26f, 0.62f);
-    glPushMatrix(); glTranslatef(0.0f, 0.84f, 0.0f); draw_box(1.26f, 1.46f, 0.74f); draw_box_outline(1.26f, 1.46f, 0.74f); glPopMatrix();
-    glColor3f(0.70f, 0.18f, 0.48f);
-    glPushMatrix(); glTranslatef(0.0f, 1.48f, 0.0f); draw_box(1.48f, 0.18f, 0.92f); draw_box_outline(1.48f, 0.18f, 0.92f); glPopMatrix();
-    glColor3f(0.78f, 0.20f, 0.54f);
-    glPushMatrix(); glTranslatef(-0.72f, 0.84f, 0.0f); draw_box(0.30f, 1.22f, 0.34f); draw_box_outline(0.30f, 1.22f, 0.34f); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.72f, 0.84f, 0.0f); draw_box(0.30f, 1.22f, 0.34f); draw_box_outline(0.30f, 1.22f, 0.34f); glPopMatrix();
-    glColor3f(0.62f, 0.14f, 0.40f);
-    glPushMatrix(); glTranslatef(-0.34f, -0.12f, 0.0f); draw_box(0.42f, 1.42f, 0.42f); draw_box_outline(0.42f, 1.42f, 0.42f); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.34f, -0.12f, 0.0f); draw_box(0.42f, 1.42f, 0.42f); draw_box_outline(0.42f, 1.42f, 0.42f); glPopMatrix();
+    // Space-marine samurai silhouette: heavy chest, layered pauldrons, plated legs.
+    glColor3f(0.86f, 0.22f, 0.58f);
+    glPushMatrix(); glTranslatef(0.0f, 0.82f, 0.0f); draw_box(1.32f, 1.52f, 0.78f); draw_box_outline(1.32f, 1.52f, 0.78f); glPopMatrix();
+    glColor3f(0.70f, 0.14f, 0.44f);
+    glPushMatrix(); glTranslatef(0.0f, 0.18f, 0.34f); draw_box(1.02f, 0.18f, 0.10f); draw_box_outline(1.02f, 0.18f, 0.10f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.38f, 0.37f); draw_box(0.82f, 0.14f, 0.09f); draw_box_outline(0.82f, 0.14f, 0.09f); glPopMatrix();
 
+    // Big marine pauldrons + arm plates.
+    glColor3f(0.92f, 0.34f, 0.66f);
+    glPushMatrix(); glTranslatef(-0.74f, 1.04f, 0.0f); draw_box(0.44f, 0.54f, 0.52f); draw_box_outline(0.44f, 0.54f, 0.52f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.74f, 1.04f, 0.0f); draw_box(0.44f, 0.54f, 0.52f); draw_box_outline(0.44f, 0.54f, 0.52f); glPopMatrix();
+    glColor3f(0.76f, 0.18f, 0.50f);
+    glPushMatrix(); glTranslatef(-0.72f, 0.66f, 0.0f); draw_box(0.34f, 0.84f, 0.36f); draw_box_outline(0.34f, 0.84f, 0.36f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.72f, 0.66f, 0.0f); draw_box(0.34f, 0.84f, 0.36f); draw_box_outline(0.34f, 0.84f, 0.36f); glPopMatrix();
+
+    // Leg armor and knee plates.
+    glColor3f(0.64f, 0.12f, 0.38f);
+    glPushMatrix(); glTranslatef(-0.34f, -0.14f, 0.0f); draw_box(0.44f, 1.44f, 0.44f); draw_box_outline(0.44f, 1.44f, 0.44f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.34f, -0.14f, 0.0f); draw_box(0.44f, 1.44f, 0.44f); draw_box_outline(0.44f, 1.44f, 0.44f); glPopMatrix();
+    glColor3f(0.84f, 0.24f, 0.56f);
+    glPushMatrix(); glTranslatef(-0.34f, -0.64f, 0.24f); draw_box(0.30f, 0.24f, 0.10f); draw_box_outline(0.30f, 0.24f, 0.10f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.34f, -0.64f, 0.24f); draw_box(0.30f, 0.24f, 0.10f); draw_box_outline(0.30f, 0.24f, 0.10f); glPopMatrix();
+
+    // Helmet + samurai hat + horns + marine mask.
     glPushMatrix();
-    glTranslatef(0.0f, 1.94f, 0.0f);
+    glTranslatef(0.0f, 1.95f, 0.0f);
     glRotatef(draw_pitch, 1, 0, 0);
-    glColor3f(0.80f, 0.52f, 0.62f); draw_box(0.70f, 0.84f, 0.68f); draw_box_outline(0.70f, 0.84f, 0.68f);
-    glColor3f(0.20f, 0.08f, 0.14f);
-    glPushMatrix(); glTranslatef(0.0f, 0.12f, 0.38f); draw_box(0.56f, 0.24f, 0.10f); draw_box_outline(0.56f, 0.24f, 0.10f); glPopMatrix();
-    glColor3f(0.96f, 0.78f, 0.80f);
-    glPushMatrix(); glTranslatef(0.0f, 0.38f, 0.42f); draw_box(0.24f, 0.16f, 0.04f); draw_box_outline(0.24f, 0.16f, 0.04f); glPopMatrix();
-    glColor3f(0.92f, 0.26f, 0.66f);
-    glPushMatrix(); glTranslatef(0.0f, 0.58f, 0.0f); draw_box(0.90f, 0.22f, 0.86f); draw_box_outline(0.90f, 0.22f, 0.86f); glPopMatrix();
+
+    glColor3f(0.78f, 0.44f, 0.58f);
+    draw_box(0.70f, 0.82f, 0.68f); draw_box_outline(0.70f, 0.82f, 0.68f);
+
+    // Samurai brim + top cap.
+    glColor3f(0.72f, 0.16f, 0.46f);
+    glPushMatrix(); glTranslatef(0.0f, 0.34f, 0.0f); draw_box(1.54f, 0.12f, 0.98f); draw_box_outline(1.54f, 0.12f, 0.98f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.54f, 0.0f); draw_box(0.78f, 0.22f, 0.66f); draw_box_outline(0.78f, 0.22f, 0.66f); glPopMatrix();
+
+    // Horns / crescent crests.
+    glColor3f(0.94f, 0.40f, 0.70f);
+    glPushMatrix(); glTranslatef(-0.44f, 0.76f, 0.0f); draw_box(0.14f, 0.42f, 0.14f); draw_box_outline(0.14f, 0.42f, 0.14f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.44f, 0.76f, 0.0f); draw_box(0.14f, 0.42f, 0.14f); draw_box_outline(0.14f, 0.42f, 0.14f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.32f, 0.88f, 0.0f); draw_box(0.16f, 0.12f, 0.16f); draw_box_outline(0.16f, 0.12f, 0.16f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.32f, 0.88f, 0.0f); draw_box(0.16f, 0.12f, 0.16f); draw_box_outline(0.16f, 0.12f, 0.16f); glPopMatrix();
+
+    // Marine visor + mask.
+    glColor3f(0.18f, 0.06f, 0.12f);
+    glPushMatrix(); glTranslatef(0.0f, 0.18f, 0.38f); draw_box(0.58f, 0.24f, 0.10f); draw_box_outline(0.58f, 0.24f, 0.10f); glPopMatrix();
+    glColor3f(0.96f, 0.80f, 0.82f);
+    glPushMatrix(); glTranslatef(0.0f, 0.42f, 0.42f); draw_box(0.24f, 0.16f, 0.04f); draw_box_outline(0.24f, 0.16f, 0.04f); glPopMatrix();
+    glColor3f(0.84f, 0.22f, 0.58f);
+    glPushMatrix(); glTranslatef(0.0f, -0.02f, 0.40f); draw_box(0.56f, 0.24f, 0.10f); draw_box_outline(0.56f, 0.24f, 0.10f); glPopMatrix();
+
     glPopMatrix();
 
     glPushMatrix(); glTranslatef(0.64f, 1.03f, 0.57f);

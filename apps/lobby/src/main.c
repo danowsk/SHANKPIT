@@ -36,6 +36,7 @@
 #include "../../../packages/common/net_sim.h"
 #include "../../../packages/simulation/local_game.h"
 #include "../../../packages/render/proc_tex.h"
+#include "../../../packages/render/retro_sky.h"
 
 #define STATE_LOBBY 0
 #define STATE_GAME_NET 1
@@ -92,6 +93,7 @@ static int voxworld_points_debug = 0;
 static unsigned int terrain_debug_last_log_ms = 0;
 static ProcTexture g_vehicle_noise_tex = {0};
 static ProcTexture g_vehicle_glitch_tex = {0};
+static RetroSky g_retro_sky = {0};
 
 typedef enum {
     SKIN_BAT = 0,
@@ -2987,6 +2989,20 @@ void draw_scene(PlayerState *render_p) {
         glRotatef(-cam_pitch, 1, 0, 0); glRotatef(-cam_yaw, 0, 1, 0);
         glTranslatef(-((render_p->x + reconcile_x) - cx), -((render_p->y + reconcile_y) + cam_y), -((render_p->z + reconcile_z) - cz));
     }
+
+    {
+        float sky_cam_x = (render_p->x + reconcile_x) - cx;
+        float sky_cam_y = (render_p->y + reconcile_y) + cam_y;
+        float sky_cam_z = (render_p->z + reconcile_z) - cz;
+        if (render_p->in_vehicle && render_p->vehicle_type == VEH_HELICOPTER) {
+            sky_cam_x = heli_cam_x;
+            sky_cam_y = heli_cam_y;
+            sky_cam_z = heli_cam_z;
+        }
+        /* draw_sky call here keeps sky rotation-locked to the camera, but camera-centered
+           in world space so the background feels infinitely distant (no translation parallax). */
+        retro_sky_draw(&g_retro_sky, sky_cam_x, sky_cam_y, sky_cam_z, SDL_GetTicks() * 0.001f);
+    }
     
     draw_grid(); 
     update_and_draw_trails();
@@ -3866,6 +3882,7 @@ int main(int argc, char* argv[]) {
     proc_tex_create(&g_vehicle_glitch_tex, 64, 64);
     proctex_make_glitch_marks_rgba(&g_vehicle_glitch_tex, 64, 64, g_vehicle_style.seed ^ 0xA53u);
     proctex_upload_to_gl(&g_vehicle_glitch_tex);
+    retro_sky_init(&g_retro_sky);
     net_init();
     
     local_init_match(1, 0);
@@ -4238,6 +4255,7 @@ int main(int argc, char* argv[]) {
     }
     proc_tex_destroy(&g_vehicle_noise_tex);
     proc_tex_destroy(&g_vehicle_glitch_tex);
+    retro_sky_shutdown(&g_retro_sky);
     SDL_Quit();
     return 0;
 }

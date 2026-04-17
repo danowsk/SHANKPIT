@@ -2,7 +2,16 @@
 
 ## Recent changes
 
+### 2026-04-16
+- Added authoritative **CTFB** mode with shared flag state replication and bot objective handling for online capture-the-flag battles (`a7785a5`, merged in #182).
+- Tuned first-person weapon viewmodel art direction and applied an additional global scale reduction pass for cleaner weapon framing (`41069c5`, `cfbcc8a`, merged in #176).
+- Added and refined a new selectable **pink** skin into a samurai space-marine inspired presentation (`387a37f`, `549e301`, merged in #173).
+- Added a standalone **Poo Poo Island** scene with a dedicated garage portal to broaden map rotation variety (`5f044fe`, merged in #178).
+- Scaled down weapon model sizing and proportions by roughly ten percent for better visual balance (`f30cfb7`, merged in #180).
+- Added random **TDMB** map selection with scene-specific team spawn support to improve match variety (`9e29d9f`, merged in #172).
+
 ### 2026-04-15
+- Renamed the Battle Bots menu label to **TRAIN** for clearer mode intent (`bb37503`, merged in #170).
 - Added **TDMO** online team deathmatch mode with server-side bot fill and team snapshot handling to expand online match options (`760798a`, merged in #169).
 - Added bottom-right HUD ammo bars in the lobby/game HUD pass for clearer at-a-glance ammo tracking (`dba280d`, merged in #168).
 - Polished the lobby menu into a two-column, launch-ready layout for improved readability and navigation (`5e38d39`, merged in #167).

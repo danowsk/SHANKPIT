@@ -12,6 +12,8 @@ typedef struct RetroSky {
 
 int retro_sky_init(RetroSky *sky);
 void retro_sky_shutdown(RetroSky *sky);
+void retro_sky_eval_sun_dir(float time_sec, float *out_x, float *out_y, float *out_z);
+void retro_sky_eval_fog_rgb(float time_sec, float *out_r, float *out_g, float *out_b);
 
 /*
  * Sky is rendered camera-centered so it appears infinitely far away:

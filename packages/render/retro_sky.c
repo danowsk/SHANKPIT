@@ -24,6 +24,35 @@ static float fracf(float v) {
     return v - floorf(v);
 }
 
+void retro_sky_eval_sun_dir(float time_sec, float *out_x, float *out_y, float *out_z) {
+    float orbit_t = time_sec * 0.025f;
+    float tilt = 0.40f;
+    float sun_x = cosf(orbit_t);
+    float sun_y = sinf(orbit_t) * cosf(tilt);
+    float sun_z = sinf(orbit_t) * sinf(tilt);
+
+    if (out_x) *out_x = sun_x;
+    if (out_y) *out_y = sun_y;
+    if (out_z) *out_z = sun_z;
+}
+
+void retro_sky_eval_fog_rgb(float time_sec, float *out_r, float *out_g, float *out_b) {
+    float sun_y = 0.0f;
+    retro_sky_eval_sun_dir(time_sec, NULL, &sun_y, NULL);
+
+    float daylight = smoothstepf(-0.22f, 0.35f, sun_y);
+    float sky_top_r = (1.0f - daylight) * 0.05f + daylight * 0.60f;
+    float sky_top_g = (1.0f - daylight) * 0.08f + daylight * 0.76f;
+    float sky_top_b = (1.0f - daylight) * 0.15f + daylight * 0.94f;
+    float sky_low_r = (1.0f - daylight) * 0.08f + daylight * 0.65f;
+    float sky_low_g = (1.0f - daylight) * 0.10f + daylight * 0.78f;
+    float sky_low_b = (1.0f - daylight) * 0.16f + daylight * 0.93f;
+
+    if (out_r) *out_r = sky_low_r * 0.70f + sky_top_r * 0.30f;
+    if (out_g) *out_g = sky_low_g * 0.70f + sky_top_g * 0.30f;
+    if (out_b) *out_b = sky_low_b * 0.70f + sky_top_b * 0.30f;
+}
+
 static void fill_cloud_texture(ProcTexture *t) {
     if (!t || !t->pixels) return;
     for (int y = 0; y < t->height; ++y) {
@@ -70,10 +99,16 @@ static void fill_disc_texture(ProcTexture *t, float r, float g, float b, float e
     }
 }
 
-static void draw_sky_cube(float s) {
-    const float top_r = 0.60f, top_g = 0.76f, top_b = 0.94f;
-    const float mid_r = 0.56f, mid_g = 0.73f, mid_b = 0.92f;
-    const float low_r = 0.65f, low_g = 0.78f, low_b = 0.93f;
+static void draw_sky_cube(float s, float daylight) {
+    float top_r = (1.0f - daylight) * 0.05f + daylight * 0.60f;
+    float top_g = (1.0f - daylight) * 0.08f + daylight * 0.76f;
+    float top_b = (1.0f - daylight) * 0.15f + daylight * 0.94f;
+    float mid_r = (1.0f - daylight) * 0.07f + daylight * 0.56f;
+    float mid_g = (1.0f - daylight) * 0.09f + daylight * 0.73f;
+    float mid_b = (1.0f - daylight) * 0.16f + daylight * 0.92f;
+    float low_r = (1.0f - daylight) * 0.08f + daylight * 0.65f;
+    float low_g = (1.0f - daylight) * 0.10f + daylight * 0.78f;
+    float low_b = (1.0f - daylight) * 0.16f + daylight * 0.93f;
 
     glBegin(GL_QUADS);
     glColor3f(top_r, top_g, top_b);
@@ -220,21 +255,15 @@ void retro_sky_draw(RetroSky *sky, float cam_x, float cam_y, float cam_z, float 
     glPushMatrix();
     glTranslatef(cam_x, cam_y, cam_z);
 
-    draw_sky_cube(3200.0f);
+    float sun_dir_x = 0.0f, sun_dir_y = 1.0f, sun_dir_z = 0.0f;
+    retro_sky_eval_sun_dir(time_sec, &sun_dir_x, &sun_dir_y, &sun_dir_z);
+    float daylight = smoothstepf(-0.22f, 0.35f, sun_dir_y);
+    draw_sky_cube(3200.0f, daylight);
 
     float cloud_scroll = fracf(time_sec * 0.0016f);
-    draw_cloud_layer(sky->cloud_tex.tex_id, 1800.0f, 940.0f, cloud_scroll, 0.22f);
-    draw_cloud_layer(sky->cloud_tex.tex_id, 1500.0f, 880.0f, fracf(-time_sec * 0.0011f), 0.16f);
+    draw_cloud_layer(sky->cloud_tex.tex_id, 1800.0f, 940.0f, cloud_scroll, 0.10f + daylight * 0.16f);
+    draw_cloud_layer(sky->cloud_tex.tex_id, 1500.0f, 880.0f, fracf(-time_sec * 0.0011f), 0.08f + daylight * 0.12f);
 
-    /*
-     * Sun/moon move on one tilted circular orbit and are always opposite vectors.
-     * This gives a simple, stable day-night motion suitable for a retro style.
-     */
-    float orbit_t = time_sec * 0.025f;
-    float tilt = 0.40f;
-    float sun_dir_x = cosf(orbit_t);
-    float sun_dir_y = sinf(orbit_t) * cosf(tilt);
-    float sun_dir_z = sinf(orbit_t) * sinf(tilt);
     float sun_dist = 2200.0f;
     float moon_dist = 2160.0f;
 

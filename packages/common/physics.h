@@ -275,9 +275,12 @@ typedef struct {
 
 typedef struct {
     float x, y, z;
-    float scale;
+    float scale_xz;
+    float scale_y;
     float yaw;
     float tint;
+    unsigned char variant;
+    unsigned char size_tier;
 } BushProp;
 
 static const VehiclePad garage_vehicle_pads[] = {
@@ -846,35 +849,50 @@ static inline float voxworld_bush_dist2(float x0, float z0, float x1, float z1) 
     return dx * dx + dz * dz;
 }
 
-static inline int voxworld_point_is_near_reserved_area(float x, float z) {
-    const float base_clear_r = 310.0f;
-    if (voxworld_bush_dist2(x, z, VOXWORLD_BASE_RED_X, VOXWORLD_BASE_Z) < base_clear_r * base_clear_r) return 1;
-    if (voxworld_bush_dist2(x, z, VOXWORLD_BASE_BLUE_X, VOXWORLD_BASE_Z) < base_clear_r * base_clear_r) return 1;
-    if (voxworld_bush_dist2(x, z, VOXWORLD_HELI_RED_X, VOXWORLD_HELI_RED_Z) < 140.0f * 140.0f) return 1;
-    if (voxworld_bush_dist2(x, z, VOXWORLD_HELI_BLUE_X, VOXWORLD_HELI_BLUE_Z) < 140.0f * 140.0f) return 1;
+static inline int voxworld_point_is_near_reserved_area_expanded(float x, float z, float padding);
 
-    if (voxworld_bush_dist2(x, z, voxworld_flag_home_red.x, voxworld_flag_home_red.y) < 170.0f * 170.0f) return 1;
-    if (voxworld_bush_dist2(x, z, voxworld_flag_home_blue.x, voxworld_flag_home_blue.y) < 170.0f * 170.0f) return 1;
+static inline int voxworld_point_is_near_reserved_area(float x, float z) {
+    return voxworld_point_is_near_reserved_area_expanded(x, z, 0.0f);
+}
+
+static inline int voxworld_point_is_near_reserved_area_expanded(float x, float z, float padding) {
+    const float base_clear_r = 310.0f;
+    float r = base_clear_r + padding;
+    if (voxworld_bush_dist2(x, z, VOXWORLD_BASE_RED_X, VOXWORLD_BASE_Z) < r * r) return 1;
+    if (voxworld_bush_dist2(x, z, VOXWORLD_BASE_BLUE_X, VOXWORLD_BASE_Z) < r * r) return 1;
+    r = 140.0f + padding;
+    if (voxworld_bush_dist2(x, z, VOXWORLD_HELI_RED_X, VOXWORLD_HELI_RED_Z) < r * r) return 1;
+    if (voxworld_bush_dist2(x, z, VOXWORLD_HELI_BLUE_X, VOXWORLD_HELI_BLUE_Z) < r * r) return 1;
+
+    r = 170.0f + padding;
+    if (voxworld_bush_dist2(x, z, voxworld_flag_home_red.x, voxworld_flag_home_red.y) < r * r) return 1;
+    if (voxworld_bush_dist2(x, z, voxworld_flag_home_blue.x, voxworld_flag_home_blue.y) < r * r) return 1;
 
     for (int i = 0; i < (int)(sizeof(voxworld_vehicle_pads) / sizeof(voxworld_vehicle_pads[0])); i++) {
-        if (voxworld_bush_dist2(x, z, voxworld_vehicle_pads[i].x, voxworld_vehicle_pads[i].z) < 95.0f * 95.0f) return 1;
+        r = 95.0f + padding;
+        if (voxworld_bush_dist2(x, z, voxworld_vehicle_pads[i].x, voxworld_vehicle_pads[i].z) < r * r) return 1;
     }
     for (int i = 0; i < (int)(sizeof(voxworld_spawn_points_red) / sizeof(voxworld_spawn_points_red[0])); i++) {
-        if (voxworld_bush_dist2(x, z, voxworld_spawn_points_red[i].x, voxworld_spawn_points_red[i].y) < 80.0f * 80.0f) return 1;
+        r = 80.0f + padding;
+        if (voxworld_bush_dist2(x, z, voxworld_spawn_points_red[i].x, voxworld_spawn_points_red[i].y) < r * r) return 1;
     }
     for (int i = 0; i < (int)(sizeof(voxworld_spawn_points_blue) / sizeof(voxworld_spawn_points_blue[0])); i++) {
-        if (voxworld_bush_dist2(x, z, voxworld_spawn_points_blue[i].x, voxworld_spawn_points_blue[i].y) < 80.0f * 80.0f) return 1;
+        r = 80.0f + padding;
+        if (voxworld_bush_dist2(x, z, voxworld_spawn_points_blue[i].x, voxworld_spawn_points_blue[i].y) < r * r) return 1;
     }
     for (int i = 0; i < (int)(sizeof(voxworld_spawn_points_ffa) / sizeof(voxworld_spawn_points_ffa[0])); i++) {
-        if (voxworld_bush_dist2(x, z, voxworld_spawn_points_ffa[i].x, voxworld_spawn_points_ffa[i].y) < 62.0f * 62.0f) return 1;
+        r = 62.0f + padding;
+        if (voxworld_bush_dist2(x, z, voxworld_spawn_points_ffa[i].x, voxworld_spawn_points_ffa[i].y) < r * r) return 1;
     }
     for (int i = 0; i < (int)(sizeof(voxworld_teleporters) / sizeof(voxworld_teleporters[0])); i++) {
-        if (voxworld_bush_dist2(x, z, voxworld_teleporters[i].x, voxworld_teleporters[i].y) < 120.0f * 120.0f) return 1;
+        r = 120.0f + padding;
+        if (voxworld_bush_dist2(x, z, voxworld_teleporters[i].x, voxworld_teleporters[i].y) < r * r) return 1;
     }
     for (int i = 0; i < (int)(sizeof(voxworld_teleport_destinations) / sizeof(voxworld_teleport_destinations[0])); i++) {
-        if (voxworld_bush_dist2(x, z, voxworld_teleport_destinations[i].x, voxworld_teleport_destinations[i].y) < 130.0f * 130.0f) return 1;
+        r = 130.0f + padding;
+        if (voxworld_bush_dist2(x, z, voxworld_teleport_destinations[i].x, voxworld_teleport_destinations[i].y) < r * r) return 1;
     }
-    if (fabsf(z) < 96.0f && fabsf(x) < 900.0f) return 1;
+    if (fabsf(z) < (96.0f + padding) && fabsf(x) < (900.0f + padding)) return 1;
     return 0;
 }
 
@@ -899,6 +917,96 @@ static inline int voxworld_point_is_good_for_bush(TerrainHeightfield *t, float x
     return 1;
 }
 
+static inline float voxworld_bush_spacing_for_scale(float scale_xz) {
+    return 24.0f + scale_xz * 26.0f;
+}
+
+static inline void voxworld_pick_bush_style(int key_x, int key_z, float *out_scale_xz, float *out_scale_y,
+                                            float *out_tint, float *out_yaw, unsigned char *out_variant,
+                                            unsigned char *out_size_tier) {
+    float tier_roll = voxworld_bush_hash01(key_x, key_z, 401);
+    float tier_local = voxworld_bush_hash01(key_x, key_z, 409);
+    float scale = 1.0f;
+    unsigned char tier = 0;
+    if (tier_roll < 0.45f) {
+        tier = 0; /* small */
+        scale = 0.92f + tier_local * 0.22f;
+    } else if (tier_roll < 0.80f) {
+        tier = 1; /* medium */
+        scale = 1.25f + tier_local * 0.42f;
+    } else if (tier_roll < 0.95f) {
+        tier = 2; /* large */
+        scale = 1.76f + tier_local * 0.56f;
+    } else {
+        tier = 3; /* extra large hero bush */
+        scale = 2.76f + tier_local * 0.42f;
+    }
+    float width_shape = 0.88f + voxworld_bush_hash01(key_x, key_z, 421) * 0.34f;
+    float height_shape = 0.84f + voxworld_bush_hash01(key_x, key_z, 433) * 0.48f;
+    *out_scale_xz = scale * width_shape;
+    *out_scale_y = scale * height_shape;
+    *out_tint = fminf(1.0f, fmaxf(0.0f, 0.18f + voxworld_bush_hash01(key_x, key_z, 449) * 0.72f));
+    *out_yaw = voxworld_bush_hash01(key_x, key_z, 463) * 360.0f;
+    *out_variant = (unsigned char)(voxworld_bush_hash01(key_x, key_z, 479) * 3.0f);
+    if (*out_variant > 2) *out_variant = 2;
+    *out_size_tier = tier;
+}
+
+static inline int voxworld_bush_spot_is_valid(TerrainHeightfield *t, float x, float z, float scale_xz, unsigned char size_tier) {
+    float extra_padding = (size_tier == 3) ? 75.0f : (size_tier == 2 ? 32.0f : 14.0f);
+    if (!voxworld_point_is_good_for_bush(t, x, z)) return 0;
+    if (voxworld_point_is_near_reserved_area_expanded(x, z, extra_padding)) return 0;
+    if (size_tier == 3 && (fabsf(z) < 220.0f || fabsf(x) < 420.0f)) return 0;
+
+    float nx = 0.0f, ny = 1.0f, nz = 0.0f;
+    terrain_sample_normal(t, x, z, &nx, &ny, &nz);
+    float min_ny = (size_tier == 3) ? 0.84f : (size_tier == 2 ? 0.76f : 0.66f);
+    if (ny < min_ny) return 0;
+
+    float y = terrain_sample_height(t, x, z);
+    float map_geo_pad = voxworld_bush_spacing_for_scale(scale_xz) + ((size_tier == 3) ? 28.0f : 8.0f);
+    for (int i = 0; i < map_geo_voxworld_count; i++) {
+        const Box *b = &map_geo_voxworld[i];
+        float pad_w = b->w * 0.54f + map_geo_pad;
+        float pad_d = b->d * 0.54f + map_geo_pad;
+        if (fabsf(x - b->x) <= pad_w && fabsf(z - b->z) <= pad_d) {
+            float top = b->y + b->h * 0.5f;
+            if (y <= top + 10.0f) return 0;
+        }
+    }
+    return 1;
+}
+
+static inline int voxworld_bush_spacing_ok(float x, float z, float scale_xz) {
+    float self_spacing = voxworld_bush_spacing_for_scale(scale_xz);
+    for (int i = 0; i < g_voxworld_bush_count; i++) {
+        const BushProp *other = &g_voxworld_bushes[i];
+        float min_spacing = self_spacing + voxworld_bush_spacing_for_scale(other->scale_xz);
+        if (voxworld_bush_dist2(x, z, other->x, other->z) < min_spacing * min_spacing) return 0;
+    }
+    return 1;
+}
+
+static inline int voxworld_add_bush_instance(TerrainHeightfield *t, float x, float z, int key_x, int key_z, int mirror_from_left) {
+    if (g_voxworld_bush_count >= MAX_VOXWORLD_BUSHES) return 0;
+    float scale_xz = 1.0f, scale_y = 1.0f, tint = 0.5f, yaw = 0.0f;
+    unsigned char variant = 0, size_tier = 0;
+    voxworld_pick_bush_style(key_x, key_z, &scale_xz, &scale_y, &tint, &yaw, &variant, &size_tier);
+    if (!voxworld_bush_spot_is_valid(t, x, z, scale_xz, size_tier)) return 0;
+    if (!voxworld_bush_spacing_ok(x, z, scale_xz)) return 0;
+    BushProp *b = &g_voxworld_bushes[g_voxworld_bush_count++];
+    b->x = x;
+    b->z = z;
+    b->y = terrain_sample_height(t, x, z) + 0.10f;
+    b->scale_xz = scale_xz;
+    b->scale_y = scale_y;
+    b->yaw = mirror_from_left ? fmodf(540.0f - yaw, 360.0f) : yaw;
+    b->tint = tint;
+    b->variant = variant;
+    b->size_tier = size_tier;
+    return 1;
+}
+
 static inline void voxworld_clear_bushes(void) {
     g_voxworld_bush_count = 0;
 }
@@ -908,47 +1016,67 @@ static inline void voxworld_build_bushes(void) {
     voxworld_clear_bushes();
     if (!t || !t->heights) return;
 
-    const float min_x = -VOXWORLD_HALF_LENGTH + 110.0f;
-    const float max_x = VOXWORLD_HALF_LENGTH - 110.0f;
-    const float min_z = -VOXWORLD_HALF_WIDTH + 85.0f;
-    const float max_z = VOXWORLD_HALF_WIDTH - 85.0f;
-    const float spacing = 98.0f;
-    const float target = 170.0f * VOXWORLD_BUSH_DENSITY;
+    const float min_x = -VOXWORLD_HALF_LENGTH + 130.0f;
+    const float min_z = -VOXWORLD_HALF_WIDTH + 95.0f;
+    const float max_z = VOXWORLD_HALF_WIDTH - 95.0f;
+    const float anchor_spacing_x = 250.0f;
+    const float anchor_spacing_z = 185.0f;
+    const float target_factor = fminf(1.30f, fmaxf(0.55f, VOXWORLD_BUSH_DENSITY));
 
-    int gxmax = (int)((max_x - min_x) / spacing);
-    int gzmax = (int)((max_z - min_z) / spacing);
-    for (int gz = 0; gz <= gzmax; gz++) {
-        for (int gx = 0; gx <= gxmax; gx++) {
-            if (g_voxworld_bush_count >= MAX_VOXWORLD_BUSHES) break;
+    /* Fairness rule: generate left-half clusters, then mirror to the right-half around x=0. */
+    int ax_max = (int)((-150.0f - min_x) / anchor_spacing_x);
+    int az_max = (int)((max_z - min_z) / anchor_spacing_z);
+    for (int az = 0; az <= az_max; az++) {
+        for (int ax = 0; ax <= ax_max; ax++) {
+            if (g_voxworld_bush_count >= MAX_VOXWORLD_BUSHES - 2) break;
+            int key_x = ax - 307;
+            int key_z = az + 911;
+            float anchor_x = min_x + (float)ax * anchor_spacing_x;
+            float anchor_z = min_z + (float)az * anchor_spacing_z;
+            anchor_x += (voxworld_bush_hash01(key_x, key_z, 17) - 0.5f) * 148.0f;
+            anchor_z += (voxworld_bush_hash01(key_x, key_z, 31) - 0.5f) * 112.0f;
+            if (anchor_x > -120.0f) anchor_x = -120.0f - voxworld_bush_hash01(key_x, key_z, 41) * 60.0f;
+            if (anchor_x < min_x || anchor_z < min_z || anchor_z > max_z) continue;
 
-            int key_x = gx - 241;
-            int key_z = gz + 619;
-            float jx = (voxworld_bush_hash01(key_x, key_z, 11) - 0.5f) * spacing * 0.72f;
-            float jz = (voxworld_bush_hash01(key_x, key_z, 29) - 0.5f) * spacing * 0.72f;
-            float x = min_x + (float)gx * spacing + jx;
-            float z = min_z + (float)gz * spacing + jz;
-
-            if (!voxworld_point_is_good_for_bush(t, x, z)) continue;
             float nx = 0.0f, ny = 1.0f, nz = 0.0f;
-            terrain_sample_normal(t, x, z, &nx, &ny, &nz);
-            float side_pref = fminf(1.0f, fmaxf(0.0f, (fabsf(z) - 180.0f) / 420.0f));
-            float slope_pref = fminf(1.0f, fmaxf(0.0f, (0.95f - ny) / 0.3f));
-            float flank_pref = fminf(1.0f, fmaxf(0.0f, (fabsf(x) - 360.0f) / 900.0f));
-            float route_avoid = fminf(1.0f, fmaxf(0.0f, (fabsf(z) - 140.0f) / 360.0f));
-            float placement_score = 0.20f + side_pref * 0.34f + slope_pref * 0.24f + flank_pref * 0.20f + route_avoid * 0.16f;
-            placement_score += fmaxf(0.0f, -vox_hash_noise(x * 0.9f, z * 0.9f)) * 0.12f;
-            float roll = voxworld_bush_hash01(key_x, key_z, 47);
-            float target_factor = target / 170.0f;
-            if (roll > placement_score * target_factor) continue;
+            terrain_sample_normal(t, anchor_x, anchor_z, &nx, &ny, &nz);
+            float shoulder_pref = fminf(1.0f, fmaxf(0.0f, (fabsf(anchor_z) - 160.0f) / 360.0f));
+            float flank_pref = fminf(1.0f, fmaxf(0.0f, (fabsf(anchor_x) - 360.0f) / 760.0f));
+            float center_avoid = fminf(1.0f, fmaxf(0.0f, (fabsf(anchor_z) - 140.0f) / 280.0f));
+            float slope_pref = fminf(1.0f, fmaxf(0.0f, (0.96f - ny) / 0.22f));
+            float cluster_score = 0.18f + shoulder_pref * 0.34f + flank_pref * 0.22f + center_avoid * 0.20f + slope_pref * 0.16f;
+            cluster_score += fmaxf(0.0f, -vox_hash_noise(anchor_x * 1.05f, anchor_z * 0.98f)) * 0.10f;
+            if (voxworld_bush_hash01(key_x, key_z, 59) > cluster_score * target_factor) continue;
 
-            BushProp *b = &g_voxworld_bushes[g_voxworld_bush_count++];
-            b->x = x;
-            b->z = z;
-            b->y = terrain_sample_height(t, x, z) + 0.15f;
-            b->scale = (0.80f + voxworld_bush_hash01(key_x, key_z, 59) * 0.62f) * (0.88f + side_pref * 0.22f);
-            b->yaw = voxworld_bush_hash01(key_x, key_z, 83) * 360.0f;
-            b->tint = voxworld_bush_hash01(key_x, key_z, 101);
+            int members = 1 + (int)(voxworld_bush_hash01(key_x, key_z, 67) * 3.8f);
+            if (members > 4) members = 4;
+            for (int m = 0; m < members; m++) {
+                if (g_voxworld_bush_count >= MAX_VOXWORLD_BUSHES - 2) break;
+                int member_key_x = key_x * 13 + m * 97;
+                int member_key_z = key_z * 7 + m * 131;
+                float angle = voxworld_bush_hash01(member_key_x, member_key_z, 71) * 6.28318f;
+                float radius = (m == 0) ? 0.0f : (24.0f + voxworld_bush_hash01(member_key_x, member_key_z, 79) * 86.0f);
+                float x = anchor_x + cosf(angle) * radius;
+                float z = anchor_z + sinf(angle) * radius;
+                if (x < min_x || x > -90.0f || z < min_z || z > max_z) continue;
+                if (!voxworld_add_bush_instance(t, x, z, member_key_x, member_key_z, 0)) continue;
+                if (g_voxworld_bush_count >= MAX_VOXWORLD_BUSHES) break;
+                if (fabsf(x) > 32.0f) {
+                    (void)voxworld_add_bush_instance(t, -x, z, member_key_x, member_key_z, 1);
+                }
+            }
         }
+    }
+
+    /* Centerline accents are deterministic and self-mirrored by definition. Keep sparse for readability. */
+    for (int i = 0; i < 18 && g_voxworld_bush_count < MAX_VOXWORLD_BUSHES; i++) {
+        int key_x = 2001 + i * 17;
+        int key_z = 3001 + i * 23;
+        float z = min_z + voxworld_bush_hash01(key_x, key_z, 107) * (max_z - min_z);
+        float x = (voxworld_bush_hash01(key_x, key_z, 113) - 0.5f) * 60.0f;
+        if (fabsf(z) < 185.0f) continue;
+        if (voxworld_bush_hash01(key_x, key_z, 127) > 0.34f * target_factor) continue;
+        (void)voxworld_add_bush_instance(t, x, z, key_x, key_z, 0);
     }
     g_voxworld_bushes_ready = 1;
     printf("[VOXWORLD] bushes built count=%d density=%.2f\n", g_voxworld_bush_count, VOXWORLD_BUSH_DENSITY);
@@ -1933,6 +2061,7 @@ static inline int trace_map_boxes(float x1, float y1, float z1, float x2, float 
 
 int trace_map(float x1, float y1, float z1, float x2, float y2, float z2,
               float *out_x, float *out_y, float *out_z, float *nx, float *ny, float *nz) {
+    /* Voxworld bushes are visual-only props and are intentionally excluded from trace/collision/hit detection. */
     return trace_map_boxes(x1, y1, z1, x2, y2, z2, out_x, out_y, out_z, nx, ny, nz);
 }
 

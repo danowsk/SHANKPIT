@@ -1206,7 +1206,7 @@ static void draw_single_bush(const BushProp *b) {
     glPushMatrix();
     glTranslatef(b->x, b->y, b->z);
     glRotatef(b->yaw, 0.0f, 1.0f, 0.0f);
-    glScalef(b->scale, b->scale, b->scale);
+    glScalef(b->scale_xz, b->scale_y, b->scale_xz);
 
     glColor3f(stem_r, stem_g, stem_b);
     glPushMatrix();
@@ -1235,6 +1235,24 @@ static void draw_single_bush(const BushProp *b) {
     glTranslatef(0.10f, 1.22f, -0.55f);
     draw_box_solid(0.40f, 0.36f, 0.36f);
     glPopMatrix();
+
+    if (b->variant == 1) {
+        glColor3f(base_r * 0.94f, base_g * 0.94f, base_b * 0.94f);
+        glPushMatrix();
+        glTranslatef(0.62f, 1.34f, -0.12f);
+        draw_box_solid(0.32f, 0.34f, 0.28f);
+        glPopMatrix();
+    } else if (b->variant == 2) {
+        glColor3f(top_r * 0.96f, top_g * 0.96f, top_b * 0.96f);
+        glPushMatrix();
+        glTranslatef(-0.46f, 1.34f, 0.56f);
+        draw_box_solid(0.36f, 0.28f, 0.30f);
+        glPopMatrix();
+        glPushMatrix();
+        glTranslatef(0.52f, 1.52f, 0.30f);
+        draw_box_solid(0.24f, 0.24f, 0.24f);
+        glPopMatrix();
+    }
     glPopMatrix();
 }
 

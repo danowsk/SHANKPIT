@@ -1487,8 +1487,34 @@ void draw_buggy_model(PlayerState *p) {
     glPopAttrib();
 }
 
+static void draw_thirdperson_knife_model(void) {
+    glPushMatrix();
+    glScalef(0.88f, 0.88f, 0.88f);
+
+    /* handle */
+    glColor3f(0.18f, 0.15f, 0.12f);
+    glPushMatrix(); glTranslatef(0.0f, -0.16f, -0.34f); draw_box(0.15f, 0.09f, 0.50f); glPopMatrix();
+    /* pommel */
+    glColor3f(0.11f, 0.10f, 0.10f);
+    glPushMatrix(); glTranslatef(0.0f, -0.15f, -0.60f); draw_box(0.12f, 0.10f, 0.14f); glPopMatrix();
+    /* guard */
+    glColor3f(0.44f, 0.44f, 0.46f);
+    glPushMatrix(); glTranslatef(0.0f, -0.09f, -0.03f); draw_box(0.22f, 0.05f, 0.11f); glPopMatrix();
+    /* blade */
+    glColor3f(0.70f, 0.73f, 0.78f);
+    glPushMatrix(); glTranslatef(0.0f, -0.05f, 0.43f); draw_box(0.09f, 0.04f, 0.92f); glPopMatrix();
+    /* tip */
+    glColor3f(0.78f, 0.80f, 0.85f);
+    glPushMatrix(); glTranslatef(0.0f, -0.04f, 0.97f); glRotatef(-13.0f, 1, 0, 0); draw_box(0.05f, 0.03f, 0.30f); glPopMatrix();
+    glPopMatrix();
+}
+
 void draw_gun_model(int weapon_id) {
     const float weapon_scale = 0.9f;
+    if (weapon_id == WPN_KNIFE) {
+        draw_thirdperson_knife_model();
+        return;
+    }
     if (weapon_id == WPN_KATANA) {
         glPushMatrix();
         glScalef(weapon_scale, weapon_scale, weapon_scale);
@@ -1587,11 +1613,11 @@ static ViewmodelPalette viewmodel_palette_for_weapon(int weapon_id) {
 static ViewmodelTuning viewmodel_tuning_for_weapon(int weapon_id) {
     ViewmodelTuning t = {0.48f, -0.60f, -1.34f, 13.0f, 0.13f, 1.8f, 0.24f, 0.10f};
     switch (weapon_id) {
-        case WPN_MAGNUM:  t = (ViewmodelTuning){0.56f, -0.62f, -1.30f, 19.0f, 0.18f, 2.4f, 0.26f, 0.09f}; break;
-        case WPN_AR:      t = (ViewmodelTuning){0.52f, -0.64f, -1.46f, 12.0f, 0.12f, 1.4f, 0.22f, 0.12f}; break;
-        case WPN_SHOTGUN: t = (ViewmodelTuning){0.58f, -0.66f, -1.38f, 24.0f, 0.24f, 3.4f, 0.30f, 0.08f}; break;
-        case WPN_SNIPER:  t = (ViewmodelTuning){0.50f, -0.63f, -1.55f, 21.0f, 0.20f, 2.2f, 0.23f, 0.07f}; break;
-        case WPN_KNIFE:   t = (ViewmodelTuning){0.62f, -0.60f, -1.08f, 7.0f, 0.04f, 8.0f, 0.08f, 0.14f}; break;
+        case WPN_MAGNUM:  t = (ViewmodelTuning){0.62f, -0.63f, -1.24f, 17.0f, 0.17f, 2.0f, 0.22f, 0.08f}; break;
+        case WPN_AR:      t = (ViewmodelTuning){0.54f, -0.64f, -1.48f, 11.0f, 0.11f, 1.4f, 0.20f, 0.11f}; break;
+        case WPN_SHOTGUN: t = (ViewmodelTuning){0.59f, -0.67f, -1.34f, 22.0f, 0.22f, 3.0f, 0.28f, 0.08f}; break;
+        case WPN_SNIPER:  t = (ViewmodelTuning){0.49f, -0.63f, -1.58f, 19.0f, 0.19f, 2.1f, 0.20f, 0.07f}; break;
+        case WPN_KNIFE:   t = (ViewmodelTuning){0.54f, -0.56f, -1.00f, 0.0f, 0.0f, 0.0f, 0.00f, 0.07f}; break;
         case WPN_KATANA:  t = (ViewmodelTuning){0.64f, -0.58f, -1.05f, 7.0f, 0.03f, 8.0f, 0.06f, 0.14f}; break;
         default: break;
     }
@@ -1639,46 +1665,64 @@ static void draw_viewmodel_accent_strip(const ViewmodelPalette *p, float w, floa
 }
 
 static void draw_viewmodel_magnum(const ViewmodelPalette *p) {
-    glPushMatrix(); glTranslatef(0.00f, 0.10f, -0.03f); draw_viewmodel_box_tone(p, 1.20f, 0.34f, 1.45f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.24f, -0.08f); draw_viewmodel_box_tone(p, 0.66f, 0.62f, 0.68f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.02f, 0.78f); draw_viewmodel_box_tone(p, 0.76f, 0.24f, 0.36f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.31f, 0.97f); draw_viewmodel_box_tone(p, 0.22f, 0.12f, 0.15f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.16f, -0.68f); draw_viewmodel_accent_strip(p, 0.22f, 0.05f, 0.22f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.14f, 0.02f); draw_viewmodel_box_tone(p, 0.94f, 0.26f, 1.68f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.14f, -0.24f); glRotatef(-15.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.46f, 0.70f, 0.66f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.03f, 0.94f); draw_viewmodel_box_tone(p, 0.62f, 0.18f, 0.46f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.28f, 0.16f); draw_viewmodel_box_tone(p, 0.74f, 0.08f, 0.90f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.19f, 1.20f); draw_viewmodel_box_tone(p, 0.18f, 0.10f, 0.14f, 1); glPopMatrix();
 }
 
 static void draw_viewmodel_ar(const ViewmodelPalette *p) {
-    glPushMatrix(); glTranslatef(0.00f, 0.12f, 0.08f); draw_viewmodel_box_tone(p, 1.00f, 0.32f, 2.32f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.17f, -0.06f); draw_viewmodel_box_tone(p, 0.82f, 0.40f, 1.20f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.32f, -0.50f); draw_viewmodel_box_tone(p, 0.42f, 0.58f, 0.55f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.06f, 1.25f); draw_viewmodel_box_tone(p, 0.92f, 0.42f, 0.78f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.28f, -0.20f, -0.48f); draw_viewmodel_accent_strip(p, 0.08f, 0.28f, 0.12f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.12f, -0.16f); draw_viewmodel_box_tone(p, 0.90f, 0.31f, 1.38f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.08f, 1.06f); draw_viewmodel_box_tone(p, 0.46f, 0.24f, 1.46f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.18f, -0.38f); draw_viewmodel_box_tone(p, 0.58f, 0.34f, 1.02f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.38f, -0.56f); glRotatef(-8.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.32f, 0.56f, 0.50f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.16f, 0.54f); draw_viewmodel_box_tone(p, 0.42f, 0.18f, 1.14f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.24f, 0.02f); draw_viewmodel_accent_strip(p, 0.58f, 0.05f, 0.58f); glPopMatrix();
 }
 
 static void draw_viewmodel_shotgun(const ViewmodelPalette *p) {
-    glPushMatrix(); glTranslatef(0.00f, 0.12f, -0.02f); draw_viewmodel_box_tone(p, 1.24f, 0.34f, 2.02f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.16f, -0.16f); draw_viewmodel_box_tone(p, 1.02f, 0.46f, 1.24f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.30f, 0.64f); draw_viewmodel_box_tone(p, 0.94f, 0.34f, 1.12f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.08f, 1.18f); draw_viewmodel_box_tone(p, 1.12f, 0.44f, 0.76f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(-0.22f, -0.22f, -0.36f); draw_viewmodel_accent_strip(p, 0.09f, 0.32f, 0.10f); glPopMatrix();
-    glPushMatrix(); glTranslatef(-0.12f, -0.22f, -0.20f); draw_viewmodel_accent_strip(p, 0.09f, 0.32f, 0.10f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.12f, -0.18f); draw_viewmodel_box_tone(p, 1.04f, 0.34f, 1.44f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.16f, 0.94f); draw_viewmodel_box_tone(p, 0.22f, 0.18f, 2.00f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.04f, 0.90f); draw_viewmodel_box_tone(p, 0.18f, 0.14f, 1.86f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.22f, -0.16f); draw_viewmodel_box_tone(p, 0.78f, 0.42f, 1.18f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.34f, 0.48f); draw_viewmodel_box_tone(p, 0.56f, 0.28f, 0.96f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.32f, -0.84f); draw_viewmodel_box_tone(p, 0.88f, 0.30f, 0.66f, 1); glPopMatrix();
 }
 
 static void draw_viewmodel_sniper(const ViewmodelPalette *p) {
-    glPushMatrix(); glTranslatef(0.00f, 0.04f, 0.34f); draw_viewmodel_box_tone(p, 0.72f, 0.24f, 3.96f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.16f, -0.42f); draw_viewmodel_box_tone(p, 0.62f, 0.30f, 1.14f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.32f, 0.24f); draw_viewmodel_box_tone(p, 0.48f, 0.24f, 1.24f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.02f, 1.72f); draw_viewmodel_box_tone(p, 0.34f, 0.16f, 0.88f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.18f, -0.40f); draw_viewmodel_accent_strip(p, 0.42f, 0.05f, 0.09f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.02f, 0.46f); draw_viewmodel_box_tone(p, 0.54f, 0.20f, 4.40f, 0); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.14f, -0.56f); draw_viewmodel_box_tone(p, 0.60f, 0.30f, 1.36f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.30f, -0.02f); draw_viewmodel_box_tone(p, 0.40f, 0.24f, 1.76f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.34f, 0.56f); draw_viewmodel_box_tone(p, 0.26f, 0.22f, 0.88f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.00f, 2.08f); draw_viewmodel_box_tone(p, 0.18f, 0.10f, 1.04f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.22f, -1.02f); draw_viewmodel_box_tone(p, 0.72f, 0.28f, 0.82f, 1); glPopMatrix();
 }
 
-static void draw_viewmodel_knife(const ViewmodelPalette *p) {
-    glPushMatrix(); glTranslatef(0.00f, -0.24f, -0.26f); draw_viewmodel_box_tone(p, 0.42f, 0.30f, 0.64f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.04f, 0.30f); glRotatef(-8.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.26f, 0.22f, 1.70f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.10f, 0.88f); glRotatef(-12.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.08f, 0.16f, 0.62f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.10f, -0.24f, -0.24f); draw_viewmodel_accent_strip(p, 0.05f, 0.18f, 0.18f); glPopMatrix();
+static void draw_viewmodel_knife_firstperson(void) {
+    glScalef(0.86f, 0.86f, 0.86f);
+    /* simple handle */
+    glColor3f(0.16f, 0.14f, 0.12f);
+    glPushMatrix(); glTranslatef(0.00f, -0.30f, -0.26f); draw_box(0.24f, 0.15f, 0.70f); glPopMatrix();
+    /* pommel */
+    glColor3f(0.10f, 0.10f, 0.11f);
+    glPushMatrix(); glTranslatef(0.00f, -0.30f, -0.64f); draw_box(0.18f, 0.13f, 0.17f); glPopMatrix();
+    /* guard nub */
+    glColor3f(0.46f, 0.46f, 0.50f);
+    glPushMatrix(); glTranslatef(0.00f, -0.20f, 0.08f); draw_box(0.32f, 0.06f, 0.16f); glPopMatrix();
+    /* blade */
+    glColor3f(0.68f, 0.72f, 0.78f);
+    glPushMatrix(); glTranslatef(0.00f, -0.10f, 0.82f); glRotatef(-4.0f, 1, 0, 0); draw_box(0.11f, 0.05f, 1.36f); glPopMatrix();
+    /* tip */
+    glColor3f(0.80f, 0.82f, 0.86f);
+    glPushMatrix(); glTranslatef(0.00f, -0.06f, 1.58f); glRotatef(-14.0f, 1, 0, 0); draw_box(0.07f, 0.04f, 0.42f); glPopMatrix();
 }
 
 static void draw_viewmodel_weapon(int weapon_id) {
+    if (weapon_id == WPN_KNIFE) {
+        draw_viewmodel_knife_firstperson();
+        return;
+    }
     if (weapon_id == WPN_KATANA) {
         draw_gun_model(weapon_id);
         return;
@@ -1690,7 +1734,7 @@ static void draw_viewmodel_weapon(int weapon_id) {
         case WPN_AR: draw_viewmodel_ar(&p); break;
         case WPN_SHOTGUN: draw_viewmodel_shotgun(&p); break;
         case WPN_SNIPER: draw_viewmodel_sniper(&p); break;
-        case WPN_KNIFE: draw_viewmodel_knife(&p); break;
+        case WPN_KNIFE: draw_viewmodel_knife_firstperson(); break;
         default: draw_viewmodel_magnum(&p); break;
     }
 }
@@ -2366,26 +2410,58 @@ static void draw_player_skin_alpine(PlayerState *p, float draw_pitch, float draw
 }
 
 void draw_weapon_p(PlayerState *p) {
+    static int prev_weapon = -1;
+    static int prev_shooting = 0;
+    static Uint32 knife_stab_start_ms = 0;
     if (p->in_vehicle) return; 
     glPushMatrix();
     glLoadIdentity();
     const float viewmodel_global_scale = 0.72f;
     ViewmodelTuning tune = viewmodel_tuning_for_weapon(p->current_weapon);
-    float kick = p->recoil_anim * tune.kick_scale;
+    Uint32 now_ms = SDL_GetTicks();
+
+    if (p->current_weapon == WPN_KNIFE) {
+        if (prev_weapon != WPN_KNIFE) knife_stab_start_ms = 0;
+        if (p->is_shooting > 0 && prev_shooting <= 0) knife_stab_start_ms = now_ms;
+    } else if (prev_weapon == WPN_KNIFE) {
+        knife_stab_start_ms = 0;
+    }
+
+    float knife_stab_t = 0.0f;
+    if (p->current_weapon == WPN_KNIFE && knife_stab_start_ms > 0) {
+        knife_stab_t = clamp01f((float)(now_ms - knife_stab_start_ms) / 210.0f);
+        if (knife_stab_t >= 1.0f) knife_stab_start_ms = 0;
+    }
+
+    float kick = (p->current_weapon == WPN_KNIFE) ? 0.0f : p->recoil_anim * tune.kick_scale;
     float reload_dip = (p->reload_timer > 0) ? sinf(p->reload_timer * 0.2f) * 0.5f - 0.5f : 0.0f;
     float slash_swing = (p->current_weapon == WPN_KATANA && p->katana_slash_timer > 0) ? ((float)p->katana_slash_timer / (float)KATANA_SLASH_ACTIVE_TICKS) : 0.0f;
     float dash_push = (p->current_weapon == WPN_KATANA && p->dash_timer > 0) ? 0.22f : 0.0f;
+    float knife_wind = 0.0f, knife_thrust = 0.0f, knife_recover = 0.0f;
+    if (p->current_weapon == WPN_KNIFE && knife_stab_t > 0.0f) {
+        knife_wind = clamp01f(knife_stab_t / 0.20f);
+        knife_thrust = clamp01f((knife_stab_t - 0.20f) / 0.25f);
+        knife_recover = clamp01f((knife_stab_t - 0.45f) / 0.55f);
+        knife_wind = knife_wind * knife_wind;
+        knife_thrust = 1.0f - (1.0f - knife_thrust) * (1.0f - knife_thrust);
+        knife_recover = knife_recover * knife_recover;
+    }
+    float knife_anim_forward = (knife_wind * 0.08f) + (knife_thrust * 0.66f) - (knife_recover * 0.64f);
+    float knife_anim_drop = (knife_wind * 0.08f) + (knife_thrust * 0.14f) - (knife_recover * 0.12f);
+    float knife_anim_pitch = (knife_wind * 14.0f) + (knife_thrust * 46.0f) - (knife_recover * 40.0f);
+    float knife_anim_roll = (knife_wind * 4.0f) + (knife_thrust * 10.0f) - (knife_recover * 8.0f);
     float speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
     float bob = sinf(SDL_GetTicks() * 0.015f) * speed * tune.idle_scale;
     float ads_blend = (current_fov < 50.0f) ? 0.22f : 0.0f;
     glTranslatef(
         tune.base_x - ads_blend + slash_swing * 0.18f,
-        tune.base_y + kick + reload_dip * 0.7f + (bob * 0.4f),
-        tune.base_z + (kick * 0.45f) + bob - dash_push - p->recoil_anim * tune.recoil_back
+        tune.base_y + kick + reload_dip * 0.7f + (bob * 0.4f) - knife_anim_drop,
+        tune.base_z + (kick * 0.45f) + bob - dash_push - p->recoil_anim * tune.recoil_back + knife_anim_forward
     );
-    glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f, 1, 0, 0);
-    glRotatef(-p->recoil_anim * tune.recoil_roll, 0, 0, 1);
+    glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f - knife_anim_pitch, 1, 0, 0);
+    glRotatef(-p->recoil_anim * tune.recoil_roll - knife_anim_roll, 0, 0, 1);
     glRotatef(-slash_swing * 40.0f, 0, 0, 1);
+    if (p->current_weapon == WPN_KNIFE) glRotatef(-12.0f, 0, 1, 0);
     glScalef(viewmodel_global_scale, viewmodel_global_scale, viewmodel_global_scale);
     draw_viewmodel_weapon(p->current_weapon);
     if (p->is_shooting > 0) {
@@ -2397,6 +2473,8 @@ void draw_weapon_p(PlayerState *p) {
     } else if (p->recoil_anim > 0.0f) {
         draw_weapon_muzzle_flash(p->current_weapon, p->recoil_anim * 0.55f);
     }
+    prev_weapon = p->current_weapon;
+    prev_shooting = p->is_shooting;
     glPopMatrix();
 }
 

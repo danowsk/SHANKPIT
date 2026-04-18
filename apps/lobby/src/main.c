@@ -1141,10 +1141,28 @@ void draw_terrain(const RetroLightingState *lighting) {
                 float shade0 = 0.48f + h0 * 0.0016f - slope0 * 0.35f;
                 if (shade0 < 0.26f) shade0 = 0.26f;
                 if (shade0 > 0.84f) shade0 = 0.84f;
-                glColor3f(shade0 * 0.92f, shade0 * 0.70f, shade0 * 0.48f);
+                float r0 = shade0 * 0.92f, g0 = shade0 * 0.70f, b0 = shade0 * 0.48f;
+                if (local_state.scene_id == SCENE_STADIUM) {
+                    float road0 = stadium_track_weight_at(x, z0);
+                    if (road0 > 0.0f) {
+                        float gravel_r = 0.54f + shade0 * 0.18f;
+                        float gravel_g = 0.49f + shade0 * 0.12f;
+                        float gravel_b = 0.39f + shade0 * 0.08f;
+                        r0 = r0 * (1.0f - road0 * 0.72f) + gravel_r * road0 * 0.72f;
+                        g0 = g0 * (1.0f - road0 * 0.72f) + gravel_g * road0 * 0.72f;
+                        b0 = b0 * (1.0f - road0 * 0.72f) + gravel_b * road0 * 0.72f;
+                    }
+                }
+                glColor3f(r0, g0, b0);
             } else {
                 float r0 = 1.0f, g0 = 1.0f, b0 = 1.0f;
                 retro_eval_terrain_vertex_rgb(lighting, h0, min_h, inv_h_range, nx0, ny0, nz0, &r0, &g0, &b0);
+                if (local_state.scene_id == SCENE_STADIUM) {
+                    float road0 = stadium_track_weight_at(x, z0) * 0.55f;
+                    r0 = r0 * (1.0f - road0) + 0.60f * road0;
+                    g0 = g0 * (1.0f - road0) + 0.53f * road0;
+                    b0 = b0 * (1.0f - road0) + 0.43f * road0;
+                }
                 float dx0 = x - rp->x;
                 float dz0 = z0 - rp->z;
                 retro_apply_fog_rgb(&r0, &g0, &b0, lighting, sqrtf(dx0 * dx0 + dz0 * dz0));
@@ -1157,10 +1175,28 @@ void draw_terrain(const RetroLightingState *lighting) {
                 float shade1 = 0.48f + h1 * 0.0016f - slope1 * 0.35f;
                 if (shade1 < 0.26f) shade1 = 0.26f;
                 if (shade1 > 0.84f) shade1 = 0.84f;
-                glColor3f(shade1 * 0.92f, shade1 * 0.70f, shade1 * 0.48f);
+                float r1 = shade1 * 0.92f, g1 = shade1 * 0.70f, b1 = shade1 * 0.48f;
+                if (local_state.scene_id == SCENE_STADIUM) {
+                    float road1 = stadium_track_weight_at(x, z1);
+                    if (road1 > 0.0f) {
+                        float gravel_r = 0.54f + shade1 * 0.18f;
+                        float gravel_g = 0.49f + shade1 * 0.12f;
+                        float gravel_b = 0.39f + shade1 * 0.08f;
+                        r1 = r1 * (1.0f - road1 * 0.72f) + gravel_r * road1 * 0.72f;
+                        g1 = g1 * (1.0f - road1 * 0.72f) + gravel_g * road1 * 0.72f;
+                        b1 = b1 * (1.0f - road1 * 0.72f) + gravel_b * road1 * 0.72f;
+                    }
+                }
+                glColor3f(r1, g1, b1);
             } else {
                 float r1 = 1.0f, g1 = 1.0f, b1 = 1.0f;
                 retro_eval_terrain_vertex_rgb(lighting, h1, min_h, inv_h_range, nx1, ny1, nz1, &r1, &g1, &b1);
+                if (local_state.scene_id == SCENE_STADIUM) {
+                    float road1 = stadium_track_weight_at(x, z1) * 0.55f;
+                    r1 = r1 * (1.0f - road1) + 0.60f * road1;
+                    g1 = g1 * (1.0f - road1) + 0.53f * road1;
+                    b1 = b1 * (1.0f - road1) + 0.43f * road1;
+                }
                 float dx1 = x - rp->x;
                 float dz1 = z1 - rp->z;
                 retro_apply_fog_rgb(&r1, &g1, &b1, lighting, sqrtf(dx1 * dx1 + dz1 * dz1));

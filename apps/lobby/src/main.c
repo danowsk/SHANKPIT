@@ -2596,8 +2596,8 @@ void draw_weapon_p(PlayerState *p) {
     float dash_push = (p->current_weapon == WPN_KATANA && p->dash_timer > 0) ? 0.22f : 0.0f;
     float knife_drive = 0.0f, knife_recover = 0.0f;
     if (p->current_weapon == WPN_KNIFE && knife_stab_t > 0.0f) {
-        knife_drive = clamp01f(knife_stab_t / 0.28f);
-        knife_recover = clamp01f((knife_stab_t - 0.28f) / 0.72f);
+        knife_drive = clamp01f(knife_stab_t / 0.22f);
+        knife_recover = clamp01f((knife_stab_t - 0.22f) / 0.78f);
         knife_drive = 1.0f - (1.0f - knife_drive) * (1.0f - knife_drive);
         knife_recover = knife_recover * knife_recover;
     }

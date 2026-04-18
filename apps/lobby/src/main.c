@@ -247,6 +247,41 @@ static void retro_eval_terrain_vertex_rgb(const RetroLightingState *lighting,
     if (out_b) *out_b = material_b * light_b * ao;
 }
 
+/*
+ * Scene fog tuning seam:
+ * Keep per-world readability decisions data-driven while preserving the
+ * centralized RetroLightingState -> retro_apply_fog_rgb pipeline.
+ */
+static void retro_tune_world_fog(RetroLightingState *lighting, int scene_id) {
+    if (!lighting) return;
+
+    /* First pass global haze target. */
+    lighting->fog_near = 220.0f;
+    lighting->fog_far = 1600.0f;
+
+    /*
+     * Large outdoor worlds retain a bit more depth so portals and skyline
+     * silhouettes remain readable at gameplay ranges.
+     */
+    if (scene_id == SCENE_VOXWORLD || scene_id == SCENE_STADIUM || scene_id == SCENE_POO_POO_ISLAND) {
+        lighting->fog_near = 300.0f;
+        lighting->fog_far = 1900.0f;
+        lighting->fog_r *= 0.96f;
+        lighting->fog_g *= 0.98f;
+        lighting->fog_b = lighting->fog_b * 1.02f + 0.01f;
+    }
+
+    /* Tighter interior/garage volumes can carry denser haze. */
+    if (scene_id == SCENE_GARAGE_OSAKA) {
+        lighting->fog_near = 200.0f;
+        lighting->fog_far = 1450.0f;
+    }
+
+    lighting->fog_r = clamp01f(lighting->fog_r);
+    lighting->fog_g = clamp01f(lighting->fog_g);
+    lighting->fog_b = clamp01f(lighting->fog_b);
+}
+
 #define Z_FAR 8000.0f
 
 static void draw_box(float w, float h, float d);
@@ -3391,6 +3426,7 @@ void draw_scene(PlayerState *render_p) {
 
     RetroLightingState world_lighting;
     retro_lighting_eval(now_ms * 0.001f, g_world_lighting_preset, &world_lighting);
+    retro_tune_world_fog(&world_lighting, local_state.scene_id);
     
     draw_grid(); 
     update_and_draw_trails();

@@ -2526,16 +2526,15 @@ void draw_weapon_p(PlayerState *p) {
     float dash_push = (p->current_weapon == WPN_KATANA && p->dash_timer > 0) ? 0.22f : 0.0f;
     float knife_drive = 0.0f, knife_recover = 0.0f;
     if (p->current_weapon == WPN_KNIFE && knife_stab_t > 0.0f) {
-        knife_drive = clamp01f(knife_stab_t / 0.28f);
-        knife_recover = clamp01f((knife_stab_t - 0.28f) / 0.72f);
+        knife_drive = clamp01f(knife_stab_t / 0.22f);
+        knife_recover = clamp01f((knife_stab_t - 0.22f) / 0.78f);
         knife_drive = 1.0f - (1.0f - knife_drive) * (1.0f - knife_drive);
         knife_recover = knife_recover * knife_recover;
     }
-    /* Positive knife_anim_forward means "stab into screen" (negative camera-z direction). */
-    float knife_anim_forward = (knife_drive * 1.05f) - (knife_recover * 0.36f);
-    float knife_anim_drop = (knife_drive * 0.13f) - (knife_recover * 0.05f);
-    float knife_anim_pitch = (knife_drive * 30.0f) - (knife_recover * 10.0f);
-    float knife_anim_roll = (knife_drive * 7.0f) - (knife_recover * 3.0f);
+    /* Straight thrust: push directly toward reticle, then recover. */
+    float knife_anim_forward = (knife_drive * 1.30f) - (knife_recover * 0.38f);
+    float knife_anim_drop = (knife_drive * 0.06f) - (knife_recover * 0.03f);
+    float knife_anim_pitch = (knife_drive * 5.0f) - (knife_recover * 2.0f);
     float speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
     float bob = sinf(SDL_GetTicks() * 0.015f) * speed * tune.idle_scale;
     float ads_blend = (current_fov < 50.0f) ? 0.22f : 0.0f;
@@ -2545,9 +2544,9 @@ void draw_weapon_p(PlayerState *p) {
         tune.base_z + (kick * 0.45f) + bob - dash_push - p->recoil_anim * tune.recoil_back - knife_anim_forward
     );
     glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f - knife_anim_pitch, 1, 0, 0);
-    glRotatef(-p->recoil_anim * tune.recoil_roll - knife_anim_roll, 0, 0, 1);
+    glRotatef(-p->recoil_anim * tune.recoil_roll, 0, 0, 1);
     glRotatef(-slash_swing * 40.0f, 0, 0, 1);
-    if (p->current_weapon == WPN_KNIFE) glRotatef(-12.0f, 0, 1, 0);
+    if (p->current_weapon == WPN_KNIFE) glRotatef(0.0f, 0, 1, 0);
     glScalef(viewmodel_global_scale, viewmodel_global_scale, viewmodel_global_scale);
     draw_viewmodel_weapon(p->current_weapon);
     if (p->is_shooting > 0) {

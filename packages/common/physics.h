@@ -54,11 +54,15 @@ typedef struct { float x, y; } Vec2;
 
 // --- SCENES ---
 static const Box map_geo_stadium[] = {
-    {0.00, -2.00, 0.00, 800.00, 4.00, 800.00},
-    {400.00, 100.00, 0.00, 10.00, 200.00, 800.00},
-    {-400.00, 100.00, 0.00, 10.00, 200.00, 800.00},
-    {0.00, 100.00, 400.00, 800.00, 200.00, 10.00},
-    {0.00, 100.00, -400.00, 800.00, 200.00, 10.00},
+    {0.00, -2.00, 0.00, 760.00, 4.00, 760.00},
+    {-190.00, 1.00, 372.00, 380.00, 6.00, 12.00},
+    {190.00, 1.00, 372.00, 380.00, 6.00, 12.00},
+    {-190.00, 1.00, -372.00, 380.00, 6.00, 12.00},
+    {190.00, 1.00, -372.00, 380.00, 6.00, 12.00},
+    {372.00, 1.00, -190.00, 12.00, 6.00, 380.00},
+    {372.00, 1.00, 190.00, 12.00, 6.00, 380.00},
+    {-372.00, 1.00, -190.00, 12.00, 6.00, 380.00},
+    {-372.00, 1.00, 190.00, 12.00, 6.00, 380.00},
     {213.87, 8.96, 200.27, 15.00, 10.00, 15.00},
     {308.74, 7.12, -328.21, 15.00, 10.00, 15.00},
     {-238.16, 2.91, -230.20, 15.00, 10.00, 15.00},
@@ -132,9 +136,14 @@ static int map_count = 0;
 #define GARAGE_BOUNDS_X 70.0f
 #define GARAGE_BOUNDS_Z 70.0f
 
-#define STADIUM_KILL_Y -80.0f
-#define STADIUM_BOUNDS_X 420.0f
-#define STADIUM_BOUNDS_Z 420.0f
+#define STADIUM_KILL_Y -140.0f
+#define STADIUM_BOUNDS_X 940.0f
+#define STADIUM_BOUNDS_Z 940.0f
+#define STADIUM_TERRAIN_W 140
+#define STADIUM_TERRAIN_H 140
+#define STADIUM_CELL 14.0f
+#define STADIUM_ORIGIN_X (-(STADIUM_TERRAIN_W * STADIUM_CELL * 0.5f))
+#define STADIUM_ORIGIN_Z (-(STADIUM_TERRAIN_H * STADIUM_CELL * 0.5f))
 
 #define VOXWORLD_KILL_Y -180.0f
 #define VOXWORLD_TERRAIN_W 160
@@ -348,17 +357,17 @@ static const Vec2 tanker_spawn_points_blue[] = {
     {190.0f, 130.0f}, {185.0f, -128.0f}, {150.0f, 0.0f}
 };
 static const Vec2 stadium_spawn_points_dm[] = {
-    {-250.0f, -120.0f}, {-240.0f, 120.0f}, {-160.0f, -220.0f}, {-160.0f, 220.0f},
-    {-80.0f, -160.0f}, {-80.0f, 160.0f}, {0.0f, -220.0f}, {0.0f, 220.0f},
-    {80.0f, -160.0f}, {80.0f, 160.0f}, {160.0f, -220.0f}, {160.0f, 220.0f}
+    {-280.0f, -170.0f}, {-280.0f, 170.0f}, {-210.0f, -250.0f}, {-210.0f, 250.0f},
+    {-120.0f, -180.0f}, {-120.0f, 180.0f}, {0.0f, -250.0f}, {0.0f, 250.0f},
+    {120.0f, -180.0f}, {120.0f, 180.0f}, {210.0f, -250.0f}, {210.0f, 250.0f}
 };
 static const Vec2 stadium_spawn_points_red[] = {
-    {-295.0f, -140.0f}, {-285.0f, 140.0f}, {-250.0f, 0.0f},
-    {-210.0f, -220.0f}, {-210.0f, 220.0f}, {-160.0f, 0.0f}
+    {-325.0f, -165.0f}, {-315.0f, 165.0f}, {-280.0f, 0.0f},
+    {-240.0f, -245.0f}, {-240.0f, 245.0f}, {-190.0f, 0.0f}
 };
 static const Vec2 stadium_spawn_points_blue[] = {
-    {295.0f, 140.0f}, {285.0f, -140.0f}, {250.0f, 0.0f},
-    {210.0f, 220.0f}, {210.0f, -220.0f}, {160.0f, 0.0f}
+    {325.0f, 165.0f}, {315.0f, -165.0f}, {280.0f, 0.0f},
+    {240.0f, 245.0f}, {240.0f, -245.0f}, {190.0f, 0.0f}
 };
 static const VoxRouteAnchor dust_route_anchors[] = {
     {DUST_MID_X, DUST_MID_Z, "MID"},
@@ -438,8 +447,72 @@ static inline int phys_is_friendly(const PlayerState *a, const PlayerState *b) {
 
 static TerrainHeightfield g_scene_terrain;
 
+static const Vec2 stadium_rally_loop[] = {
+    {680.0f, -180.0f},
+    {620.0f, 250.0f},
+    {360.0f, 610.0f},
+    {-90.0f, 700.0f},
+    {-430.0f, 560.0f},
+    {-690.0f, 250.0f},
+    {-720.0f, -210.0f},
+    {-500.0f, -600.0f},
+    {-120.0f, -730.0f},
+    {300.0f, -640.0f},
+    {620.0f, -420.0f}
+};
+
 static inline float vox_hash_noise(float x, float z) {
     return sinf(x * 0.00431f + z * 0.00711f) * cosf(z * 0.00377f - x * 0.00623f);
+}
+
+static inline float stadium_height_at(float x, float z) {
+    if (g_scene_terrain.active && g_scene_terrain.heights) {
+        return terrain_sample_height(&g_scene_terrain, x, z);
+    }
+    return 0.0f;
+}
+
+static inline float stadium_point_to_segment_dist(float px, float pz, float ax, float az, float bx, float bz) {
+    float vx = bx - ax;
+    float vz = bz - az;
+    float wx = px - ax;
+    float wz = pz - az;
+    float vv = vx * vx + vz * vz;
+    float t = (vv > 0.0001f) ? ((wx * vx + wz * vz) / vv) : 0.0f;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    float cx = ax + vx * t;
+    float cz = az + vz * t;
+    float dx = px - cx;
+    float dz = pz - cz;
+    return sqrtf(dx * dx + dz * dz);
+}
+
+static inline float stadium_road_distance(float x, float z) {
+    float best = 1e9f;
+    int count = (int)(sizeof(stadium_rally_loop) / sizeof(stadium_rally_loop[0]));
+    for (int i = 0; i < count; i++) {
+        int next = (i + 1) % count;
+        float d = stadium_point_to_segment_dist(
+            x, z,
+            stadium_rally_loop[i].x, stadium_rally_loop[i].y,
+            stadium_rally_loop[next].x, stadium_rally_loop[next].y
+        );
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+static inline float stadium_track_weight_at(float x, float z) {
+    const float road_half_width = 64.0f;
+    const float shoulder_width = 86.0f;
+    float d = stadium_road_distance(x, z);
+    if (d >= shoulder_width) return 0.0f;
+    float t = 1.0f - (d - road_half_width) / (shoulder_width - road_half_width);
+    if (d <= road_half_width) t = 1.0f;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    return t * t * (3.0f - 2.0f * t);
 }
 
 static inline void vox_terrain_stamp(TerrainHeightfield *t, float cx, float cz, float radius, float target_h, float blend) {
@@ -955,6 +1028,7 @@ static inline void voxworld_build_bushes(void) {
 }
 
 static inline void init_poo_poo_island_terrain(void);
+static inline void init_stadium_terrain(void);
 
 static inline void phys_set_scene(int scene_id) {
     phys_scene_id = scene_id;
@@ -985,6 +1059,11 @@ static inline void phys_set_scene(int scene_id) {
         if (!g_voxworld_bushes_ready) voxworld_build_bushes();
         map_geo = map_geo_voxworld;
         map_count = map_geo_voxworld_count;
+        g_scene_terrain.active = (g_scene_terrain.heights != NULL);
+    } else if (scene_id == SCENE_STADIUM) {
+        init_stadium_terrain();
+        map_geo = map_geo_stadium;
+        map_count = (int)(sizeof(map_geo_stadium) / sizeof(Box));
         g_scene_terrain.active = (g_scene_terrain.heights != NULL);
     } else {
         map_geo = map_geo_stadium;
@@ -1121,6 +1200,68 @@ static inline void init_dust_compound_terrain(void) {
     g_scene_terrain_scene_id = SCENE_DUST_COMPOUND;
 }
 
+static inline void init_stadium_terrain(void) {
+    if (g_scene_terrain_scene_id == SCENE_STADIUM && g_scene_terrain.heights) {
+        g_scene_terrain.active = 1;
+        return;
+    }
+    if (g_scene_terrain.heights) terrain_free(&g_scene_terrain);
+    if (!terrain_init(&g_scene_terrain, STADIUM_TERRAIN_W, STADIUM_TERRAIN_H, STADIUM_CELL, STADIUM_ORIGIN_X, STADIUM_ORIGIN_Z)) return;
+    terrain_clear(&g_scene_terrain, 10.0f);
+
+    for (int gz = 0; gz < g_scene_terrain.height; gz++) {
+        for (int gx = 0; gx < g_scene_terrain.width; gx++) {
+            float wx = g_scene_terrain.origin_x + gx * g_scene_terrain.cell_size;
+            float wz = g_scene_terrain.origin_z + gz * g_scene_terrain.cell_size;
+
+            float r = sqrtf(wx * wx + wz * wz);
+            float ring = fminf(1.0f, fmaxf(0.0f, (r - 320.0f) / 600.0f));
+            float h = 7.5f + ring * 20.0f;
+
+            h += sinf(wx * 0.0052f) * 2.3f;
+            h += cosf(wz * 0.0059f) * 2.1f;
+            h += sinf((wx - wz) * 0.0083f) * 1.4f;
+
+            float north_ridge = expf(-((wx + 140.0f) * (wx + 140.0f)) / (2.0f * 360.0f * 360.0f))
+                              * expf(-((wz - 580.0f) * (wz - 580.0f)) / (2.0f * 210.0f * 210.0f));
+            float west_bowl = expf(-((wx + 650.0f) * (wx + 650.0f)) / (2.0f * 260.0f * 260.0f))
+                            * expf(-((wz + 40.0f) * (wz + 40.0f)) / (2.0f * 340.0f * 340.0f));
+            float southeast_berm = expf(-((wx - 550.0f) * (wx - 550.0f)) / (2.0f * 300.0f * 300.0f))
+                                 * expf(-((wz + 520.0f) * (wz + 520.0f)) / (2.0f * 250.0f * 250.0f));
+            h += north_ridge * 22.0f;
+            h -= west_bowl * 12.0f;
+            h += southeast_berm * 14.0f;
+
+            float core_flat = expf(-(wx * wx) / (2.0f * 300.0f * 300.0f)) * expf(-(wz * wz) / (2.0f * 300.0f * 300.0f));
+            h = h * (1.0f - core_flat) + 3.0f * core_flat;
+
+            float road = stadium_track_weight_at(wx, wz);
+            if (road > 0.0f) {
+                float road_profile = 5.5f + 1.4f * sinf(wx * 0.004f + wz * 0.003f);
+                h = h * (1.0f - road * 0.88f) + road_profile * road * 0.88f;
+                float d = stadium_road_distance(wx, wz);
+                float shoulder = 1.0f - fminf(1.0f, fabsf(d - 64.0f) / 28.0f);
+                if (shoulder > 0.0f) h += shoulder * 3.4f;
+            }
+
+            h += vox_hash_noise(wx * 0.7f, wz * 0.7f) * 1.0f;
+            terrain_set_height(&g_scene_terrain, gx, gz, h);
+        }
+    }
+
+    /* Keep the recognizable stadium center flat while raising selected outer sections for rally flow. */
+    vox_terrain_stamp(&g_scene_terrain, 0.0f, 0.0f, 325.0f, 3.0f, 1.0f);
+    vox_terrain_stamp(&g_scene_terrain, -120.0f, 620.0f, 210.0f, 36.0f, 0.8f);
+    vox_terrain_stamp(&g_scene_terrain, 580.0f, -520.0f, 240.0f, 26.0f, 0.7f);
+    vox_terrain_stamp(&g_scene_terrain, -680.0f, 220.0f, 220.0f, 18.0f, 0.7f);
+    vox_terrain_smooth(&g_scene_terrain, 3, 0.44f);
+
+    printf("[STADIUM] terrain initialized %dx%d cell=%.1f origin=(%.1f, %.1f)\n",
+           g_scene_terrain.width, g_scene_terrain.height, g_scene_terrain.cell_size,
+           g_scene_terrain.origin_x, g_scene_terrain.origin_z);
+    g_scene_terrain_scene_id = SCENE_STADIUM;
+}
+
 static inline void init_poo_poo_island_terrain(void) {
     if (g_scene_terrain_scene_id == SCENE_POO_POO_ISLAND && g_scene_terrain.heights) {
         g_scene_terrain.active = 1;
@@ -1209,7 +1350,7 @@ static inline int scene_get_team_base_marker(int scene_id, int team_id,
     if (scene_id == SCENE_STADIUM) {
         *x = (team_id == 0) ? -310.0f : 310.0f;
         *z = 0.0f;
-        *y = 6.5f;
+        *y = stadium_height_at(*x, *z) + 8.0f;
         *sx = 24.0f; *sy = 12.0f; *sz = 24.0f;
         return 1;
     }
@@ -1287,7 +1428,7 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
         int idx = slot % count;
         *out_x = stadium_spawn_points_dm[idx].x;
         *out_z = stadium_spawn_points_dm[idx].y;
-        *out_y = 3.0f;
+        *out_y = stadium_height_at(*out_x, *out_z) + 6.0f;
         return;
     }
     if (slot % 2 == 0) {
@@ -1377,7 +1518,7 @@ static inline void scene_spawn_for_player(PlayerState *p, float *out_x, float *o
         : (p->scene_id == SCENE_OIL_TANKER
             ? 6.0f
             : (p->scene_id == SCENE_STADIUM
-                ? 3.0f
+                ? (stadium_height_at(*out_x, *out_z) + 6.0f)
                 : (p->scene_id == SCENE_POO_POO_ISLAND ? (poo_poo_island_height_at(*out_x, *out_z) + 6.0f)
                                                         : (voxworld_height_at(*out_x, *out_z) + 6.0f))));
 

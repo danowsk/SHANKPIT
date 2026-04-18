@@ -205,6 +205,38 @@ static void retro_eval_brush_lighting_rgb(const RetroLightingState *lighting, fl
     retro_lighting_eval_surface_rgb(lighting, nx, ny, nz, ambient_floor, out_r, out_g, out_b);
 }
 
+static void retro_eval_terrain_vertex_rgb(const RetroLightingState *lighting,
+                                          float h, float min_h, float inv_h_range,
+                                          float nx, float ny, float nz,
+                                          float *out_r, float *out_g, float *out_b) {
+    float h_norm = clamp01f((h - min_h) * inv_h_range);
+
+    /* Keep terrain material identity from height/slope rules. */
+    float grass_mix = smoothstepf(0.62f, 0.92f, h_norm) * (0.55f + 0.45f * ny);
+    float dark_mix = smoothstepf(0.0f, 0.35f, 1.0f - h_norm) * (0.55f + 0.45f * (1.0f - ny));
+    float base_r = 0.58f, base_g = 0.49f, base_b = 0.37f;
+    float material_r = lerpf(base_r, 0.65f, grass_mix);
+    float material_g = lerpf(base_g, 0.62f, grass_mix);
+    float material_b = lerpf(base_b, 0.36f, grass_mix);
+    material_r = lerpf(material_r, 0.35f, dark_mix);
+    material_g = lerpf(material_g, 0.33f, dark_mix);
+    material_b = lerpf(material_b, 0.30f, dark_mix);
+
+    /* Terrain lighting truth comes from shared world-light rig + sampled normal. */
+    float light_r = 1.0f, light_g = 1.0f, light_b = 1.0f;
+    retro_eval_brush_lighting_rgb(lighting, nx, ny, nz, 0.62f, &light_r, &light_g, &light_b);
+
+    /* Cheap AO is secondary support only (non-directional, restrained range). */
+    float slope_ao = smoothstepf(0.40f, 0.96f, 1.0f - ny) * 0.06f;
+    float valley_ao = smoothstepf(0.20f, 0.0f, h_norm) * 0.05f;
+    float ao = 1.0f - (slope_ao + valley_ao);
+    if (ao < 0.88f) ao = 0.88f;
+
+    if (out_r) *out_r = material_r * light_r * ao;
+    if (out_g) *out_g = material_g * light_g * ao;
+    if (out_b) *out_b = material_b * light_b * ao;
+}
+
 #define Z_FAR 8000.0f
 
 static void draw_box(float w, float h, float d);
@@ -1066,23 +1098,8 @@ void draw_terrain(const RetroLightingState *lighting) {
                 if (shade0 > 0.84f) shade0 = 0.84f;
                 glColor3f(shade0 * 0.92f, shade0 * 0.70f, shade0 * 0.48f);
             } else {
-                float h_norm0 = clamp01f((h0 - min_h) * inv_h_range);
-                float grass_mix0 = smoothstepf(0.62f, 0.92f, h_norm0) * (0.55f + 0.45f * ny0);
-                float dark_mix0 = smoothstepf(0.0f, 0.35f, 1.0f - h_norm0) * (0.55f + 0.45f * (1.0f - ny0));
-                float base_r0 = 0.58f, base_g0 = 0.49f, base_b0 = 0.37f;
-                float r0 = lerpf(base_r0, 0.65f, grass_mix0);
-                float g0 = lerpf(base_g0, 0.62f, grass_mix0);
-                float b0 = lerpf(base_b0, 0.36f, grass_mix0);
-                r0 = lerpf(r0, 0.35f, dark_mix0);
-                g0 = lerpf(g0, 0.33f, dark_mix0);
-                b0 = lerpf(b0, 0.30f, dark_mix0);
-                float sun0_r = 1.0f, sun0_g = 1.0f, sun0_b = 1.0f;
-                retro_eval_brush_lighting_rgb(lighting, nx0, ny0, nz0, 0.66f, &sun0_r, &sun0_g, &sun0_b);
-                float ambient_occ0 = smoothstepf(0.25f, 0.95f, ny0) * 0.08f + smoothstepf(0.16f, 0.0f, h_norm0) * 0.10f;
-                float lit0_occ = 0.98f - ambient_occ0;
-                r0 *= sun0_r * lit0_occ;
-                g0 *= sun0_g * lit0_occ * 0.98f;
-                b0 *= sun0_b * lit0_occ * 0.92f;
+                float r0 = 1.0f, g0 = 1.0f, b0 = 1.0f;
+                retro_eval_terrain_vertex_rgb(lighting, h0, min_h, inv_h_range, nx0, ny0, nz0, &r0, &g0, &b0);
                 float dx0 = x - rp->x;
                 float dz0 = z0 - rp->z;
                 retro_apply_fog_rgb(&r0, &g0, &b0, lighting, sqrtf(dx0 * dx0 + dz0 * dz0));
@@ -1097,23 +1114,8 @@ void draw_terrain(const RetroLightingState *lighting) {
                 if (shade1 > 0.84f) shade1 = 0.84f;
                 glColor3f(shade1 * 0.92f, shade1 * 0.70f, shade1 * 0.48f);
             } else {
-                float h_norm1 = clamp01f((h1 - min_h) * inv_h_range);
-                float grass_mix1 = smoothstepf(0.62f, 0.92f, h_norm1) * (0.55f + 0.45f * ny1);
-                float dark_mix1 = smoothstepf(0.0f, 0.35f, 1.0f - h_norm1) * (0.55f + 0.45f * (1.0f - ny1));
-                float base_r1 = 0.58f, base_g1 = 0.49f, base_b1 = 0.37f;
-                float r1 = lerpf(base_r1, 0.65f, grass_mix1);
-                float g1 = lerpf(base_g1, 0.62f, grass_mix1);
-                float b1 = lerpf(base_b1, 0.36f, grass_mix1);
-                r1 = lerpf(r1, 0.35f, dark_mix1);
-                g1 = lerpf(g1, 0.33f, dark_mix1);
-                b1 = lerpf(b1, 0.30f, dark_mix1);
-                float sun1_r = 1.0f, sun1_g = 1.0f, sun1_b = 1.0f;
-                retro_eval_brush_lighting_rgb(lighting, nx1, ny1, nz1, 0.66f, &sun1_r, &sun1_g, &sun1_b);
-                float ambient_occ1 = smoothstepf(0.25f, 0.95f, ny1) * 0.08f + smoothstepf(0.16f, 0.0f, h_norm1) * 0.10f;
-                float lit1_occ = 0.98f - ambient_occ1;
-                r1 *= sun1_r * lit1_occ;
-                g1 *= sun1_g * lit1_occ * 0.98f;
-                b1 *= sun1_b * lit1_occ * 0.92f;
+                float r1 = 1.0f, g1 = 1.0f, b1 = 1.0f;
+                retro_eval_terrain_vertex_rgb(lighting, h1, min_h, inv_h_range, nx1, ny1, nz1, &r1, &g1, &b1);
                 float dx1 = x - rp->x;
                 float dz1 = z1 - rp->z;
                 retro_apply_fog_rgb(&r1, &g1, &b1, lighting, sqrtf(dx1 * dx1 + dz1 * dz1));

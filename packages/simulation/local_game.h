@@ -19,10 +19,12 @@ static int tdmb_last_kills[MAX_CLIENTS];
 #define TDMB_SCORE_LIMIT 25
 #define CTFB_SCORE_LIMIT 3
 #define CTFB_DROPPED_RETURN_MS 12000
+#define CTFB_RESPAWN_DELAY_MS 3000
 #define CTFB_USE_RADIUS 28.0f
 #define CTFB_CAPTURE_RADIUS 40.0f
 #define CTFB_CARRY_MELEE_DAMAGE 80
 #define CTFB_CARRY_MELEE_COOLDOWN_MS 450
+#define CTFB_RESPAWN_DEBUG_LOG 0
 
 static int mode_uses_team_scores(int mode) {
     return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB;
@@ -289,6 +291,30 @@ static void ctf_drop_flag_from_carrier(int player_id, unsigned int now_ms) {
     p->carried_flag_team_id = -1;
 }
 
+static void ctf_schedule_respawn(PlayerState *victim, unsigned int now_ms) {
+    if (!victim) return;
+#if CTFB_RESPAWN_DEBUG_LOG
+    int dropped_team = victim->carried_flag_team_id;
+#endif
+    victim->state = STATE_DEAD;
+    victim->respawn_time = now_ms + CTFB_RESPAWN_DELAY_MS;
+    victim->carried_flag_team_id = -1;
+    victim->in_shoot = 0;
+    victim->in_reload = 0;
+    victim->in_use = 0;
+    victim->in_jump = 0;
+    victim->in_ability = 0;
+    victim->is_shooting = 0;
+    victim->attack_cooldown = 0;
+    victim->reload_timer = 0;
+    victim->stunned_until_ms = 0;
+    victim->stun_immune_until_ms = 0;
+#if CTFB_RESPAWN_DEBUG_LOG
+    printf("[CTFB] carrier %d died, dropped flag team %d, respawn in %d ms\n",
+           victim->id, dropped_team, CTFB_RESPAWN_DELAY_MS);
+#endif
+}
+
 static void build_ctf_bot_observation(int bot_id, CtfBotObservation *out) {
     memset(out, 0, sizeof(*out));
     PlayerState *p = &local_state.players[bot_id];
@@ -434,7 +460,7 @@ static void ctf_try_carry_melee(PlayerState *attacker, unsigned int now_ms) {
             ctf_drop_flag_from_carrier(t->id, now_ms);
             attacker->kills++;
             t->deaths++;
-            phys_respawn(t, now_ms);
+            ctf_schedule_respawn(t, now_ms);
         }
     }
 }
@@ -594,16 +620,18 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
     target->health -= damage;
     if (target->health <= 0) {
         if (local_state.game_mode == MODE_CTFB) {
+            int carried_flag_team_id = target->carried_flag_team_id;
             ctf_drop_flag_from_carrier(target->id, now_ms);
             if (owner && local_state.ctf.flags[target->team_id].carrier_id == target->id) ctf_add_reward(owner->id, 25.0f, "kill_enemy_carrier", NULL);
-            if (target->carried_flag_team_id >= 0) ctf_add_reward(target->id, -20.0f, "died_with_flag", NULL);
+            if (carried_flag_team_id >= 0) ctf_add_reward(target->id, -20.0f, "died_with_flag", NULL);
         }
         if (owner) {
             owner->kills++;
             owner->accumulated_reward += 500.0f;
         }
         target->deaths++;
-        phys_respawn(target, now_ms);
+        if (local_state.game_mode == MODE_CTFB) ctf_schedule_respawn(target, now_ms);
+        else phys_respawn(target, now_ms);
     }
 
     if (now_ms >= target->stun_immune_until_ms) {
@@ -735,6 +763,28 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     for(int i=0; i<MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
         if (!p->active) continue;
+        if (local_state.game_mode == MODE_CTFB && p->state == STATE_DEAD) {
+            if (p->respawn_time != 0 && cmd_time >= p->respawn_time) {
+                phys_respawn(p, cmd_time);
+                p->respawn_time = 0;
+                p->carried_flag_team_id = -1;
+                p->in_shoot = 0;
+                p->in_reload = 0;
+                p->in_use = 0;
+                p->in_jump = 0;
+                p->in_ability = 0;
+                p->is_shooting = 0;
+                p->attack_cooldown = 0;
+                p->reload_timer = 0;
+                p->stunned_until_ms = 0;
+                p->stun_immune_until_ms = 0;
+#if CTFB_RESPAWN_DEBUG_LOG
+                printf("[CTFB] respawn player %d at %u\n", p->id, cmd_time);
+#endif
+            } else {
+                continue;
+            }
+        }
         if (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER) {
             continue;
         }

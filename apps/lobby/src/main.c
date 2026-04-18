@@ -100,6 +100,7 @@ unsigned int travel_overlay_until_ms = 0;
 float cam_yaw = 0.0f;
 float cam_pitch = 0.0f;
 float current_fov = 75.0f;
+static float death_cam_blend = 0.0f;
 
 typedef struct VehicleStyle {
     float matte;
@@ -176,6 +177,15 @@ static float lerpf(float a, float b, float t) {
 
 static float smoothstepf(float edge0, float edge1, float x) {
     float t = clamp01f((x - edge0) / (edge1 - edge0));
+    return t * t * (3.0f - 2.0f * t);
+}
+
+static float death_pose_progress(const PlayerState *p, unsigned int now_ms) {
+    if (!p || p->state != STATE_DEAD || p->death_time_ms == 0) return 0.0f;
+    unsigned int elapsed = (now_ms > p->death_time_ms) ? (now_ms - p->death_time_ms) : 0;
+    float t = (float)elapsed / 360.0f;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
     return t * t * (3.0f - 2.0f * t);
 }
 
@@ -2430,6 +2440,38 @@ void draw_player_3rd(PlayerState *p) {
     glTranslatef(p->x, p->y + 0.2f, p->z);
     // Simulation yaw assumes forward is -Z, but this model is authored facing +Z.
     glRotatef(180.0f - draw_yaw, 0, 1, 0);
+    if (p->state == STATE_DEAD) {
+        float nx = p->death_dir_x;
+        float nz = p->death_dir_z;
+        float nlen = sqrtf(nx * nx + nz * nz);
+        if (nlen < 0.0001f) {
+            nx = 0.0f;
+            nz = -1.0f;
+            nlen = 1.0f;
+        }
+        nx /= nlen;
+        nz /= nlen;
+        float yaw_rad = -draw_yaw * 0.0174533f;
+        float fwd_x = sinf(yaw_rad), fwd_z = -cosf(yaw_rad);
+        float right_x = cosf(yaw_rad), right_z = sinf(yaw_rad);
+        float local_fwd = nx * fwd_x + nz * fwd_z;
+        float local_right = nx * right_x + nz * right_z;
+        float axis_x = -local_fwd;
+        float axis_z = local_right;
+        float axis_len = sqrtf(axis_x * axis_x + axis_z * axis_z);
+        if (axis_len < 0.0001f) {
+            axis_x = 1.0f;
+            axis_z = 0.0f;
+        } else {
+            axis_x /= axis_len;
+            axis_z /= axis_len;
+        }
+        float fall = death_pose_progress(p, SDL_GetTicks());
+        glTranslatef(0.0f, 1.1f, 0.0f);
+        glRotatef(88.0f * fall, axis_x, 0.0f, axis_z);
+        glRotatef(8.0f * fall * local_right, 0.0f, 0.0f, 1.0f);
+        glTranslatef(0.0f, -1.1f, 0.0f);
+    }
     if (p->in_vehicle) {
         draw_buggy_model(p);
     } else {
@@ -3200,7 +3242,14 @@ void draw_scene(PlayerState *render_p) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); glLoadIdentity();
     local_state.scene_id = render_p->scene_id;
     phys_set_scene(render_p->scene_id);
-    float cam_y = (render_p->crouching ? 2.5f : EYE_HEIGHT);
+    unsigned int now_ms = SDL_GetTicks();
+    int local_dead = (render_p->state == STATE_DEAD);
+    float death_target = local_dead ? 1.0f : 0.0f;
+    death_cam_blend += (death_target - death_cam_blend) * 0.18f;
+    if (death_cam_blend < 0.001f) death_cam_blend = 0.0f;
+    if (death_cam_blend > 0.999f) death_cam_blend = 1.0f;
+    float base_cam_y = (render_p->crouching ? 2.5f : EYE_HEIGHT);
+    float cam_y = lerpf(base_cam_y, 4.5f, death_cam_blend);
     float cx = 0.0f, cz = 0.0f;
     static float heli_cam_x = 0.0f, heli_cam_y = 0.0f, heli_cam_z = 0.0f;
     if (render_p->in_vehicle && render_p->vehicle_type == VEH_HELICOPTER) {
@@ -3227,7 +3276,7 @@ void draw_scene(PlayerState *render_p) {
             glTranslatef(-heli_cam_x, -heli_cam_y, -heli_cam_z);
         }
     } else {
-        float cam_z_off = render_p->in_vehicle ? 10.0f : 0.0f;
+        float cam_z_off = render_p->in_vehicle ? 10.0f : lerpf(0.0f, 8.5f, death_cam_blend);
         float rad = -cam_yaw * 0.01745f;
         cx = sinf(rad) * cam_z_off;
         cz = cosf(rad) * cam_z_off;
@@ -3243,7 +3292,8 @@ void draw_scene(PlayerState *render_p) {
     }
 
     if (!(render_p->in_vehicle && render_p->vehicle_type == VEH_HELICOPTER)) {
-        glRotatef(-cam_pitch, 1, 0, 0); glRotatef(-cam_yaw, 0, 1, 0);
+        float draw_cam_pitch = lerpf(cam_pitch, -14.0f, death_cam_blend);
+        glRotatef(-draw_cam_pitch, 1, 0, 0); glRotatef(-cam_yaw, 0, 1, 0);
         glTranslatef(-((render_p->x + reconcile_x) - cx), -((render_p->y + reconcile_y) + cam_y), -((render_p->z + reconcile_z) - cz));
     }
 
@@ -3258,11 +3308,11 @@ void draw_scene(PlayerState *render_p) {
         }
         /* draw_sky call here keeps sky rotation-locked to the camera, but camera-centered
            in world space so the background feels infinitely distant (no translation parallax). */
-        retro_sky_draw(&g_retro_sky, sky_cam_x, sky_cam_y, sky_cam_z, SDL_GetTicks() * 0.001f);
+        retro_sky_draw(&g_retro_sky, sky_cam_x, sky_cam_y, sky_cam_z, now_ms * 0.001f);
     }
 
     RetroLightingState world_lighting;
-    retro_lighting_eval(SDL_GetTicks() * 0.001f, g_world_lighting_preset, &world_lighting);
+    retro_lighting_eval(now_ms * 0.001f, g_world_lighting_preset, &world_lighting);
     
     draw_grid(); 
     update_and_draw_trails();
@@ -3969,6 +4019,15 @@ void net_process_snapshot(char *buffer, int len) {
         p->hit_feedback = np->hit_feedback;
         p->kills = (int)np->kills;
         p->deaths = (int)np->deaths;
+        p->death_duration_ms = np->death_duration_ms;
+        p->death_dir_x = np->death_dir_x;
+        p->death_dir_z = np->death_dir_z;
+        if (np->state == STATE_DEAD && np->death_elapsed_ms > 0) {
+            unsigned int now_local_ms = SDL_GetTicks();
+            p->death_time_ms = (now_local_ms >= np->death_elapsed_ms) ? (now_local_ms - np->death_elapsed_ms) : 0;
+        } else if (np->state != STATE_DEAD) {
+            p->death_time_ms = 0;
+        }
         p->ammo[p->current_weapon] = np->ammo;
 
         if (now_shooting && !was_shooting) p->recoil_anim = 1.0f;

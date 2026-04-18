@@ -37,6 +37,36 @@
 #include "../../../packages/simulation/local_game.h"
 #include "../../../packages/render/proc_tex.h"
 
+#ifndef NET_VERBOSE_LOG
+#define NET_VERBOSE_LOG 1
+#endif
+#ifndef NET_LOG_HANDSHAKE
+#define NET_LOG_HANDSHAKE 1
+#endif
+#ifndef NET_LOG_SNAPSHOT
+#define NET_LOG_SNAPSHOT 1
+#endif
+#ifndef NET_LOG_USERCMD
+#define NET_LOG_USERCMD 1
+#endif
+#ifndef NET_LOG_TIMEOUT
+#define NET_LOG_TIMEOUT 1
+#endif
+
+#if NET_VERBOSE_LOG
+#define NET_CLIENT_LOG(fmt, ...) printf("[NET_CLIENT] " fmt "\n", ##__VA_ARGS__)
+#define NET_SERVER_LOG(fmt, ...) printf("[NET_SERVER] " fmt "\n", ##__VA_ARGS__)
+#define NET_WARN_LOG(fmt, ...)   printf("[NET_WARN] " fmt "\n", ##__VA_ARGS__)
+#define NET_ERR_LOG(fmt, ...)    printf("[NET_ERR] " fmt "\n", ##__VA_ARGS__)
+#define NET_SUMMARY_LOG(fmt, ...) printf("[NET_SUMMARY] " fmt "\n", ##__VA_ARGS__)
+#else
+#define NET_CLIENT_LOG(fmt, ...)
+#define NET_SERVER_LOG(fmt, ...)
+#define NET_WARN_LOG(fmt, ...)
+#define NET_ERR_LOG(fmt, ...)
+#define NET_SUMMARY_LOG(fmt, ...)
+#endif
+
 #define STATE_LOBBY 0
 #define STATE_GAME_NET 1
 #define STATE_GAME_LOCAL 2
@@ -192,6 +222,76 @@ static unsigned char net_last_life_state = STATE_DEAD;
 static unsigned char net_last_scene_id = 255;
 static unsigned char net_prev_is_shooting[MAX_CLIENTS];
 static int last_applied_scene_id = -999;
+
+typedef struct {
+    unsigned int connect_start_ms;
+    unsigned int welcome_ms;
+    int connect_started;
+    int got_welcome;
+    int got_any_snapshot;
+    int got_local_snapshot;
+    int control_unlocked_logged;
+    int first_cmd_sent_logged;
+    unsigned int tx_cmds;
+    unsigned int snapshots_rx;
+    int latest_snapshot_len;
+    int latest_entity_count;
+    unsigned int last_usercmd_summary_ms;
+    unsigned int last_snapshot_summary_ms;
+    unsigned int last_welcome_timeout_log_ms;
+    unsigned int last_snapshot_sync_timeout_log_ms;
+    unsigned int last_blocked_input_log_ms;
+    unsigned int last_dup_welcome_log_ms;
+    unsigned int last_invalid_packet_log_ms;
+} NetClientDiag;
+
+static NetClientDiag net_diag;
+
+static int net_should_log_every(unsigned int *last_ms, unsigned int interval_ms, unsigned int now_ms) {
+    if (now_ms - *last_ms < interval_ms) return 0;
+    *last_ms = now_ms;
+    return 1;
+}
+
+static void net_format_addr(const struct sockaddr_in *addr, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    out[0] = '\0';
+    if (!addr) return;
+    char ip_buf[INET_ADDRSTRLEN] = {0};
+    if (!inet_ntop(AF_INET, &addr->sin_addr, ip_buf, sizeof(ip_buf))) {
+        snprintf(ip_buf, sizeof(ip_buf), "?.?.?.?");
+    }
+    snprintf(out, out_sz, "%s:%d", ip_buf, ntohs(addr->sin_port));
+}
+
+static void net_emit_client_summaries(unsigned int now_ms) {
+    if (net_should_log_every(&net_diag.last_usercmd_summary_ms, 1000, now_ms)) {
+        NET_SUMMARY_LOG("USERCMD tx_cmds=%u last_seq=%u got_welcome=%d got_any_snapshot=%d got_local_snapshot=%d my_client_id=%d local_pid=%d",
+                        net_diag.tx_cmds, net_latest_seq_sent, net_diag.got_welcome, net_diag.got_any_snapshot,
+                        net_diag.got_local_snapshot, my_client_id, net_local_pid);
+    }
+    if (net_should_log_every(&net_diag.last_snapshot_summary_ms, 1000, now_ms)) {
+        NET_SUMMARY_LOG("SNAPSHOT snapshots_rx=%u latest_len=%d latest_entity_count=%d local_seen=%d scene_id=%d last_reconciled_ack=%u",
+                        net_diag.snapshots_rx, net_diag.latest_snapshot_len, net_diag.latest_entity_count,
+                        net_diag.got_local_snapshot, local_state.scene_id, net_last_reconciled_ack);
+    }
+}
+
+static void net_check_diag_timeouts(unsigned int now_ms) {
+    if (!net_diag.connect_started) return;
+#if NET_LOG_TIMEOUT
+    if (!net_diag.got_welcome && now_ms - net_diag.connect_start_ms >= 1500 &&
+        net_should_log_every(&net_diag.last_welcome_timeout_log_ms, 1000, now_ms)) {
+        NET_WARN_LOG("WELCOME_TIMEOUT host=%s port=%d dt_ms=%u", SERVER_HOST, SERVER_PORT, now_ms - net_diag.connect_start_ms);
+    }
+    if (net_diag.got_welcome && !net_diag.got_local_snapshot && now_ms - net_diag.welcome_ms >= 1500 &&
+        net_should_log_every(&net_diag.last_snapshot_sync_timeout_log_ms, 1000, now_ms)) {
+        NET_WARN_LOG("SNAPSHOT_SYNC_TIMEOUT client_id=%d dt_ms=%u", my_client_id, now_ms - net_diag.welcome_ms);
+    }
+#else
+    (void)now_ms;
+#endif
+}
 
 #ifndef NET_PARITY_DEBUG
 #define NET_PARITY_DEBUG 0
@@ -366,6 +466,7 @@ static void reset_client_render_state_for_net() {
     net_last_life_state = STATE_DEAD;
     net_last_scene_id = 255;
     memset(net_prev_is_shooting, 0, sizeof(net_prev_is_shooting));
+    memset(&net_diag, 0, sizeof(net_diag));
     travel_overlay_until_ms = 0;
     local_state.pending_scene = -1;
     local_state.scene_id = SCENE_GARAGE_OSAKA;
@@ -3276,6 +3377,11 @@ void net_init() {
     WSADATA wsa; WSAStartup(MAKEWORD(2,2), &wsa);
     #endif
     sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        NET_ERR_LOG("SOCKET_CREATE_FAILED host=%s port=%d", SERVER_HOST, SERVER_PORT);
+        return;
+    }
+    NET_CLIENT_LOG("SOCKET_CREATE_OK fd=%d", sock);
     #ifdef _WIN32
     u_long mode = 1;
     ioctlsocket(sock, FIONBIO, &mode);
@@ -3304,22 +3410,44 @@ void net_shutdown() {
 
 void net_connect() {
     if (sock < 0) net_init();
+    if (sock < 0) return;
     local_state.game_mode = net_requested_mode;
+    NET_CLIENT_LOG("CONNECT_BEGIN host=%s port=%d mode=%d", SERVER_HOST, SERVER_PORT, net_requested_mode);
     struct hostent *he = gethostbyname(SERVER_HOST);
     if (he) {
         server_addr.sin_family = AF_INET; 
         server_addr.sin_port = htons(SERVER_PORT); 
         memcpy(&server_addr.sin_addr, he->h_addr_list[0], he->h_length);
+        char ip_buf[INET_ADDRSTRLEN] = {0};
+        inet_ntop(AF_INET, &server_addr.sin_addr, ip_buf, sizeof(ip_buf));
+        NET_CLIENT_LOG("DNS_OK host=%s ip=%s", SERVER_HOST, ip_buf);
         char buffer[128];
         NetHeader *h = (NetHeader*)buffer;
         memset(buffer, 0, sizeof(buffer));
         h->type = PACKET_CONNECT;
         h->scene_id = 0;
         buffer[sizeof(NetHeader)] = (unsigned char)(net_requested_mode & 0xFF);
-        sendto(sock, buffer, sizeof(NetHeader) + 1, 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
-        printf("Connected to %s...\n", SERVER_HOST);
+        int packet_len = (int)sizeof(NetHeader) + 1;
+        int sent = sendto(sock, buffer, packet_len, 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
+        if (sent < 0) {
+            NET_ERR_LOG("CONNECT_SEND_FAILED host=%s ip=%s port=%d mode=%d", SERVER_HOST, ip_buf, SERVER_PORT, net_requested_mode);
+            return;
+        }
+        NET_CLIENT_LOG("CONNECT_BYTES b0=%u b1=%u b2=%u b3=%u b4=%u b5=%u b6=%u b7=%u len=%d",
+                       (unsigned char)buffer[0], (unsigned char)buffer[1], (unsigned char)buffer[2], (unsigned char)buffer[3],
+                       (unsigned char)buffer[4], (unsigned char)buffer[5], (unsigned char)buffer[6], (unsigned char)buffer[7], sent);
+        net_diag.connect_started = 1;
+        net_diag.connect_start_ms = SDL_GetTicks();
+        net_diag.got_welcome = 0;
+        net_diag.got_any_snapshot = 0;
+        net_diag.got_local_snapshot = 0;
+        net_diag.control_unlocked_logged = 0;
+        net_diag.first_cmd_sent_logged = 0;
+        net_diag.tx_cmds = 0;
+        net_diag.snapshots_rx = 0;
+        NET_CLIENT_LOG("CONNECT_SENT host=%s ip=%s port=%d mode=%d", SERVER_HOST, ip_buf, SERVER_PORT, net_requested_mode);
     } else {
-        printf("Failed to resolve %s\n", SERVER_HOST);
+        NET_ERR_LOG("DNS_FAIL host=%s port=%d", SERVER_HOST, SERVER_PORT);
     }
 }
 
@@ -3579,6 +3707,11 @@ void net_send_cmd(UserCmd cmd) {
     }
 
     sendto(sock, packet_data, cursor, 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
+    net_diag.tx_cmds++;
+    if (!net_diag.first_cmd_sent_logged) {
+        net_diag.first_cmd_sent_logged = 1;
+        NET_CLIENT_LOG("USERCMD_TX_FIRST seq=%u payload_bytes=%d history_count=%d", cmd.sequence, cursor, net_cmd_history_count);
+    }
 }
 
 void net_process_snapshot(char *buffer, int len) {
@@ -3693,6 +3826,13 @@ void net_process_snapshot(char *buffer, int len) {
                     : "spawn_transition";
                 client_apply_spawn_transition_sync(p, np, reason);
             }
+            if (first_local_snapshot_sync) {
+                net_diag.got_local_snapshot = 1;
+                unsigned int now_ms = SDL_GetTicks();
+                unsigned int dt_ms = net_diag.connect_started ? (now_ms - net_diag.connect_start_ms) : 0;
+                NET_CLIENT_LOG("LOCAL_SNAPSHOT_SYNC client_id=%d scene_id=%d ack=%u last_seq=%u dt_ms=%u",
+                               my_client_id, (int)np->scene_id, local_ack_seq, net_latest_seq_sent, dt_ms);
+            }
         } else {
             RemoteInterp *ri = &rinterp[id];
             if (!ri->has_a) {
@@ -3803,15 +3943,39 @@ void net_tick() {
         }
 
         if (len < (int)sizeof(NetHeader)) {
+            unsigned int now_ms = SDL_GetTicks();
+            if (net_should_log_every(&net_diag.last_invalid_packet_log_ms, 1000, now_ms)) {
+                NET_WARN_LOG("SHORT_PACKET len=%d min=%zu", len, sizeof(NetHeader));
+            }
             continue;
         }
 
         NetHeader *head = (NetHeader*)buffer;
         if (head->type == PACKET_SNAPSHOT) {
+            unsigned int now_ms = SDL_GetTicks();
+            if (!net_diag.got_any_snapshot) {
+                net_diag.got_any_snapshot = 1;
+                unsigned int dt_ms = net_diag.connect_started ? (now_ms - net_diag.connect_start_ms) : 0;
+                NET_CLIENT_LOG("SNAPSHOT_RX_FIRST len=%d dt_ms=%u", len, dt_ms);
+            }
+            net_diag.snapshots_rx++;
+            net_diag.latest_snapshot_len = len;
+            net_diag.latest_entity_count = (int)head->entity_count;
             net_process_snapshot(buffer, len);
-        }
-        if (head->type == PACKET_WELCOME) {
+        } else if (head->type == PACKET_WELCOME) {
             my_client_id = head->client_id;
+            unsigned int now_ms = SDL_GetTicks();
+            char sender_buf[64];
+            net_format_addr(&sender, sender_buf, sizeof(sender_buf));
+            if (!net_diag.got_welcome) {
+                net_diag.got_welcome = 1;
+                net_diag.welcome_ms = now_ms;
+                unsigned int dt_ms = net_diag.connect_started ? (now_ms - net_diag.connect_start_ms) : 0;
+                NET_CLIENT_LOG("WELCOME_RX_FIRST client_id=%d scene_id=%d from=%s dt_ms=%u",
+                               my_client_id, head->scene_id, sender_buf, dt_ms);
+            } else if (net_should_log_every(&net_diag.last_dup_welcome_log_ms, 1000, now_ms)) {
+                NET_WARN_LOG("WELCOME_DUPLICATE client_id=%d scene_id=%d from=%s", my_client_id, head->scene_id, sender_buf);
+            }
 
             // Server-assigned identity becomes our local simulation/render identity
             net_local_pid = my_client_id;
@@ -3839,11 +4003,16 @@ void net_tick() {
                 net_local_pid = -1;
             }
 
-            printf("[NET] WELCOME my_client_id=%d net_local_pid=%d\n", my_client_id, net_local_pid);
+            NET_CLIENT_LOG("WELCOME_APPLIED my_client_id=%d net_local_pid=%d", my_client_id, net_local_pid);
             if (len >= (int)sizeof(NetHeader) + 1) {
                 local_state.game_mode = (unsigned char)buffer[sizeof(NetHeader)];
             }
-            printf("✅ JOINED SERVER AS CLIENT ID: %d\n", my_client_id);
+            printf("✅ JOINED SERVER AS CLIENT ID: %d (welcome received)\n", my_client_id);
+        } else {
+            unsigned int now_ms = SDL_GetTicks();
+            if (net_should_log_every(&net_diag.last_invalid_packet_log_ms, 1000, now_ms)) {
+                NET_WARN_LOG("UNKNOWN_PACKET type=%d len=%d", head->type, len);
+            }
         }
     }
 }
@@ -4120,18 +4289,32 @@ int main(int argc, char* argv[]) {
             if (app_state == STATE_GAME_NET) {
                 net_local_pid = (my_client_id > 0 && my_client_id < MAX_CLIENTS) ? my_client_id : -1;
                 net_tick();
+                unsigned int now_ms = SDL_GetTicks();
+                net_check_diag_timeouts(now_ms);
                 if (net_local_pid > 0 && net_have_initial_local_snapshot_sync) {
-                    unsigned int now_ms = SDL_GetTicks();
                     if (now_ms - net_last_cmd_send_ms >= CLIENT_USERCMD_INTERVAL_MS) {
+                        if (!net_diag.control_unlocked_logged) {
+                            net_diag.control_unlocked_logged = 1;
+                            NET_CLIENT_LOG("CONTROL_UNLOCKED client_id=%d local_pid=%d dt_ms=%u",
+                                           my_client_id, net_local_pid,
+                                           net_diag.connect_started ? (now_ms - net_diag.connect_start_ms) : 0);
+                        }
                         UserCmd cmd = client_create_cmd(fwd, str, cam_yaw, cam_pitch, shoot, jump, crouch, reload, use, ability, wpn_req);
                         client_apply_cmd_movement(&local_state.players[net_local_pid], &cmd, now_ms);
                         net_send_cmd(cmd);
                         net_last_cmd_send_ms = now_ms;
                         if (net_spawn_protect_cmds > 0) net_spawn_protect_cmds--;
                     }
+                } else if (net_should_log_every(&net_diag.last_blocked_input_log_ms, 1000, now_ms)) {
+                    if (!(net_local_pid > 0)) {
+                        NET_WARN_LOG("INPUT_BLOCKED reason=invalid_client_id my_client_id=%d local_pid=%d", my_client_id, net_local_pid);
+                    } else if (!net_have_initial_local_snapshot_sync) {
+                        NET_WARN_LOG("INPUT_BLOCKED reason=awaiting_local_snapshot_sync client_id=%d", my_client_id);
+                    }
                 }
-                client_decay_pending_correction(SDL_GetTicks());
-                net_apply_remote_interpolation(SDL_GetTicks());
+                client_decay_pending_correction(now_ms);
+                net_apply_remote_interpolation(now_ms);
+                net_emit_client_summaries(now_ms);
             } else {
                 local_state.players[0].in_use = use;
                 if (use && local_state.players[0].vehicle_cooldown == 0 && local_state.transition_timer == 0) {

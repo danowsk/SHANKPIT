@@ -25,6 +25,36 @@
 #include "server_mode.h"
 #include "server_state.h"
 
+#ifndef NET_VERBOSE_LOG
+#define NET_VERBOSE_LOG 1
+#endif
+#ifndef NET_LOG_HANDSHAKE
+#define NET_LOG_HANDSHAKE 1
+#endif
+#ifndef NET_LOG_SNAPSHOT
+#define NET_LOG_SNAPSHOT 1
+#endif
+#ifndef NET_LOG_USERCMD
+#define NET_LOG_USERCMD 1
+#endif
+#ifndef NET_LOG_TIMEOUT
+#define NET_LOG_TIMEOUT 1
+#endif
+
+#if NET_VERBOSE_LOG
+#define NET_CLIENT_LOG(fmt, ...) printf("[NET_CLIENT] " fmt "\n", ##__VA_ARGS__)
+#define NET_SERVER_LOG(fmt, ...) printf("[NET_SERVER] " fmt "\n", ##__VA_ARGS__)
+#define NET_WARN_LOG(fmt, ...)   printf("[NET_WARN] " fmt "\n", ##__VA_ARGS__)
+#define NET_ERR_LOG(fmt, ...)    printf("[NET_ERR] " fmt "\n", ##__VA_ARGS__)
+#define NET_SUMMARY_LOG(fmt, ...) printf("[NET_SUMMARY] " fmt "\n", ##__VA_ARGS__)
+#else
+#define NET_CLIENT_LOG(fmt, ...)
+#define NET_SERVER_LOG(fmt, ...)
+#define NET_WARN_LOG(fmt, ...)
+#define NET_ERR_LOG(fmt, ...)
+#define NET_SUMMARY_LOG(fmt, ...)
+#endif
+
 int sock = -1;
 struct sockaddr_in bind_addr;
 unsigned int client_last_seq[MAX_CLIENTS];
@@ -55,6 +85,24 @@ typedef struct {
 static RecorderState recorder = {0};
 #define HELI_NET_DEBUG 0
 
+typedef struct {
+    unsigned int connects;
+    unsigned int welcomes;
+    unsigned int snapshots_tx;
+    unsigned int snapshot_ents_total;
+    unsigned int usercmd_pkts;
+    unsigned int usercmds_applied;
+    unsigned int stale_cmds;
+    unsigned int malformed;
+    unsigned int last_summary_ms;
+    unsigned int first_snapshot_logged[MAX_CLIENTS];
+    unsigned int connect_ms[MAX_CLIENTS];
+    unsigned int first_usercmd_pkt_seen[MAX_CLIENTS];
+    unsigned int stale_warn_last_ms[MAX_CLIENTS];
+} NetServerDiag;
+
+static NetServerDiag g_net_diag;
+
 #define SERVER_SNAPSHOT_INTERVAL_TICKS 3
 #define SERVER_DM_FRAG_LIMIT 25
 #define SERVER_DM_ROUND_MS (6 * 60 * 1000)
@@ -83,6 +131,43 @@ unsigned int get_server_time() {
 
 static double now_seconds(void) {
     return (double)get_server_time() / 1000.0;
+}
+
+static int net_should_log_every(unsigned int *last_ms, unsigned int interval_ms, unsigned int now_ms) {
+    if (now_ms - *last_ms < interval_ms) return 0;
+    *last_ms = now_ms;
+    return 1;
+}
+
+static void net_format_addr(const struct sockaddr_in *addr, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    out[0] = '\0';
+    if (!addr) return;
+    char ip_buf[INET_ADDRSTRLEN] = {0};
+    if (!inet_ntop(AF_INET, &addr->sin_addr, ip_buf, sizeof(ip_buf))) {
+        snprintf(ip_buf, sizeof(ip_buf), "?.?.?.?");
+    }
+    snprintf(out, out_sz, "%s:%d", ip_buf, ntohs(addr->sin_port));
+}
+
+static void net_server_emit_summary(unsigned int now_ms) {
+    if (!net_should_log_every(&g_net_diag.last_summary_ms, 1000, now_ms)) return;
+    unsigned int avg_ents = g_net_diag.snapshots_tx ? (g_net_diag.snapshot_ents_total / g_net_diag.snapshots_tx) : 0;
+    int clients = 0;
+    for (int i = 1; i < MAX_CLIENTS; i++) {
+        if (slots[i].active && slots[i].welcomed) clients++;
+    }
+    NET_SUMMARY_LOG("SERVER clients=%d connects=%u welcomes=%u snapshots_tx=%u avg_ents=%u usercmd_pkts=%u usercmds_applied=%u stale_cmds=%u malformed=%u",
+                    clients, g_net_diag.connects, g_net_diag.welcomes, g_net_diag.snapshots_tx, avg_ents,
+                    g_net_diag.usercmd_pkts, g_net_diag.usercmds_applied, g_net_diag.stale_cmds, g_net_diag.malformed);
+    g_net_diag.connects = 0;
+    g_net_diag.welcomes = 0;
+    g_net_diag.snapshots_tx = 0;
+    g_net_diag.snapshot_ents_total = 0;
+    g_net_diag.usercmd_pkts = 0;
+    g_net_diag.usercmds_applied = 0;
+    g_net_diag.stale_cmds = 0;
+    g_net_diag.malformed = 0;
 }
 
 static int server_scene_is_dm_map(int scene_id) {
@@ -262,6 +347,10 @@ static int alloc_slot(const struct sockaddr_in *addr) {
             local_state.client_meta[i].active = 0;
             local_state.client_meta[i].last_heard_ms = get_server_time();
             client_last_seq[i] = 0;
+            g_net_diag.first_snapshot_logged[i] = 0;
+            g_net_diag.first_usercmd_pkt_seen[i] = 0;
+            g_net_diag.stale_warn_last_ms[i] = 0;
+            g_net_diag.connect_ms[i] = get_server_time();
 
             return i;
         }
@@ -284,6 +373,11 @@ static void free_slot(int slot) {
     memset(&slots[slot].addr, 0, sizeof(struct sockaddr_in));
     slots[slot].last_heard = 0.0;
     slots[slot].player_id = -1;
+    g_net_diag.first_snapshot_logged[slot] = 0;
+    g_net_diag.first_usercmd_pkt_seen[slot] = 0;
+    g_net_diag.stale_warn_last_ms[slot] = 0;
+    g_net_diag.connect_ms[slot] = 0;
+    NET_SERVER_LOG("SLOT_FREE client_id=%d", slot);
     server_disconnect(slot, client_last_seq);
     if (local_state.game_mode == MODE_TDMO && was_human && team_id_is_valid(prev_team)) {
         tdmo_spawn_bot_on_team(prev_team, get_server_time());
@@ -336,6 +430,10 @@ static void send_welcome(const struct sockaddr_in *addr, int client_id) {
            (const struct sockaddr*)addr, sizeof(struct sockaddr_in));
     if (client_id > 0 && client_id < MAX_CLIENTS) {
         slots[client_id].welcomed = 1;
+        g_net_diag.welcomes++;
+        char addr_buf[64];
+        net_format_addr(addr, addr_buf, sizeof(addr_buf));
+        NET_SERVER_LOG("WELCOME_TX client_id=%d scene_id=%d dst=%s", client_id, (int)h->scene_id, addr_buf);
     }
 }
 
@@ -344,15 +442,22 @@ static int ensure_slot_for_sender(const struct sockaddr_in *sender) {
     if (slot != -1) {
         slots[slot].last_heard = now_seconds();
         local_state.client_meta[slot].last_heard_ms = get_server_time();
+        char addr_buf[64];
+        net_format_addr(sender, addr_buf, sizeof(addr_buf));
+        NET_SERVER_LOG("SLOT_REUSE client_id=%d addr=%s", slot, addr_buf);
         return slot;
     }
 
     int new_slot = alloc_slot(sender);
     if (new_slot != -1) {
-        char ip_buf[INET_ADDRSTRLEN] = {0};
-        inet_ntop(AF_INET, &sender->sin_addr, ip_buf, sizeof(ip_buf));
-        printf("CLIENT %d CONNECTED (%s:%d)\n", new_slot, ip_buf, ntohs(sender->sin_port));
-        send_welcome(sender, new_slot);
+        char addr_buf[64];
+        net_format_addr(sender, addr_buf, sizeof(addr_buf));
+        NET_SERVER_LOG("SLOT_ASSIGN client_id=%d addr=%s reason=new_sender", new_slot, addr_buf);
+        g_net_diag.connects++;
+    } else {
+        char addr_buf[64];
+        net_format_addr(sender, addr_buf, sizeof(addr_buf));
+        NET_WARN_LOG("SLOT_FULL addr=%s", addr_buf);
     }
     return new_slot;
 }
@@ -482,6 +587,10 @@ void server_net_init() {
     WSADATA wsa; WSAStartup(MAKEWORD(2,2), &wsa);
     #endif
     sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        NET_ERR_LOG("SOCKET_CREATE_FAILED");
+        exit(1);
+    }
     #ifdef _WIN32
     u_long mode = 1; ioctlsocket(sock, FIONBIO, &mode);
     #else
@@ -490,23 +599,37 @@ void server_net_init() {
     bind_addr.sin_family = AF_INET;
     bind_addr.sin_port = htons(6969);
     bind_addr.sin_addr.s_addr = INADDR_ANY;
+    NET_SERVER_LOG("STARTUP mode=pending bind_addr=0.0.0.0 port=%d scene=%d", 6969, g_server_match_scene);
     if (bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr)) < 0) {
-        printf("FAILED TO BIND PORT 6969\n");
+        NET_ERR_LOG("BIND_FAILED port=%d", 6969);
         exit(1);
     } else {
-        printf("SERVER LISTENING ON PORT 6969\nWaiting...\n");
+        NET_SERVER_LOG("SERVER_STARTED bind_addr=0.0.0.0 port=%d", 6969);
     }
 }
 
-void process_user_cmd(int client_id, UserCmd *cmd) {
-    if (cmd->sequence <= client_last_seq[client_id]) return;
+int process_user_cmd(int client_id, UserCmd *cmd) {
+    if (cmd->sequence <= client_last_seq[client_id]) {
+        g_net_diag.stale_cmds++;
+        unsigned int now_ms = get_server_time();
+        if (net_should_log_every(&g_net_diag.stale_warn_last_ms[client_id], 1000, now_ms)) {
+            NET_WARN_LOG("USERCMD_STALE client_id=%d seq=%u last_seq=%u", client_id, cmd->sequence, client_last_seq[client_id]);
+        }
+        return 0;
+    }
     PlayerState *p = &local_state.players[client_id];
     shankpit_apply_usercmd_inputs(p, cmd);
     client_last_seq[client_id] = cmd->sequence;
+    g_net_diag.usercmds_applied++;
+    return 1;
 }
 
 void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
-    if (size < (int)sizeof(NetHeader)) return;
+    if (size < (int)sizeof(NetHeader)) {
+        g_net_diag.malformed++;
+        NET_WARN_LOG("SHORT_PACKET size=%d min=%zu", size, sizeof(NetHeader));
+        return;
+    }
     NetHeader *head = (NetHeader*)buffer;
     int client_id = -1;
 
@@ -516,10 +639,14 @@ void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
     if (client_id == -1) return;
 
     if (head->type == PACKET_CONNECT) {
+        char addr_buf[64];
+        net_format_addr(sender, addr_buf, sizeof(addr_buf));
         int requested_mode = MODE_DEATHMATCH;
         if (size >= (int)sizeof(NetHeader) + 1) {
             requested_mode = (unsigned char)buffer[sizeof(NetHeader)];
         }
+        NET_SERVER_LOG("CONNECT_RX src=%s size=%d requested_mode=%d", addr_buf, size, requested_mode);
+        int mode_before = local_state.game_mode;
         if (requested_mode == MODE_TDMO && local_state.game_mode != MODE_TDMO) {
             tdmo_activate_match(get_server_time());
         }
@@ -553,6 +680,9 @@ void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
         p->use_was_down = 0;
         p->portal_cooldown_until_ms = 0;
         p->vehicle_cooldown = 0;
+        NET_SERVER_LOG("CONNECT_ACCEPT client_id=%d scene_id=%d team=%d mode_before=%d mode_after=%d mode_coerced=%d",
+                       client_id, p->scene_id, p->team_id, mode_before, local_state.game_mode,
+                       (requested_mode != local_state.game_mode));
         send_welcome(sender, client_id);
     }
 
@@ -563,26 +693,40 @@ void server_handle_packet(struct sockaddr_in *sender, char *buffer, int size) {
 
     // --- USER COMMANDS ---
     if (client_id != -1 && head->type == PACKET_USERCMD) {
+        g_net_diag.usercmd_pkts++;
         int cursor = (int)sizeof(NetHeader);
-        if (size < cursor + 1) return;
+        if (size < cursor + 1) {
+            g_net_diag.malformed++;
+            NET_WARN_LOG("USERCMD_MALFORMED client_id=%d reason=missing_count size=%d", client_id, size);
+            return;
+        }
 
         unsigned char count = *(unsigned char*)(buffer + cursor); cursor += 1;
+        int needed = cursor + (int)(count * sizeof(UserCmd));
+        if (needed > size) {
+            g_net_diag.malformed++;
+            NET_WARN_LOG("USERCMD_MALFORMED client_id=%d count=%u size=%d needed=%d", client_id, count, size, needed);
+            return;
+        }
 
-        if (size >= cursor + (int)(count * sizeof(UserCmd))) {
-            UserCmd *cmds = (UserCmd*)(buffer + cursor);
+        UserCmd *cmds = (UserCmd*)(buffer + cursor);
+        if (!g_net_diag.first_usercmd_pkt_seen[client_id]) {
+            g_net_diag.first_usercmd_pkt_seen[client_id] = 1;
+            unsigned int newest_seq = count > 0 ? cmds[0].sequence : 0;
+            NET_SERVER_LOG("USERCMD_RX_FIRST client_id=%d count=%u newest_seq=%u size=%d", client_id, count, newest_seq, size);
+        }
 
-            // process oldest->newest to preserve chronological intent
-            for (int i = (int)count - 1; i >= 0; i--) {
-                process_user_cmd(client_id, &cmds[i]);
-            }
+        // process oldest->newest to preserve chronological intent
+        for (int i = (int)count - 1; i >= 0; i--) {
+            process_user_cmd(client_id, &cmds[i]);
+        }
 
-            slots[client_id].last_heard = now_seconds();
-            local_state.client_meta[client_id].last_heard_ms = get_server_time();
-            slots[client_id].cmd_seen = 1;
-            if (local_state.game_mode != MODE_TDMO) {
-                local_state.players[client_id].active = slots[client_id].welcomed && slots[client_id].cmd_seen;
-                local_state.client_meta[client_id].active = local_state.players[client_id].active;
-            }
+        slots[client_id].last_heard = now_seconds();
+        local_state.client_meta[client_id].last_heard_ms = get_server_time();
+        slots[client_id].cmd_seen = 1;
+        if (local_state.game_mode != MODE_TDMO) {
+            local_state.players[client_id].active = slots[client_id].welcomed && slots[client_id].cmd_seen;
+            local_state.client_meta[client_id].active = local_state.players[client_id].active;
         }
     }
 }
@@ -613,6 +757,15 @@ void server_broadcast() {
         head.timestamp = get_server_time();
         head.scene_id = (unsigned char)(recipient_scene < 0 ? 0 : recipient_scene);
         head.entity_count = count;
+        g_net_diag.snapshots_tx++;
+        g_net_diag.snapshot_ents_total += count;
+        if (!g_net_diag.first_snapshot_logged[i]) {
+            g_net_diag.first_snapshot_logged[i] = 1;
+            unsigned int now_ms = get_server_time();
+            unsigned int dt_ms = g_net_diag.connect_ms[i] ? (now_ms - g_net_diag.connect_ms[i]) : 0;
+            NET_SERVER_LOG("SNAPSHOT_TX_FIRST client_id=%d ents=%u scene=%d dt_since_connect=%u",
+                           i, count, recipient_scene, dt_ms);
+        }
 
         memcpy(buffer + cursor, &head, sizeof(NetHeader)); cursor += (int)sizeof(NetHeader);
         memcpy(buffer + cursor, &count, 1); cursor += 1;
@@ -710,6 +863,7 @@ int main(int argc, char *argv[]) {
 
     server_net_init();
     int mode = parse_server_mode(argc, argv);
+    NET_SERVER_LOG("MODE_SELECTED mode=%d", mode);
     local_init_match(1, mode);
     if (mode == MODE_TDMO) {
         tdmo_activate_match(get_server_time());
@@ -726,12 +880,13 @@ int main(int argc, char *argv[]) {
     local_state.players[0].active = 0;
     local_state.players[0].health = 0;
     local_state.players[0].state = STATE_DEAD;
+    NET_SERVER_LOG("SCENE_SELECTED scene=%d", g_server_match_scene);
     if (mode == MODE_TDM) {
-        printf("SERVER MODE: TEAM DEATHMATCH\n");
+        NET_SERVER_LOG("SERVER_MODE TEAM_DEATHMATCH");
     } else if (mode == MODE_TDMO) {
-        printf("SERVER MODE: ONLINE TEAM DEATHMATCH (TDMO)\n");
+        NET_SERVER_LOG("SERVER_MODE ONLINE_TEAM_DEATHMATCH");
     } else {
-        printf("SERVER MODE: DEATHMATCH\n");
+        NET_SERVER_LOG("SERVER_MODE DEATHMATCH");
     }
 
     int running = 1;
@@ -755,6 +910,7 @@ int main(int argc, char *argv[]) {
         // TIMEOUT_SWEEP
         for (int i = 1; i < MAX_CLIENTS; i++) {
             if (slots[i].active && now_seconds() - slots[i].last_heard > 5.0) {
+                NET_WARN_LOG("SLOT_TIMEOUT client_id=%d idle_s=%.2f", i, now_seconds() - slots[i].last_heard);
                 free_slot(i);
             }
         }
@@ -909,6 +1065,7 @@ int main(int argc, char *argv[]) {
         if ((tick % SERVER_SNAPSHOT_INTERVAL_TICKS) == 0) {
             server_broadcast();
         }
+        net_server_emit_summary(now);
 
         int connected = 0;
         for (int i = 1; i < MAX_CLIENTS; i++) {

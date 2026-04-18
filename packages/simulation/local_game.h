@@ -423,42 +423,10 @@ static void ctf_try_capture(PlayerState *p, unsigned int now_ms) {
 static void ctf_try_carry_melee(PlayerState *attacker, unsigned int now_ms) {
     if (attacker->carried_flag_team_id < 0) return;
     if (attacker->ctf_melee_cooldown_ms > now_ms) return;
-    float r = -attacker->yaw * 0.0174533f;
-    float fx = sinf(r), fz = -cosf(r);
-    float range_sq = 11.0f * 11.0f;
-    float best_dot = 0.75f;
-    int best = -1;
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        PlayerState *t = &local_state.players[i];
-        if (t == attacker || !t->active || t->state == STATE_DEAD) continue;
-        if (t->scene_id != attacker->scene_id) continue;
-        if (t->team_id == attacker->team_id) continue;
-        float dx = t->x - attacker->x, dz = t->z - attacker->z;
-        float d2 = dx*dx + dz*dz;
-        if (d2 > range_sq || d2 < 0.001f) continue;
-        float inv = 1.0f / sqrtf(d2);
-        float dot = fx * (dx * inv) + fz * (dz * inv);
-        if (dot > best_dot) { best_dot = dot; best = i; }
-    }
+    /* Reuse knife melee envelope (trace + range gate); CTFB keeps its own damage/cooldown as source of truth. */
     attacker->ctf_melee_cooldown_ms = now_ms + CTFB_CARRY_MELEE_COOLDOWN_MS;
     attacker->is_shooting = 3;
-    if (best >= 0) {
-        PlayerState *t = &local_state.players[best];
-        t->shield_regen_timer = SHIELD_REGEN_DELAY;
-        int damage = CTFB_CARRY_MELEE_DAMAGE;
-        if (t->shield > 0) {
-            if (t->shield >= damage) { t->shield -= damage; damage = 0; }
-            else { damage -= t->shield; t->shield = 0; }
-        }
-        t->health -= damage;
-        attacker->hit_feedback = 16;
-        if (t->health <= 0) {
-            ctf_drop_flag_from_carrier(t->id, now_ms);
-            float incoming_x = t->x - attacker->x;
-            float incoming_z = t->z - attacker->z;
-            ctf_schedule_respawn(attacker, t, now_ms, incoming_x, incoming_z);
-        }
-    }
+    phys_try_melee_strike(attacker, local_state.players, CTFB_CARRY_MELEE_DAMAGE, 16, 0, now_ms, mode_respawn_delay_ms(local_state.game_mode));
 }
 
 // --- BOT AI ---

@@ -39,7 +39,7 @@ int main(void) {
     enemy_flag->state = FLAG_CARRIED;
     enemy_flag->carrier_id = carrier->id;
 
-    apply_projectile_damage(attacker, carrier, 50, death_ms);
+    apply_projectile_damage(attacker, carrier, 50, death_ms, 0.0f, 0.0f);
 
     ASSERT_TRUE(carrier->state == STATE_DEAD, "Carrier is dead immediately after lethal hit");
     ASSERT_TRUE(carrier->respawn_time == death_ms + CTFB_RESPAWN_DELAY_MS, "Carrier respawn is scheduled 3000ms later");

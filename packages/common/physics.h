@@ -1810,8 +1810,8 @@ static inline void katana_dash_remember_target(PlayerState *p, int target_id) {
 }
 
 static inline void phys_set_death_direction(PlayerState *target, float incoming_x, float incoming_z) {
-    float away_x = -incoming_x;
-    float away_z = -incoming_z;
+    float away_x = incoming_x;
+    float away_z = incoming_z;
     float len = sqrtf(away_x * away_x + away_z * away_z);
     if (len < 0.0001f) {
         float vel_len = sqrtf(target->vx * target->vx + target->vz * target->vz);
@@ -1832,9 +1832,9 @@ static inline void phys_set_death_direction(PlayerState *target, float incoming_
 }
 
 static inline void phys_enter_death_state(PlayerState *attacker, PlayerState *target, unsigned int now_ms, unsigned int respawn_delay_ms, float incoming_x, float incoming_z) {
-    const float DEATH_PLANAR_CARRY = 0.15f;
-    const float DEATH_PLANAR_PUSH = 1.10f;
-    const float DEATH_UPWARD_LAUNCH = 0.28f;
+    const float DEATH_PLANAR_CARRY = 0.10f;
+    const float DEATH_PLANAR_PUSH = 0.35f;
+    const float DEATH_UPWARD_LAUNCH = 0.14f;
 
     if (!target || target->state == STATE_DEAD) return;
     if (attacker) {

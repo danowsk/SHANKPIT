@@ -201,6 +201,7 @@ static int tdmo_spawn_bot_on_team(int team_id, unsigned int now_ms) {
     p->current_weapon = WPN_AR;
     p->ammo[WPN_AR] = WPN_STATS[WPN_AR].ammo_max;
     init_genome(&p->brain);
+    bot_policy_set_for_player(slot, BOT_POLICY_AUTO);
     phys_respawn(p, now_ms);
     return 1;
 }
@@ -768,7 +769,7 @@ int main(int argc, char *argv[]) {
                 float b_fwd = 0.0f;
                 float b_yaw = p->yaw;
                 int b_btns = 0;
-                bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
+                bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns, NULL, NULL);
                 p->yaw = b_yaw;
                 float brad = b_yaw * 3.14159f / 180.0f;
                 float bx = sinf(brad) * b_fwd;

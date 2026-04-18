@@ -4,9 +4,11 @@
 #include "../common/protocol.h"
 #include "../common/physics.h"
 #include "../common/shared_movement.h"
+#include "bot_policy.h"
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <stdio.h>
 
 ServerState local_state;
 int was_holding_jump = 0;
@@ -23,6 +25,58 @@ static int tdmb_last_kills[MAX_CLIENTS];
 #define CTFB_CAPTURE_RADIUS 40.0f
 #define CTFB_CARRY_MELEE_DAMAGE 80
 #define CTFB_CARRY_MELEE_COOLDOWN_MS 450
+
+
+typedef enum {
+    TDM_HARNESS_NONE = 0,
+    TRAIN_TDM_LOCAL = 1,
+    EVAL_TDM_LOCAL = 2
+} TdmHarnessMode;
+
+typedef struct {
+    float damage_dealt;
+    float self_damage;
+    float kill;
+    float death;
+    float time_alive;
+    float aim_on_target;
+    float idle_penalty;
+    float stuck_penalty;
+    float team_score_delta;
+} TdmRewardComponents;
+
+typedef struct {
+    int kills;
+    int deaths;
+    int shots_fired;
+    int hits_landed;
+    int damage_dealt;
+    int damage_taken;
+    int idle_ticks;
+    int stuck_count;
+    unsigned int spawn_ms;
+    unsigned int total_life_ms;
+    int life_count;
+} TdmBotMetrics;
+
+typedef struct {
+    TdmHarnessMode mode;
+    int record_enabled;
+    FILE *record_file;
+    unsigned int match_id;
+    int eval_matches;
+    int eval_ticks_limit;
+    int eval_ticks;
+    int eval_summary_printed;
+    int prev_team_scores[2];
+    TdmBotMetrics metrics[MAX_CLIENTS];
+    TdmRewardComponents step_reward[MAX_CLIENTS];
+} TdmHarnessState;
+
+static TdmHarnessState g_tdm_harness;
+
+static void tdm_reward_add(int bot_id, const char *kind, float amt);
+
 
 static int mode_uses_team_scores(int mode) {
     return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB;
@@ -440,92 +494,25 @@ static void ctf_try_carry_melee(PlayerState *attacker, unsigned int now_ms) {
 }
 
 // --- BOT AI ---
-void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw, int *out_buttons) {
+void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw, int *out_buttons,
+               BotObservation *out_obs, BotAction *out_action) {
     PlayerState *me = &players[bot_idx];
-    if (me->state == STATE_DEAD || local_state.match_over) { *out_buttons = 0; return; }
+    if (me->state == STATE_DEAD || local_state.match_over) {
+        *out_fwd = 0.0f;
+        *out_buttons = 0;
+        if (out_obs) memset(out_obs, 0, sizeof(*out_obs));
+        if (out_action) memset(out_action, 0, sizeof(*out_action));
+        return;
+    }
+
     if (local_state.game_mode == MODE_CTFB && local_state.ctf.active && team_id_is_valid(me->team_id)) {
-        CtfBotObservation obs;
-        build_ctf_bot_observation(bot_idx, &obs);
-        (void)obs;
+        CtfBotObservation ctf_obs;
+        build_ctf_bot_observation(bot_idx, &ctf_obs);
         int intent = select_ctf_bot_intent(me);
         me->ctf_bot_intent = intent;
-        int my_team = me->team_id;
-        int enemy = ctf_enemy_team(my_team);
-        float tx = 0.0f, tz = 0.0f;
-        if (intent == CTF_BOT_INTENT_RETURN_HOME) {
-            float cy, cr;
-            get_ctf_capture_zone(me->scene_id, my_team, &tx, &cy, &tz, &cr);
-        } else if (intent == CTF_BOT_INTENT_CHASE_CARRIER && local_state.ctf.flags[my_team].carrier_id >= 0) {
-            PlayerState *carrier = &players[local_state.ctf.flags[my_team].carrier_id];
-            tx = carrier->x; tz = carrier->z;
-        } else if (intent == CTF_BOT_INTENT_RECOVER_FLAG) {
-            tx = local_state.ctf.flags[my_team].x;
-            tz = local_state.ctf.flags[my_team].z;
-        } else if (intent == CTF_BOT_INTENT_ESCORT && local_state.ctf.flags[enemy].carrier_id >= 0) {
-            PlayerState *carrier = &players[local_state.ctf.flags[enemy].carrier_id];
-            tx = carrier->x; tz = carrier->z;
-        } else {
-            tx = local_state.ctf.flags[enemy].x;
-            tz = local_state.ctf.flags[enemy].z;
-        }
-        float dx = tx - me->x;
-        float dz = tz - me->z;
-        float target_yaw = atan2f(dx, dz) * (180.0f / 3.14159f);
-        float diff = angle_diff(target_yaw, *out_yaw);
-        if (diff > 8.0f) diff = 8.0f;
-        if (diff < -8.0f) diff = -8.0f;
-        *out_yaw += diff;
-        *out_fwd = 0.9f;
-        float dist_sq = dx*dx + dz*dz;
-        if (dist_sq < (CTFB_USE_RADIUS * CTFB_USE_RADIUS)) *out_buttons |= BTN_USE;
     }
 
-    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB);
-    int target_idx = -1;
-    float min_dist = 9999.0f;
-
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (i == bot_idx) continue;
-        if (!players[i].active) continue;
-        if (players[i].state == STATE_DEAD) continue;
-        if (team_mode && players[i].team_id == me->team_id) continue;
-        
-        float dx = players[i].x - me->x;
-        float dz = players[i].z - me->z;
-        float dist = sqrtf(dx*dx + dz*dz);
-        
-        if (i == 0 || dist < min_dist) { 
-            if (i == 0 && (!team_mode || players[0].team_id != me->team_id)) dist *= 0.5f;
-            if (dist < min_dist) { min_dist = dist; target_idx = i; }
-        }
-    }
-
-    if (target_idx != -1) {
-        PlayerState *t = &players[target_idx];
-        float dx = t->x - me->x;
-        float dz = t->z - me->z;
-        float target_yaw = atan2f(dx, dz) * (180.0f / 3.14159f);
-        
-        float turn_speed = (me->brain.w_turret > 1.0f) ? me->brain.w_turret : 10.0f;
-        float diff = angle_diff(target_yaw, *out_yaw);
-        if (diff > turn_speed) diff = turn_speed;
-        if (diff < -turn_speed) diff = -turn_speed;
-        *out_yaw += diff;
-        
-        *out_buttons |= BTN_ATTACK;
-        
-        if (min_dist > 15.0f) *out_fwd = me->brain.w_aggro;
-        else if (min_dist < 5.0f) *out_fwd = -me->brain.w_aggro; 
-        else *out_fwd = 0.2f; 
-        
-        *out_yaw += me->brain.w_strafe * 10.0f;
-        if (me->on_ground && (rand()%1000 < (me->brain.w_jump * 1000.0f))) *out_buttons |= BTN_JUMP;
-        if (me->on_ground && (rand()%1000 < (me->brain.w_slide * 1000.0f))) *out_buttons |= BTN_CROUCH;
-        if (me->ammo[me->current_weapon] <= 0) *out_buttons |= BTN_RELOAD;
-    } else {
-        *out_yaw += 2.0f;
-        *out_fwd = 0.5f;
-    }
+    bot_policy_think(bot_idx, &local_state, out_fwd, out_yaw, out_buttons, out_obs, out_action);
 }
 
 // --- UPDATE LOOP ---
@@ -586,12 +573,26 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
     if (!target->active || target->state == STATE_DEAD) return;
     int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB);
     if (owner && team_mode && owner->team_id == target->team_id) return;
+    int pre_hp = target->health;
+    int pre_shield = target->shield;
     target->shield_regen_timer = SHIELD_REGEN_DELAY;
     if (target->shield > 0) {
         if (target->shield >= damage) { target->shield -= damage; damage = 0; }
         else { damage -= target->shield; target->shield = 0; }
     }
     target->health -= damage;
+    int hp_damage = pre_hp - target->health;
+    int shield_damage = pre_shield - target->shield;
+    int applied_damage = (hp_damage > 0 ? hp_damage : 0) + (shield_damage > 0 ? shield_damage : 0);
+    if (owner && owner->id >= 0 && owner->id < MAX_CLIENTS && owner->is_bot && applied_damage > 0) {
+        g_tdm_harness.metrics[owner->id].hits_landed++;
+        g_tdm_harness.metrics[owner->id].damage_dealt += applied_damage;
+        tdm_reward_add(owner->id, "damage_dealt", (float)applied_damage * 0.02f);
+    }
+    if (target->is_bot && applied_damage > 0) {
+        g_tdm_harness.metrics[target->id].damage_taken += applied_damage;
+        tdm_reward_add(target->id, "self_damage", -(float)applied_damage * 0.01f);
+    }
     if (target->health <= 0) {
         if (local_state.game_mode == MODE_CTFB) {
             ctf_drop_flag_from_carrier(target->id, now_ms);
@@ -601,8 +602,19 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
         if (owner) {
             owner->kills++;
             owner->accumulated_reward += 500.0f;
+            if (owner->is_bot) {
+                g_tdm_harness.metrics[owner->id].kills++;
+                tdm_reward_add(owner->id, "kill", 1.0f);
+            }
         }
         target->deaths++;
+        if (target->is_bot) {
+            g_tdm_harness.metrics[target->id].deaths++;
+            g_tdm_harness.metrics[target->id].total_life_ms += (now_ms - g_tdm_harness.metrics[target->id].spawn_ms);
+            g_tdm_harness.metrics[target->id].life_count++;
+            g_tdm_harness.metrics[target->id].spawn_ms = now_ms;
+            tdm_reward_add(target->id, "death", -1.0f);
+        }
         phys_respawn(target, now_ms);
     }
 
@@ -660,6 +672,73 @@ static void update_projectiles(unsigned int now_ms) {
         }
 
         if (p->x > 4000 || p->x < -4000 || p->z > 4000 || p->z < -4000 || p->y > 2000) p->active = 0;
+    }
+}
+
+
+static TdmHarnessMode tdm_harness_mode_from_env(void) {
+    const char *v = getenv("SHANKPIT_TDM_HARNESS");
+    if (!v) return TDM_HARNESS_NONE;
+    if (strcmp(v, "TRAIN_TDM_LOCAL") == 0) return TRAIN_TDM_LOCAL;
+    if (strcmp(v, "EVAL_TDM_LOCAL") == 0) return EVAL_TDM_LOCAL;
+    return TDM_HARNESS_NONE;
+}
+
+static void tdm_reward_add(int bot_id, const char *kind, float amt) {
+    if (bot_id < 0 || bot_id >= MAX_CLIENTS) return;
+    TdmRewardComponents *r = &g_tdm_harness.step_reward[bot_id];
+    if (strcmp(kind, "damage_dealt") == 0) r->damage_dealt += amt;
+    else if (strcmp(kind, "self_damage") == 0) r->self_damage += amt;
+    else if (strcmp(kind, "kill") == 0) r->kill += amt;
+    else if (strcmp(kind, "death") == 0) r->death += amt;
+    else if (strcmp(kind, "time_alive") == 0) r->time_alive += amt;
+    else if (strcmp(kind, "aim_on_target") == 0) r->aim_on_target += amt;
+    else if (strcmp(kind, "idle_penalty") == 0) r->idle_penalty += amt;
+    else if (strcmp(kind, "stuck_penalty") == 0) r->stuck_penalty += amt;
+    else if (strcmp(kind, "team_score_delta") == 0) r->team_score_delta += amt;
+}
+
+static void tdm_record_step_if_enabled(unsigned int tick, int bot_id, int team_id, const BotObservation *obs, const BotAction *act, int done, int death) {
+    if (!g_tdm_harness.record_enabled || !g_tdm_harness.record_file) return;
+    const TdmRewardComponents *r = &g_tdm_harness.step_reward[bot_id];
+    float obs8[8] = {0};
+    pack_bot_observation_vec(obs, obs8);
+    fprintf(g_tdm_harness.record_file,
+            "{\"event\":\"step\",\"tick\":%u,\"match_id\":%u,\"bot_id\":%d,\"team_id\":%d,"
+            "\"obs\":[%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f],"
+            "\"action\":{\"forward\":%.4f,\"strafe\":%.4f,\"yaw_rate\":%.4f,\"shoot\":%d,\"jump\":%d,\"reload\":%d},"
+            "\"reward\":{\"damage_dealt\":%.3f,\"kill\":%.3f,\"death\":%.3f,\"self_damage\":%.3f,\"time_alive\":%.3f,\"aim_on_target\":%.3f,\"idle_penalty\":%.3f,\"stuck_penalty\":%.3f,\"team_score_delta\":%.3f},"
+            "\"done\":%d,\"death\":%d}\n",
+            tick, g_tdm_harness.match_id, bot_id, team_id,
+            obs8[0], obs8[1], obs8[2], obs8[3], obs8[4], obs8[5], obs8[6], obs8[7],
+            act->forward, act->strafe, act->yaw_rate, act->shoot, act->jump, act->reload,
+            r->damage_dealt, r->kill, r->death, r->self_damage, r->time_alive, r->aim_on_target, r->idle_penalty, r->stuck_penalty, r->team_score_delta,
+            done, death);
+    fflush(g_tdm_harness.record_file);
+    memset(&g_tdm_harness.step_reward[bot_id], 0, sizeof(g_tdm_harness.step_reward[bot_id]));
+}
+
+static void tdm_emit_eval_summary(void) {
+    if (g_tdm_harness.eval_summary_printed) return;
+    g_tdm_harness.eval_summary_printed = 1;
+    int blue = local_state.team_scores[TDMB_BLUE_TEAM];
+    int red = local_state.team_scores[TDMB_RED_TEAM];
+    int win = local_state.winning_team;
+    printf("[TDM_EVAL_SUMMARY] match=%u blue=%d red=%d winner=%d diff=%d\n", g_tdm_harness.match_id, blue, red, win, blue-red);
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        PlayerState *p = &local_state.players[i];
+        if (!p->active || !p->is_bot) continue;
+        TdmBotMetrics *m = &g_tdm_harness.metrics[i];
+        float acc = (m->shots_fired > 0) ? (100.0f * (float)m->hits_landed / (float)m->shots_fired) : 0.0f;
+        float avg_life = (m->life_count > 0) ? ((float)m->total_life_ms / (float)m->life_count) : 0.0f;
+        printf("[TDM_EVAL_BOT] bot=%d team=%d kills=%d deaths=%d shots=%d hits=%d acc=%.2f dmg_dealt=%d dmg_taken=%d avg_life_ms=%.1f stuck=%d idle_ticks=%d\n",
+               i, p->team_id, m->kills, m->deaths, m->shots_fired, m->hits_landed, acc, m->damage_dealt, m->damage_taken, avg_life, m->stuck_count, m->idle_ticks);
+        if (g_tdm_harness.record_enabled && g_tdm_harness.record_file) {
+            fprintf(g_tdm_harness.record_file,
+                    "{\"event\":\"match_summary\",\"match_id\":%u,\"bot_id\":%d,\"team_id\":%d,\"kills\":%d,\"deaths\":%d,\"shots_fired\":%d,\"hits_landed\":%d,\"accuracy\":%.5f,\"damage_dealt\":%d,\"damage_taken\":%d,\"average_life_ms\":%.3f,\"score_diff\":%d,\"win\":%d,\"stuck_count\":%d,\"idle_ticks\":%d}\n",
+                    g_tdm_harness.match_id, i, p->team_id, m->kills, m->deaths, m->shots_fired, m->hits_landed, acc, m->damage_dealt, m->damage_taken, avg_life, blue-red, (p->team_id == win), m->stuck_count, m->idle_ticks);
+        }
     }
 }
 
@@ -741,7 +820,9 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         if (i > 0 && p->active && p->state != STATE_DEAD) {
             float b_fwd=0, b_yaw=p->yaw;
             int b_btns=0;
-            bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
+            BotObservation bot_obs;
+            BotAction bot_action;
+            bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns, &bot_obs, &bot_action);
             p->yaw = b_yaw;
             float brad = b_yaw * 3.14159f / 180.0f;
             float bx = sinf(brad) * b_fwd;
@@ -753,7 +834,23 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             p->crouching = (b_btns & BTN_CROUCH);
             p->in_use = ((b_btns & BTN_USE) != 0);
             p->in_ability = 0;
+            if (p->in_shoot) g_tdm_harness.metrics[i].shots_fired++;
             if ((b_btns & BTN_JUMP) && p->on_ground) { p->y += 0.1f; p->vy += JUMP_FORCE; }
+
+            float speed = sqrtf(p->vx * p->vx + p->vz * p->vz);
+            if (speed < 0.05f) {
+                g_tdm_harness.metrics[i].idle_ticks++;
+                tdm_reward_add(i, "idle_penalty", -0.001f);
+            }
+            if (bot_obs.danger_stuck_signal > 0.75f) {
+                g_tdm_harness.metrics[i].stuck_count++;
+                tdm_reward_add(i, "stuck_penalty", -0.005f);
+            }
+            if (bot_obs.has_enemy && bot_obs.enemy_visible && bot_obs.aim_error_norm < 0.12f) {
+                tdm_reward_add(i, "aim_on_target", 0.0025f);
+            }
+            tdm_reward_add(i, "time_alive", 0.001f);
+            tdm_record_step_if_enabled((unsigned int)local_state.server_tick, i, p->team_id, &bot_obs, &bot_action, local_state.match_over, 0);
         }
         if (local_state.game_mode == MODE_CTFB) {
             ctf_handle_use_interactions(p, cmd_time);
@@ -772,6 +869,15 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         ctf_tick_flags(cmd_time);
         ctf_training_on_step(cmd_time);
     }
+    if (g_tdm_harness.mode == EVAL_TDM_LOCAL) {
+        g_tdm_harness.eval_ticks++;
+        if (!local_state.match_over && g_tdm_harness.eval_ticks_limit > 0 && g_tdm_harness.eval_ticks >= g_tdm_harness.eval_ticks_limit) {
+            local_state.match_over = 1;
+            if (local_state.team_scores[TDMB_BLUE_TEAM] >= local_state.team_scores[TDMB_RED_TEAM]) local_state.winning_team = TDMB_BLUE_TEAM;
+            else local_state.winning_team = TDMB_RED_TEAM;
+        }
+    }
+
     if (mode_uses_team_scores(local_state.game_mode)) {
         for (int i = 0; i < MAX_CLIENTS; i++) {
             PlayerState *pp = &local_state.players[i];
@@ -779,6 +885,7 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             if (pp->kills > prev && team_id_is_valid(pp->team_id)) {
                 int delta = pp->kills - prev;
                 if (local_state.game_mode != MODE_CTFB) local_state.team_scores[pp->team_id] += delta;
+                if (pp->is_bot) tdm_reward_add(i, "team_score_delta", (float)delta * 0.25f);
                 if (!local_state.match_over && local_state.score_limit > 0 && local_state.team_scores[pp->team_id] >= local_state.score_limit) {
                     local_state.match_over = 1;
                     local_state.winning_team = pp->team_id;
@@ -787,6 +894,8 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             tdmb_last_kills[i] = pp->kills;
         }
     }
+
+    if (local_state.match_over && g_tdm_harness.mode == EVAL_TDM_LOCAL) tdm_emit_eval_summary();
 }
 
 void local_init_match(int num_players, int mode) {
@@ -799,7 +908,36 @@ void local_init_match(int num_players, int mode) {
     local_state.winning_team = -1;
     local_state.score_limit = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_SCORE_LIMIT : (mode == MODE_CTFB ? CTFB_SCORE_LIMIT : 0);
 
-    if (mode == MODE_TDMB) {
+    memset(&g_tdm_harness, 0, sizeof(g_tdm_harness));
+    g_tdm_harness.mode = tdm_harness_mode_from_env();
+    g_tdm_harness.eval_matches = 1;
+    g_tdm_harness.eval_ticks_limit = 6000;
+    g_tdm_harness.match_id = (unsigned int)time(NULL);
+    const char *eval_ticks_env = getenv("SHANKPIT_EVAL_TICKS");
+    if (eval_ticks_env) g_tdm_harness.eval_ticks_limit = atoi(eval_ticks_env);
+    const char *record_env = getenv("SHANKPIT_RECORD_TDM");
+    g_tdm_harness.record_enabled = (record_env && atoi(record_env) > 0);
+    if (g_tdm_harness.record_enabled) {
+        const char *record_path = getenv("SHANKPIT_RECORD_TDM_PATH");
+        if (!record_path || !record_path[0]) record_path = "tdm_recording.jsonl";
+        g_tdm_harness.record_file = fopen(record_path, "a");
+        if (!g_tdm_harness.record_file) {
+            g_tdm_harness.record_enabled = 0;
+            printf("[TDM_RECORD] failed_to_open path=%s\n", record_path);
+        } else {
+            printf("[TDM_RECORD] path=%s\n", record_path);
+        }
+    }
+
+    if (g_tdm_harness.mode == TRAIN_TDM_LOCAL || g_tdm_harness.mode == EVAL_TDM_LOCAL) {
+        mode = MODE_TDMB;
+        local_state.game_mode = MODE_TDMB;
+        scene_set_game_mode(MODE_TDMB);
+        num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
+        local_state.score_limit = TDMB_SCORE_LIMIT;
+        local_state.scene_id = SCENE_STADIUM;
+        printf("[TDM_HARNESS] mode=%s scene=%s\n", g_tdm_harness.mode == TRAIN_TDM_LOCAL ? "TRAIN_TDM_LOCAL" : "EVAL_TDM_LOCAL", scene_name_debug(local_state.scene_id));
+    } else if (mode == MODE_TDMB) {
         num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
         local_state.scene_id = scene_random_tdmb_map();
         printf("[TDMB] random map selected: %s\n", scene_name_debug(local_state.scene_id));
@@ -816,11 +954,15 @@ void local_init_match(int num_players, int mode) {
     }
 
     local_state.players[0].active = 1;
-    local_state.players[0].is_bot = 0;
+    local_state.players[0].is_bot = (g_tdm_harness.mode == TRAIN_TDM_LOCAL || g_tdm_harness.mode == EVAL_TDM_LOCAL) ? 1 : 0;
     local_state.players[0].team_id = (mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB) ? TDMB_BLUE_TEAM : ((mode == MODE_TDM || mode == MODE_CTF) ? 0 : -1);
     local_state.players[0].scene_id = local_state.scene_id;
     local_state.players[0].carried_flag_team_id = -1;
     phys_respawn(&local_state.players[0], 0);
+    if (local_state.players[0].is_bot) {
+        bot_policy_set_for_player(0, BOT_POLICY_AUTO);
+        g_tdm_harness.metrics[0].spawn_ms = 0;
+    }
 
     for(int i=1; i<num_players; i++) {
         local_state.players[i].active = 1;
@@ -833,9 +975,15 @@ void local_init_match(int num_players, int mode) {
         local_state.players[i].scene_id = local_state.scene_id;
         local_state.players[i].carried_flag_team_id = -1;
         phys_respawn(&local_state.players[i], i*100);
-        init_genome(&local_state.players[i].brain);
+        init_genome(&local_state.players[i].brain); // legacy compatibility
+        bot_policy_set_for_player(i, BOT_POLICY_AUTO);
+        g_tdm_harness.metrics[i].spawn_ms = (unsigned int)(i * 100);
     }
     scene_load(local_state.scene_id);
+    if (mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO) {
+        BotPolicyKind def_kind = bot_policy_default_for_mode(mode);
+        printf("[BOT_POLICY] default=%s weights=%s\n", bot_policy_kind_name(def_kind), bot_policy_weights_available() ? "present" : "missing");
+    }
     if (mode == MODE_CTFB) {
         ctf_init_match_state(local_state.scene_id);
         ctf_training_on_episode_begin();

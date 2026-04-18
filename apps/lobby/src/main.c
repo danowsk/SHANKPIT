@@ -182,8 +182,12 @@ static float smoothstepf(float edge0, float edge1, float x) {
 
 static float death_pose_progress(const PlayerState *p, unsigned int now_ms) {
     if (!p || p->state != STATE_DEAD || p->death_time_ms == 0) return 0.0f;
+    const unsigned int hold_ms = 120;
+    const float fall_ms = 360.0f;
     unsigned int elapsed = (now_ms > p->death_time_ms) ? (now_ms - p->death_time_ms) : 0;
-    float t = (float)elapsed / 360.0f;
+    if (elapsed <= hold_ms) return 0.0f;
+    unsigned int anim_elapsed = elapsed - hold_ms;
+    float t = (float)anim_elapsed / fall_ms;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
     return t * t * (3.0f - 2.0f * t);

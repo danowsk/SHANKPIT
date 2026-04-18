@@ -1809,7 +1809,60 @@ static inline void katana_dash_remember_target(PlayerState *p, int target_id) {
     p->dash_hit_targets[p->dash_hit_count++] = target_id;
 }
 
-static inline void katana_apply_damage(PlayerState *attacker, PlayerState *target, int damage, int hit_feedback) {
+static inline void phys_set_death_direction(PlayerState *target, float incoming_x, float incoming_z) {
+    float away_x = -incoming_x;
+    float away_z = -incoming_z;
+    float len = sqrtf(away_x * away_x + away_z * away_z);
+    if (len < 0.0001f) {
+        float vel_len = sqrtf(target->vx * target->vx + target->vz * target->vz);
+        if (vel_len > 0.01f) {
+            away_x = target->vx / vel_len;
+            away_z = target->vz / vel_len;
+        } else {
+            float yaw_rad = -target->yaw * 0.0174533f;
+            away_x = -sinf(yaw_rad);
+            away_z = cosf(yaw_rad);
+        }
+    } else {
+        away_x /= len;
+        away_z /= len;
+    }
+    target->death_dir_x = away_x;
+    target->death_dir_z = away_z;
+}
+
+static inline void phys_enter_death_state(PlayerState *attacker, PlayerState *target, unsigned int now_ms, unsigned int respawn_delay_ms, float incoming_x, float incoming_z) {
+    if (!target || target->state == STATE_DEAD) return;
+    if (attacker) {
+        attacker->kills++;
+        attacker->accumulated_reward += 1000.0f;
+        attacker->hit_feedback = 30;
+    }
+    target->deaths++;
+    target->state = STATE_DEAD;
+    target->health = 0;
+    target->in_shoot = 0;
+    target->in_reload = 0;
+    target->in_use = 0;
+    target->in_jump = 0;
+    target->in_ability = 0;
+    target->is_shooting = 0;
+    target->attack_cooldown = 0;
+    target->reload_timer = 0;
+    target->dash_timer = 0;
+    target->dash_vx = target->dash_vy = target->dash_vz = 0.0f;
+    target->stunned_until_ms = 0;
+    target->stun_immune_until_ms = 0;
+    target->death_time_ms = now_ms;
+    target->death_duration_ms = respawn_delay_ms;
+    target->respawn_time = now_ms + respawn_delay_ms;
+    phys_set_death_direction(target, incoming_x, incoming_z);
+    target->vx += target->death_dir_x * 0.55f;
+    target->vz += target->death_dir_z * 0.55f;
+    target->vy += 0.20f;
+}
+
+static inline void katana_apply_damage(PlayerState *attacker, PlayerState *target, int damage, int hit_feedback, unsigned int now_ms, unsigned int respawn_delay_ms) {
     if (!target->active || target->state == STATE_DEAD) return;
     attacker->accumulated_reward += 10.0f;
     target->shield_regen_timer = SHIELD_REGEN_DELAY;
@@ -1820,15 +1873,13 @@ static inline void katana_apply_damage(PlayerState *attacker, PlayerState *targe
     }
     target->health -= damage;
     if (target->health <= 0) {
-        attacker->kills++;
-        target->deaths++;
-        attacker->accumulated_reward += 1000.0f;
-        attacker->hit_feedback = 30;
-        phys_respawn(target, 0);
+        float incoming_x = target->x - attacker->x;
+        float incoming_z = target->z - attacker->z;
+        phys_enter_death_state(attacker, target, now_ms, respawn_delay_ms, incoming_x, incoming_z);
     }
 }
 
-static inline void katana_try_slash(PlayerState *p, PlayerState *targets) {
+static inline void katana_try_slash(PlayerState *p, PlayerState *targets, unsigned int now_ms, unsigned int respawn_delay_ms) {
     float fx, fy, fz;
     katana_forward_dir(p->yaw, p->pitch, &fx, &fy, &fz);
     float origin_x = p->x;
@@ -1851,7 +1902,7 @@ static inline void katana_try_slash(PlayerState *p, PlayerState *targets) {
         float inv_dist = 1.0f / dist;
         float dot = fx * (tx * inv_dist) + fy * (ty * inv_dist) + fz * (tz * inv_dist);
         if (dot < min_dot) continue;
-        katana_apply_damage(p, target, KATANA_SLASH_DAMAGE, 12);
+        katana_apply_damage(p, target, KATANA_SLASH_DAMAGE, 12, now_ms, respawn_delay_ms);
         target->vx += fx * 0.35f;
         target->vz += fz * 0.35f;
     }
@@ -1874,7 +1925,7 @@ static inline int katana_try_start_dash(PlayerState *p) {
     return 1;
 }
 
-static inline void katana_update_dash_damage(PlayerState *p, PlayerState *targets) {
+static inline void katana_update_dash_damage(PlayerState *p, PlayerState *targets, unsigned int now_ms, unsigned int respawn_delay_ms) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         PlayerState *target = &targets[i];
         if (target == p) continue;
@@ -1888,7 +1939,7 @@ static inline void katana_update_dash_damage(PlayerState *p, PlayerState *target
         float dist_sq = dx*dx + dy*dy + dz*dz;
         if (dist_sq > KATANA_DASH_HIT_RADIUS_SQ) continue;
         katana_dash_remember_target(p, i);
-        katana_apply_damage(p, target, KATANA_DASH_DAMAGE, 18);
+        katana_apply_damage(p, target, KATANA_DASH_DAMAGE, 18, now_ms, respawn_delay_ms);
         target->vx += p->dash_vx * 0.08f;
         target->vz += p->dash_vz * 0.08f;
     }
@@ -2092,6 +2143,10 @@ void phys_respawn(PlayerState *p, unsigned int now) {
     p->portal_cooldown_until_ms = 0;
     p->stunned_until_ms = 0;
     p->stun_immune_until_ms = 0;
+    p->death_time_ms = 0;
+    p->death_duration_ms = 0;
+    p->death_dir_x = 0.0f;
+    p->death_dir_z = 0.0f;
     if (p->is_bot) {
         PlayerState *winner = get_best_bot();
         if (winner && winner != p) evolve_bot(p, winner);
@@ -2121,7 +2176,7 @@ static inline void spawn_projectile(Projectile *projectiles, PlayerState *p, int
     }
 }
 
-void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectiles, int shoot, int reload, int ability_press) {
+void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectiles, int shoot, int reload, int ability_press, unsigned int now_ms, unsigned int respawn_delay_ms) {
     if (p->in_vehicle) return; 
     if (p->reload_timer > 0) p->reload_timer--;
     if (p->attack_cooldown > 0) p->attack_cooldown--;
@@ -2133,7 +2188,7 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
         p->vx = p->dash_vx;
         p->vy = p->dash_vy;
         p->vz = p->dash_vz;
-        katana_update_dash_damage(p, targets);
+        katana_update_dash_damage(p, targets, now_ms, respawn_delay_ms);
         p->dash_timer--;
         p->is_shooting = 2;
         if (p->dash_timer <= 0) {
@@ -2176,7 +2231,7 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
             if (w == WPN_KATANA) {
                 p->katana_slash_timer = KATANA_SLASH_ACTIVE_TICKS;
                 p->recoil_anim = 0.35f;
-                katana_try_slash(p, targets);
+                katana_try_slash(p, targets, now_ms, respawn_delay_ms);
                 return;
             }
             
@@ -2204,7 +2259,7 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
                     int damage = WPN_STATS[w].dmg;
                     if (hit_type == 2 && targets[i].shield <= 0) { damage *= 3; p->hit_feedback = 20;
                     } else { p->hit_feedback = 10; } 
-                    katana_apply_damage(p, &targets[i], damage, p->hit_feedback);
+                    katana_apply_damage(p, &targets[i], damage, p->hit_feedback, now_ms, respawn_delay_ms);
                 }
             }
         }

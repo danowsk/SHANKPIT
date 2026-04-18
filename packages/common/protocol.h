@@ -115,6 +115,10 @@ typedef struct {
     unsigned char storm_charges;
     unsigned short kills;
     unsigned short deaths;
+    unsigned short death_elapsed_ms;
+    unsigned short death_duration_ms;
+    float death_dir_x;
+    float death_dir_z;
 } NetPlayer;
 
 typedef struct {
@@ -168,6 +172,10 @@ typedef struct {
     BotGenome brain;
     unsigned int last_hit_time;
     unsigned int respawn_time;
+    unsigned int death_time_ms;
+    unsigned int death_duration_ms;
+    float death_dir_x;
+    float death_dir_z;
     int storm_charges;
     int ability_cooldown;
     int katana_slash_timer;

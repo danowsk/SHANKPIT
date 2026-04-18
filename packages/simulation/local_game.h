@@ -30,6 +30,13 @@ static int mode_uses_team_scores(int mode) {
     return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB;
 }
 
+static unsigned int mode_respawn_delay_ms(int mode) {
+    switch (mode) {
+        case MODE_CTFB: return CTFB_RESPAWN_DELAY_MS;
+        default: return 2000;
+    }
+}
+
 static int scene_random_tdmb_map(void) {
     static int seeded = 0;
     static const int tdmb_maps[] = {
@@ -291,24 +298,13 @@ static void ctf_drop_flag_from_carrier(int player_id, unsigned int now_ms) {
     p->carried_flag_team_id = -1;
 }
 
-static void ctf_schedule_respawn(PlayerState *victim, unsigned int now_ms) {
+static void ctf_schedule_respawn(PlayerState *attacker, PlayerState *victim, unsigned int now_ms, float incoming_x, float incoming_z) {
     if (!victim) return;
 #if CTFB_RESPAWN_DEBUG_LOG
     int dropped_team = victim->carried_flag_team_id;
 #endif
-    victim->state = STATE_DEAD;
-    victim->respawn_time = now_ms + CTFB_RESPAWN_DELAY_MS;
+    phys_enter_death_state(attacker, victim, now_ms, mode_respawn_delay_ms(MODE_CTFB), incoming_x, incoming_z);
     victim->carried_flag_team_id = -1;
-    victim->in_shoot = 0;
-    victim->in_reload = 0;
-    victim->in_use = 0;
-    victim->in_jump = 0;
-    victim->in_ability = 0;
-    victim->is_shooting = 0;
-    victim->attack_cooldown = 0;
-    victim->reload_timer = 0;
-    victim->stunned_until_ms = 0;
-    victim->stun_immune_until_ms = 0;
 #if CTFB_RESPAWN_DEBUG_LOG
     printf("[CTFB] carrier %d died, dropped flag team %d, respawn in %d ms\n",
            victim->id, dropped_team, CTFB_RESPAWN_DELAY_MS);
@@ -458,9 +454,9 @@ static void ctf_try_carry_melee(PlayerState *attacker, unsigned int now_ms) {
         attacker->hit_feedback = 16;
         if (t->health <= 0) {
             ctf_drop_flag_from_carrier(t->id, now_ms);
-            attacker->kills++;
-            t->deaths++;
-            ctf_schedule_respawn(t, now_ms);
+            float incoming_x = t->x - attacker->x;
+            float incoming_z = t->z - attacker->z;
+            ctf_schedule_respawn(attacker, t, now_ms, incoming_x, incoming_z);
         }
     }
 }
@@ -557,9 +553,26 @@ void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw
 // --- UPDATE LOOP ---
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time) {
     if (!p->active) return;
-    if (p->state == STATE_DEAD) return;
 
     phys_set_scene(p->scene_id);
+
+    if (p->state == STATE_DEAD) {
+        p->in_shoot = 0;
+        p->in_reload = 0;
+        p->in_use = 0;
+        p->in_jump = 0;
+        p->in_ability = 0;
+        apply_friction(p);
+        p->vy -= GRAVITY_DROP;
+        p->y += p->vy;
+        resolve_collision(p);
+        p->x += p->vx;
+        p->z += p->vz;
+        if (p->hit_feedback > 0) p->hit_feedback--;
+        if (p->recoil_anim > 0.0f) p->recoil_anim -= 0.1f;
+        if (p->recoil_anim < 0.0f) p->recoil_anim = 0.0f;
+        return;
+    }
 
     if (cmd_time < p->stunned_until_ms) {
         p->in_fwd = 0.0f;
@@ -604,11 +617,11 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
     if (p->recoil_anim < 0) p->recoil_anim = 0;
     if (p->hit_feedback > 0) p->hit_feedback--;
 
-    update_weapons(p, local_state.players, local_state.projectiles, p->in_shoot > 0, p->in_reload > 0, p->in_ability > 0);
+    update_weapons(p, local_state.players, local_state.projectiles, p->in_shoot > 0, p->in_reload > 0, p->in_ability > 0, cmd_time, mode_respawn_delay_ms(local_state.game_mode));
     scene_safety_check(p);
 }
 
-static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int damage, unsigned int now_ms) {
+static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int damage, unsigned int now_ms, float hit_vx, float hit_vz) {
     if (!target->active || target->state == STATE_DEAD) return;
     int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB);
     if (owner && team_mode && owner->team_id == target->team_id) return;
@@ -626,12 +639,9 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
             if (carried_flag_team_id >= 0) ctf_add_reward(target->id, -20.0f, "died_with_flag", NULL);
         }
         if (owner) {
-            owner->kills++;
             owner->accumulated_reward += 500.0f;
         }
-        target->deaths++;
-        if (local_state.game_mode == MODE_CTFB) ctf_schedule_respawn(target, now_ms);
-        else phys_respawn(target, now_ms);
+        phys_enter_death_state(owner, target, now_ms, mode_respawn_delay_ms(local_state.game_mode), hit_vx, hit_vz);
     }
 
     if (now_ms >= target->stun_immune_until_ms) {
@@ -680,7 +690,7 @@ static void update_projectiles(unsigned int now_ms) {
                     if (p->owner_id >= 0 && p->owner_id < MAX_CLIENTS) {
                         owner = &local_state.players[p->owner_id];
                     }
-                    apply_projectile_damage(owner, target, p->damage, now_ms);
+                    apply_projectile_damage(owner, target, p->damage, now_ms, p->vx, p->vz);
                     p->active = 0;
                     break;
                 }
@@ -708,7 +718,10 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     }
     p0->yaw = yaw; p0->pitch = pitch;
     if (weapon_req >= 0 && weapon_req < MAX_WEAPONS) p0->current_weapon = weapon_req;
-    if (!(p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER)) {
+    if (p0->state == STATE_DEAD) {
+        fwd = 0.0f; str = 0.0f; shoot = 0; jump = 0; crouch = 0; reload = 0; ability = 0;
+    }
+    if (p0->state != STATE_DEAD && !(p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER)) {
         MoveIntent move_intent = {
             .forward = fwd,
             .strafe = str,
@@ -722,7 +735,7 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     
     int fresh_jump_press = (jump && !was_holding_jump);
     // --- PHASE 485: TUNED SLIDE JUMP ---
-    if (jump && p0->on_ground) {
+    if (p0->state != STATE_DEAD && jump && p0->on_ground) {
         float speed = sqrtf(p0->vx*p0->vx + p0->vz*p0->vz);
         if (p0->crouching && speed > 0.5f && fresh_jump_press) {
             float boost_mult = 1.0f + (0.25f / speed);
@@ -763,7 +776,7 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     for(int i=0; i<MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
         if (!p->active) continue;
-        if (local_state.game_mode == MODE_CTFB && p->state == STATE_DEAD) {
+        if (p->state == STATE_DEAD) {
             if (p->respawn_time != 0 && cmd_time >= p->respawn_time) {
                 phys_respawn(p, cmd_time);
                 p->respawn_time = 0;
@@ -781,8 +794,6 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
 #if CTFB_RESPAWN_DEBUG_LOG
                 printf("[CTFB] respawn player %d at %u\n", p->id, cmd_time);
 #endif
-            } else {
-                continue;
             }
         }
         if (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER) {

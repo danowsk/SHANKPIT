@@ -619,6 +619,15 @@ int process_user_cmd(int client_id, UserCmd *cmd) {
     }
     PlayerState *p = &local_state.players[client_id];
     shankpit_apply_usercmd_inputs(p, cmd);
+    if (p->state == STATE_DEAD) {
+        p->in_fwd = 0.0f;
+        p->in_strafe = 0.0f;
+        p->in_jump = 0;
+        p->in_shoot = 0;
+        p->in_reload = 0;
+        p->in_use = 0;
+        p->in_ability = 0;
+    }
     client_last_seq[client_id] = cmd->sequence;
     g_net_diag.usercmds_applied++;
     return 1;
@@ -798,6 +807,15 @@ void server_broadcast() {
             np.storm_charges = (unsigned char)p->storm_charges;
             np.kills = (unsigned short)(p->kills < 0 ? 0 : p->kills);
             np.deaths = (unsigned short)(p->deaths < 0 ? 0 : p->deaths);
+            unsigned int death_elapsed = 0;
+            if (p->state == STATE_DEAD && p->death_time_ms > 0 && head.timestamp >= p->death_time_ms) {
+                death_elapsed = head.timestamp - p->death_time_ms;
+            }
+            if (death_elapsed > 65535u) death_elapsed = 65535u;
+            np.death_elapsed_ms = (unsigned short)death_elapsed;
+            np.death_duration_ms = (unsigned short)(p->death_duration_ms > 65535u ? 65535u : p->death_duration_ms);
+            np.death_dir_x = p->death_dir_x;
+            np.death_dir_z = p->death_dir_z;
             p->accumulated_reward = 0;
             memcpy(buffer + cursor, &np, sizeof(NetPlayer)); cursor += (int)sizeof(NetPlayer);
         }
@@ -942,7 +960,7 @@ int main(int argc, char *argv[]) {
             }
 
             if (i > 0 && p->active && p->state == STATE_DEAD) {
-                if (local_state.game_mode != MODE_SURVIVAL && now > p->respawn_time) {
+                if (local_state.game_mode != MODE_SURVIVAL && p->respawn_time != 0 && now >= p->respawn_time) {
                     phys_respawn(p, now);
                     p->yaw = 0.0f;
                     p->pitch = 0.0f;

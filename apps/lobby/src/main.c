@@ -37,6 +37,7 @@
 #include "../../../packages/simulation/local_game.h"
 #include "../../../packages/render/proc_tex.h"
 #include "../../../packages/render/retro_sky.h"
+#include "../../../packages/render/retro_lighting.h"
 
 #ifndef NET_VERBOSE_LOG
 #define NET_VERBOSE_LOG 1
@@ -117,6 +118,8 @@ static int vehicle_underglow_enabled = 1;
 static int vehicle_worklights_enabled = 1;
 #define HELI_NET_DEBUG 0
 static int vs0_art_direction_enabled = 1;
+/* Flip this during tuning to quickly test authored world-light presets. */
+static RetroLightingPreset g_world_lighting_preset = RETRO_LIGHTING_DAY_STATIC;
 static int terrain_wireframe_debug = 0;
 static int terrain_normals_debug = 0;
 static int voxworld_points_debug = 0;
@@ -181,25 +184,25 @@ static float smoothstepf(float edge0, float edge1, float x) {
  * Keep all cheap "fake baked" lighting/fog math centralized so we can
  * iterate style without changing world/gameplay data paths.
  */
-static void retro_eval_sun_dir(float *out_x, float *out_y, float *out_z) {
-    retro_sky_eval_sun_dir(SDL_GetTicks() * 0.001f, out_x, out_y, out_z);
-}
-
-static void retro_eval_fog_rgb(float *out_r, float *out_g, float *out_b) {
-    retro_sky_eval_fog_rgb(SDL_GetTicks() * 0.001f, out_r, out_g, out_b);
-}
-
-static void retro_apply_fog_rgb(float *r, float *g, float *b, float fog_r, float fog_g, float fog_b, float dist) {
-    float haze = smoothstepf(420.0f, 2800.0f, dist);
+static void retro_apply_fog_rgb(float *r, float *g, float *b, const RetroLightingState *lighting, float dist) {
+    float fog_r = 0.18f, fog_g = 0.25f, fog_b = 0.36f;
+    float fog_near = 420.0f, fog_far = 2800.0f;
+    if (lighting) {
+        fog_r = lighting->fog_r;
+        fog_g = lighting->fog_g;
+        fog_b = lighting->fog_b;
+        fog_near = lighting->fog_near;
+        fog_far = lighting->fog_far;
+    }
+    float haze = smoothstepf(fog_near, fog_far, dist);
     *r = lerpf(*r, fog_r, haze);
     *g = lerpf(*g, fog_g, haze);
     *b = lerpf(*b, fog_b, haze);
 }
 
-static float retro_eval_brush_lighting(float nx, float ny, float nz, float ambient_floor, float sun_x, float sun_y, float sun_z) {
-    float ndotl = nx * sun_x + ny * sun_y + nz * sun_z;
-    float diffuse = clamp01f(ndotl * 0.5f + 0.5f);
-    return ambient_floor + diffuse * (1.0f - ambient_floor);
+static void retro_eval_brush_lighting_rgb(const RetroLightingState *lighting, float nx, float ny, float nz,
+                                          float ambient_floor, float *out_r, float *out_g, float *out_b) {
+    retro_lighting_eval_surface_rgb(lighting, nx, ny, nz, ambient_floor, out_r, out_g, out_b);
 }
 
 #define Z_FAR 8000.0f
@@ -850,7 +853,7 @@ void draw_grid() {
 }
 
 // --- NEON BRUTALIST BLOCK RENDERER ---
-void draw_map() {
+void draw_map(const RetroLightingState *lighting) {
     if (!vs0_art_direction_enabled) {
         for(int i=1; i<map_count; i++) {
             Box b = map_geo[i];
@@ -894,10 +897,6 @@ void draw_map() {
         return;
     }
 
-    float fog_r = 0.18f, fog_g = 0.25f, fog_b = 0.36f;
-    float sun_x = 0.0f, sun_y = 1.0f, sun_z = 0.0f;
-    retro_eval_sun_dir(&sun_x, &sun_y, &sun_z);
-    retro_eval_fog_rgb(&fog_r, &fog_g, &fog_b);
     int ref_id = (my_client_id >= 0 && my_client_id < MAX_CLIENTS) ? my_client_id : 0;
     const PlayerState *rp = &local_state.players[ref_id];
 
@@ -912,34 +911,40 @@ void draw_map() {
         float back_r = base_r * 0.73f, back_g = base_g * 0.77f, back_b = base_b * 0.84f;
 
         float ground_ao = smoothstepf(12.0f, -14.0f, b.y - b.h * 0.5f);
-        float top_lit = retro_eval_brush_lighting(0.0f, 1.0f, 0.0f, 0.72f, sun_x, sun_y, sun_z);
-        float bot_lit = retro_eval_brush_lighting(0.0f, -1.0f, 0.0f, 0.58f, sun_x, sun_y, sun_z);
-        float front_lit = retro_eval_brush_lighting(0.0f, 0.0f, 1.0f, 0.64f, sun_x, sun_y, sun_z);
-        float back_lit = retro_eval_brush_lighting(0.0f, 0.0f, -1.0f, 0.62f, sun_x, sun_y, sun_z);
-        float left_lit = retro_eval_brush_lighting(-1.0f, 0.0f, 0.0f, 0.60f, sun_x, sun_y, sun_z);
-        float right_lit = retro_eval_brush_lighting(1.0f, 0.0f, 0.0f, 0.60f, sun_x, sun_y, sun_z);
-        bot_lit *= 0.86f - ground_ao * 0.18f;
-        front_lit *= 0.98f - ground_ao * 0.08f;
-        back_lit *= 0.96f - ground_ao * 0.10f;
-        left_lit *= 0.97f - ground_ao * 0.10f;
-        right_lit *= 0.99f - ground_ao * 0.08f;
+        float top_lit_r = 1.0f, top_lit_g = 1.0f, top_lit_b = 1.0f;
+        float bot_lit_r = 1.0f, bot_lit_g = 1.0f, bot_lit_b = 1.0f;
+        float front_lit_r = 1.0f, front_lit_g = 1.0f, front_lit_b = 1.0f;
+        float back_lit_r = 1.0f, back_lit_g = 1.0f, back_lit_b = 1.0f;
+        float left_lit_r = 1.0f, left_lit_g = 1.0f, left_lit_b = 1.0f;
+        float right_lit_r = 1.0f, right_lit_g = 1.0f, right_lit_b = 1.0f;
+        retro_eval_brush_lighting_rgb(lighting, 0.0f, 1.0f, 0.0f, 0.72f, &top_lit_r, &top_lit_g, &top_lit_b);
+        retro_eval_brush_lighting_rgb(lighting, 0.0f, -1.0f, 0.0f, 0.58f, &bot_lit_r, &bot_lit_g, &bot_lit_b);
+        retro_eval_brush_lighting_rgb(lighting, 0.0f, 0.0f, 1.0f, 0.64f, &front_lit_r, &front_lit_g, &front_lit_b);
+        retro_eval_brush_lighting_rgb(lighting, 0.0f, 0.0f, -1.0f, 0.62f, &back_lit_r, &back_lit_g, &back_lit_b);
+        retro_eval_brush_lighting_rgb(lighting, -1.0f, 0.0f, 0.0f, 0.60f, &left_lit_r, &left_lit_g, &left_lit_b);
+        retro_eval_brush_lighting_rgb(lighting, 1.0f, 0.0f, 0.0f, 0.60f, &right_lit_r, &right_lit_g, &right_lit_b);
+        bot_lit_r *= 0.86f - ground_ao * 0.18f; bot_lit_g *= 0.86f - ground_ao * 0.18f; bot_lit_b *= 0.86f - ground_ao * 0.18f;
+        front_lit_r *= 0.98f - ground_ao * 0.08f; front_lit_g *= 0.98f - ground_ao * 0.08f; front_lit_b *= 0.98f - ground_ao * 0.08f;
+        back_lit_r *= 0.96f - ground_ao * 0.10f; back_lit_g *= 0.96f - ground_ao * 0.10f; back_lit_b *= 0.96f - ground_ao * 0.10f;
+        left_lit_r *= 0.97f - ground_ao * 0.10f; left_lit_g *= 0.97f - ground_ao * 0.10f; left_lit_b *= 0.97f - ground_ao * 0.10f;
+        right_lit_r *= 0.99f - ground_ao * 0.08f; right_lit_g *= 0.99f - ground_ao * 0.08f; right_lit_b *= 0.99f - ground_ao * 0.08f;
 
         float dx = b.x - rp->x;
         float dz = b.z - rp->z;
         float dist = sqrtf(dx * dx + dz * dz);
 
-        top_r *= top_lit; top_g *= top_lit; top_b *= top_lit;
-        float bot_r = back_r * 0.85f * bot_lit, bot_g = back_g * 0.85f * bot_lit, bot_b = back_b * 0.85f * bot_lit;
-        float front_r = base_r * front_lit, front_g = base_g * front_lit, front_b = base_b * front_lit;
-        float rear_r = back_r * back_lit, rear_g = back_g * back_lit, rear_b = back_b * back_lit;
-        float left_r = side_r * left_lit, left_g = side_g * left_lit, left_b = side_b * left_lit;
-        float right_r = side_r * 0.95f * right_lit, right_g = side_g * 0.95f * right_lit, right_b = side_b * 0.95f * right_lit;
-        retro_apply_fog_rgb(&top_r, &top_g, &top_b, fog_r, fog_g, fog_b, dist);
-        retro_apply_fog_rgb(&bot_r, &bot_g, &bot_b, fog_r, fog_g, fog_b, dist);
-        retro_apply_fog_rgb(&front_r, &front_g, &front_b, fog_r, fog_g, fog_b, dist);
-        retro_apply_fog_rgb(&rear_r, &rear_g, &rear_b, fog_r, fog_g, fog_b, dist);
-        retro_apply_fog_rgb(&left_r, &left_g, &left_b, fog_r, fog_g, fog_b, dist);
-        retro_apply_fog_rgb(&right_r, &right_g, &right_b, fog_r, fog_g, fog_b, dist);
+        top_r *= top_lit_r; top_g *= top_lit_g; top_b *= top_lit_b;
+        float bot_r = back_r * 0.85f * bot_lit_r, bot_g = back_g * 0.85f * bot_lit_g, bot_b = back_b * 0.85f * bot_lit_b;
+        float front_r = base_r * front_lit_r, front_g = base_g * front_lit_g, front_b = base_b * front_lit_b;
+        float rear_r = back_r * back_lit_r, rear_g = back_g * back_lit_g, rear_b = back_b * back_lit_b;
+        float left_r = side_r * left_lit_r, left_g = side_g * left_lit_g, left_b = side_b * left_lit_b;
+        float right_r = side_r * 0.95f * right_lit_r, right_g = side_g * 0.95f * right_lit_g, right_b = side_b * 0.95f * right_lit_b;
+        retro_apply_fog_rgb(&top_r, &top_g, &top_b, lighting, dist);
+        retro_apply_fog_rgb(&bot_r, &bot_g, &bot_b, lighting, dist);
+        retro_apply_fog_rgb(&front_r, &front_g, &front_b, lighting, dist);
+        retro_apply_fog_rgb(&rear_r, &rear_g, &rear_b, lighting, dist);
+        retro_apply_fog_rgb(&left_r, &left_g, &left_b, lighting, dist);
+        retro_apply_fog_rgb(&right_r, &right_g, &right_b, lighting, dist);
 
         glPushMatrix(); 
         glTranslatef(b.x, b.y, b.z); 
@@ -1024,16 +1029,11 @@ static void draw_team_map_markers(int scene_id, int game_mode) {
     }
 }
 
-void draw_terrain() {
+void draw_terrain(const RetroLightingState *lighting) {
     TerrainHeightfield *t = scene_active_terrain();
     if (!t || !t->active || !t->heights || t->width < 2 || t->height < 2) return;
     int ref_id = (my_client_id >= 0 && my_client_id < MAX_CLIENTS) ? my_client_id : 0;
     const PlayerState *rp = &local_state.players[ref_id];
-    float sun_x = 0.0f, sun_y = 1.0f, sun_z = 0.0f;
-    float fog_r = 0.18f, fog_g = 0.25f, fog_b = 0.36f;
-    retro_eval_sun_dir(&sun_x, &sun_y, &sun_z);
-    retro_eval_fog_rgb(&fog_r, &fog_g, &fog_b);
-
     float min_h = terrain_get_height(t, 0, 0);
     float max_h = min_h;
     for (int gz = 0; gz < t->height; gz++) {
@@ -1076,15 +1076,16 @@ void draw_terrain() {
                 r0 = lerpf(r0, 0.35f, dark_mix0);
                 g0 = lerpf(g0, 0.33f, dark_mix0);
                 b0 = lerpf(b0, 0.30f, dark_mix0);
-                float sun0 = retro_eval_brush_lighting(nx0, ny0, nz0, 0.66f, sun_x, sun_y, sun_z);
+                float sun0_r = 1.0f, sun0_g = 1.0f, sun0_b = 1.0f;
+                retro_eval_brush_lighting_rgb(lighting, nx0, ny0, nz0, 0.66f, &sun0_r, &sun0_g, &sun0_b);
                 float ambient_occ0 = smoothstepf(0.25f, 0.95f, ny0) * 0.08f + smoothstepf(0.16f, 0.0f, h_norm0) * 0.10f;
-                float lit0 = sun0 * (0.98f - ambient_occ0);
-                r0 *= lit0;
-                g0 *= lit0 * 0.98f;
-                b0 *= lit0 * 0.92f;
+                float lit0_occ = 0.98f - ambient_occ0;
+                r0 *= sun0_r * lit0_occ;
+                g0 *= sun0_g * lit0_occ * 0.98f;
+                b0 *= sun0_b * lit0_occ * 0.92f;
                 float dx0 = x - rp->x;
                 float dz0 = z0 - rp->z;
-                retro_apply_fog_rgb(&r0, &g0, &b0, fog_r, fog_g, fog_b, sqrtf(dx0 * dx0 + dz0 * dz0));
+                retro_apply_fog_rgb(&r0, &g0, &b0, lighting, sqrtf(dx0 * dx0 + dz0 * dz0));
                 glColor3f(r0, g0, b0);
             }
             glVertex3f(x, h0, z0);
@@ -1106,15 +1107,16 @@ void draw_terrain() {
                 r1 = lerpf(r1, 0.35f, dark_mix1);
                 g1 = lerpf(g1, 0.33f, dark_mix1);
                 b1 = lerpf(b1, 0.30f, dark_mix1);
-                float sun1 = retro_eval_brush_lighting(nx1, ny1, nz1, 0.66f, sun_x, sun_y, sun_z);
+                float sun1_r = 1.0f, sun1_g = 1.0f, sun1_b = 1.0f;
+                retro_eval_brush_lighting_rgb(lighting, nx1, ny1, nz1, 0.66f, &sun1_r, &sun1_g, &sun1_b);
                 float ambient_occ1 = smoothstepf(0.25f, 0.95f, ny1) * 0.08f + smoothstepf(0.16f, 0.0f, h_norm1) * 0.10f;
-                float lit1 = sun1 * (0.98f - ambient_occ1);
-                r1 *= lit1;
-                g1 *= lit1 * 0.98f;
-                b1 *= lit1 * 0.92f;
+                float lit1_occ = 0.98f - ambient_occ1;
+                r1 *= sun1_r * lit1_occ;
+                g1 *= sun1_g * lit1_occ * 0.98f;
+                b1 *= sun1_b * lit1_occ * 0.92f;
                 float dx1 = x - rp->x;
                 float dz1 = z1 - rp->z;
-                retro_apply_fog_rgb(&r1, &g1, &b1, fog_r, fog_g, fog_b, sqrtf(dx1 * dx1 + dz1 * dz1));
+                retro_apply_fog_rgb(&r1, &g1, &b1, lighting, sqrtf(dx1 * dx1 + dz1 * dz1));
                 glColor3f(r1, g1, b1);
             }
             glVertex3f(x, h1, z1);
@@ -3256,12 +3258,15 @@ void draw_scene(PlayerState *render_p) {
            in world space so the background feels infinitely distant (no translation parallax). */
         retro_sky_draw(&g_retro_sky, sky_cam_x, sky_cam_y, sky_cam_z, SDL_GetTicks() * 0.001f);
     }
+
+    RetroLightingState world_lighting;
+    retro_lighting_eval(SDL_GetTicks() * 0.001f, g_world_lighting_preset, &world_lighting);
     
     draw_grid(); 
     update_and_draw_trails();
-    draw_terrain();
+    draw_terrain(&world_lighting);
     draw_voxworld_bushes();
-    draw_map();
+    draw_map(&world_lighting);
     draw_team_map_markers(local_state.scene_id, local_state.game_mode);
     draw_garage_vehicle_pads();
     draw_garage_portal_frame();

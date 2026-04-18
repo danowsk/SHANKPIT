@@ -1832,6 +1832,10 @@ static inline void phys_set_death_direction(PlayerState *target, float incoming_
 }
 
 static inline void phys_enter_death_state(PlayerState *attacker, PlayerState *target, unsigned int now_ms, unsigned int respawn_delay_ms, float incoming_x, float incoming_z) {
+    const float DEATH_PLANAR_CARRY = 0.15f;
+    const float DEATH_PLANAR_PUSH = 1.10f;
+    const float DEATH_UPWARD_LAUNCH = 0.28f;
+
     if (!target || target->state == STATE_DEAD) return;
     if (attacker) {
         attacker->kills++;
@@ -1857,9 +1861,9 @@ static inline void phys_enter_death_state(PlayerState *attacker, PlayerState *ta
     target->death_duration_ms = respawn_delay_ms;
     target->respawn_time = now_ms + respawn_delay_ms;
     phys_set_death_direction(target, incoming_x, incoming_z);
-    target->vx += target->death_dir_x * 0.55f;
-    target->vz += target->death_dir_z * 0.55f;
-    target->vy += 0.20f;
+    target->vx = target->vx * DEATH_PLANAR_CARRY + target->death_dir_x * DEATH_PLANAR_PUSH;
+    target->vz = target->vz * DEATH_PLANAR_CARRY + target->death_dir_z * DEATH_PLANAR_PUSH;
+    target->vy = DEATH_UPWARD_LAUNCH;
 }
 
 static inline void katana_apply_damage(PlayerState *attacker, PlayerState *target, int damage, int hit_feedback, unsigned int now_ms, unsigned int respawn_delay_ms) {

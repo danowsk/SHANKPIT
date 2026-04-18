@@ -1502,10 +1502,10 @@ static void draw_thirdperson_knife_model(void) {
     glPushMatrix(); glTranslatef(0.0f, -0.09f, -0.03f); draw_box(0.22f, 0.05f, 0.11f); glPopMatrix();
     /* blade */
     glColor3f(0.70f, 0.73f, 0.78f);
-    glPushMatrix(); glTranslatef(0.0f, -0.05f, 0.43f); draw_box(0.09f, 0.04f, 0.92f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, -0.05f, 0.55f); draw_box(0.09f, 0.04f, 1.16f); glPopMatrix();
     /* tip */
     glColor3f(0.78f, 0.80f, 0.85f);
-    glPushMatrix(); glTranslatef(0.0f, -0.04f, 0.97f); glRotatef(-13.0f, 1, 0, 0); draw_box(0.05f, 0.03f, 0.30f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, -0.04f, 1.22f); glRotatef(-13.0f, 1, 0, 0); draw_box(0.05f, 0.03f, 0.38f); glPopMatrix();
     glPopMatrix();
 }
 
@@ -1712,10 +1712,10 @@ static void draw_viewmodel_knife_firstperson(void) {
     glPushMatrix(); glTranslatef(0.00f, -0.20f, 0.08f); draw_box(0.32f, 0.06f, 0.16f); glPopMatrix();
     /* blade */
     glColor3f(0.68f, 0.72f, 0.78f);
-    glPushMatrix(); glTranslatef(0.00f, -0.10f, 0.82f); glRotatef(-4.0f, 1, 0, 0); draw_box(0.11f, 0.05f, 1.36f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.10f, 0.98f); glRotatef(-4.0f, 1, 0, 0); draw_box(0.11f, 0.05f, 1.68f); glPopMatrix();
     /* tip */
     glColor3f(0.80f, 0.82f, 0.86f);
-    glPushMatrix(); glTranslatef(0.00f, -0.06f, 1.58f); glRotatef(-14.0f, 1, 0, 0); draw_box(0.07f, 0.04f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, -0.06f, 1.96f); glRotatef(-14.0f, 1, 0, 0); draw_box(0.07f, 0.04f, 0.52f); glPopMatrix();
 }
 
 static void draw_viewmodel_weapon(int weapon_id) {
@@ -2437,19 +2437,17 @@ void draw_weapon_p(PlayerState *p) {
     float reload_dip = (p->reload_timer > 0) ? sinf(p->reload_timer * 0.2f) * 0.5f - 0.5f : 0.0f;
     float slash_swing = (p->current_weapon == WPN_KATANA && p->katana_slash_timer > 0) ? ((float)p->katana_slash_timer / (float)KATANA_SLASH_ACTIVE_TICKS) : 0.0f;
     float dash_push = (p->current_weapon == WPN_KATANA && p->dash_timer > 0) ? 0.22f : 0.0f;
-    float knife_wind = 0.0f, knife_thrust = 0.0f, knife_recover = 0.0f;
+    float knife_drive = 0.0f, knife_recover = 0.0f;
     if (p->current_weapon == WPN_KNIFE && knife_stab_t > 0.0f) {
-        knife_wind = clamp01f(knife_stab_t / 0.20f);
-        knife_thrust = clamp01f((knife_stab_t - 0.20f) / 0.25f);
-        knife_recover = clamp01f((knife_stab_t - 0.45f) / 0.55f);
-        knife_wind = knife_wind * knife_wind;
-        knife_thrust = 1.0f - (1.0f - knife_thrust) * (1.0f - knife_thrust);
+        knife_drive = clamp01f(knife_stab_t / 0.28f);
+        knife_recover = clamp01f((knife_stab_t - 0.28f) / 0.72f);
+        knife_drive = 1.0f - (1.0f - knife_drive) * (1.0f - knife_drive);
         knife_recover = knife_recover * knife_recover;
     }
-    float knife_anim_forward = (knife_wind * 0.08f) + (knife_thrust * 0.66f) - (knife_recover * 0.64f);
-    float knife_anim_drop = (knife_wind * 0.08f) + (knife_thrust * 0.14f) - (knife_recover * 0.12f);
-    float knife_anim_pitch = (knife_wind * 14.0f) + (knife_thrust * 46.0f) - (knife_recover * 40.0f);
-    float knife_anim_roll = (knife_wind * 4.0f) + (knife_thrust * 10.0f) - (knife_recover * 8.0f);
+    float knife_anim_forward = (knife_drive * 0.92f) - (knife_recover * 0.58f);
+    float knife_anim_drop = (knife_drive * 0.10f) - (knife_recover * 0.08f);
+    float knife_anim_pitch = (knife_drive * 24.0f) - (knife_recover * 16.0f);
+    float knife_anim_roll = (knife_drive * 8.0f) - (knife_recover * 5.0f);
     float speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
     float bob = sinf(SDL_GetTicks() * 0.015f) * speed * tune.idle_scale;
     float ads_blend = (current_fov < 50.0f) ? 0.22f : 0.0f;

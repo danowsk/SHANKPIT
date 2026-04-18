@@ -2234,6 +2234,41 @@ int check_hit_location(float ox, float oy, float oz, float dx, float dy, float d
     return 0;
 }
 
+static inline int phys_try_melee_strike(PlayerState *attacker, PlayerState *targets, int base_damage, int hit_feedback, int allow_headshot_multiplier, unsigned int now_ms, unsigned int respawn_delay_ms) {
+    float r = -attacker->yaw * 0.0174533f;
+    float rp = attacker->pitch * 0.0174533f;
+    float dx = sinf(r) * cosf(rp);
+    float dy = sinf(rp);
+    float dz = -cosf(r) * cosf(rp);
+    int hit_any = 0;
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (attacker == &targets[i]) continue;
+        if (!targets[i].active || targets[i].state == STATE_DEAD) continue;
+        if (targets[i].scene_id != attacker->scene_id) continue;
+        if (phys_is_friendly(attacker, &targets[i])) continue;
+
+        float kx = attacker->x - targets[i].x;
+        float ky = attacker->y - targets[i].y;
+        float kz = attacker->z - targets[i].z;
+        if ((kx*kx + ky*ky + kz*kz) > MELEE_RANGE_SQ + 22.0f) continue;
+
+        int hit_type = check_hit_location(attacker->x, attacker->y + EYE_HEIGHT, attacker->z, dx, dy, dz, &targets[i]);
+        if (hit_type <= 0) continue;
+
+        int damage = base_damage;
+        attacker->hit_feedback = hit_feedback;
+        if (allow_headshot_multiplier && hit_type == 2 && targets[i].shield <= 0) {
+            damage *= 3;
+            attacker->hit_feedback = 20;
+        }
+        katana_apply_damage(attacker, &targets[i], damage, attacker->hit_feedback, now_ms, respawn_delay_ms);
+        hit_any = 1;
+    }
+
+    return hit_any;
+}
+
 void apply_friction(PlayerState *p) {
     if (p->dash_timer > 0) return;
     float speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
@@ -2436,6 +2471,10 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
                 katana_try_slash(p, targets, now_ms, respawn_delay_ms);
                 return;
             }
+            if (w == WPN_KNIFE) {
+                phys_try_melee_strike(p, targets, WPN_STATS[w].dmg, 10, 1, now_ms, respawn_delay_ms);
+                return;
+            }
             
             float r = -p->yaw * 0.0174533f; float rp = p->pitch * 0.0174533f;
             float dx = sinf(r) * cosf(rp); float dy = sinf(rp); float dz = -cosf(r) * cosf(rp);
@@ -2450,11 +2489,6 @@ void update_weapons(PlayerState *p, PlayerState *targets, Projectile *projectile
                 if (!targets[i].active || targets[i].state == STATE_DEAD) continue;
                 if (targets[i].scene_id != p->scene_id) continue;
                 if (phys_is_friendly(p, &targets[i])) continue;
-                if (w == WPN_KNIFE) {
-                    float kx = p->x - targets[i].x;
-                    float ky = p->y - targets[i].y; float kz = p->z - targets[i].z;
-                    if ((kx*kx + ky*ky + kz*kz) > MELEE_RANGE_SQ + 22.0f ) continue;
-                }
                 int hit_type = check_hit_location(p->x, p->y + EYE_HEIGHT, p->z, dx, dy, dz, &targets[i]);
                 if (hit_type > 0) {
                     printf("🔫 HIT! Dmg: %d on Target %d\n", WPN_STATS[w].dmg, i);

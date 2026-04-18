@@ -1728,6 +1728,15 @@ static ViewmodelTuning viewmodel_tuning_for_weapon(int weapon_id) {
     return t;
 }
 
+static int player_is_flag_carrying_viewmodel(const PlayerState *p) {
+    return (local_state.game_mode == MODE_CTFB && p->carried_flag_team_id >= 0);
+}
+
+static ViewmodelTuning viewmodel_tuning_for_flag_carry(int carried_flag_team_id) {
+    (void)carried_flag_team_id;
+    return (ViewmodelTuning){0.30f, -0.46f, -0.98f, 0.0f, 0.0f, 0.0f, 0.0f, 0.12f};
+}
+
 static void draw_viewmodel_box_tone(const ViewmodelPalette *p, float w, float h, float d, int support_tone) {
     float base_r = support_tone ? p->support_r : p->body_r;
     float base_g = support_tone ? p->support_g : p->body_g;
@@ -1844,6 +1853,35 @@ static void draw_viewmodel_weapon(int weapon_id) {
         case WPN_KNIFE: draw_viewmodel_knife_firstperson(); break;
         default: draw_viewmodel_magnum(&p); break;
     }
+}
+
+static void draw_viewmodel_flag_carry(int carried_flag_team_id) {
+    float cloth_r = 0.82f, cloth_g = 0.15f, cloth_b = 0.14f;
+    if (carried_flag_team_id == 1) {
+        cloth_r = 0.16f; cloth_g = 0.34f; cloth_b = 0.86f;
+    }
+
+    glScalef(0.86f, 0.86f, 0.86f);
+
+    glColor3f(0.42f, 0.30f, 0.22f);
+    glPushMatrix(); glTranslatef(-0.42f, -0.24f, -0.02f); glRotatef(-14.0f, 1, 0, 0); draw_box(0.24f, 0.25f, 0.96f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.18f, -0.30f, -0.16f); glRotatef(-10.0f, 1, 0, 0); draw_box(0.24f, 0.24f, 0.88f); glPopMatrix();
+
+    glColor3f(0.10f, 0.11f, 0.13f);
+    glPushMatrix(); glTranslatef(-0.44f, -0.35f, 0.38f); draw_box(0.27f, 0.16f, 0.30f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.14f, -0.38f, 0.28f); draw_box(0.26f, 0.17f, 0.30f); glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(-0.12f, -0.10f, 0.18f);
+    glRotatef(24.0f, 0, 0, 1);
+    glRotatef(-15.0f, 1, 0, 0);
+    glColor3f(0.16f, 0.14f, 0.12f);
+    glPushMatrix(); glTranslatef(0.02f, 0.02f, 0.60f); draw_box(0.09f, 0.09f, 1.78f); glPopMatrix();
+    glColor3f(cloth_r, cloth_g, cloth_b);
+    glPushMatrix(); glTranslatef(-0.26f, 0.46f, 1.12f); glRotatef(8.0f, 0, 1, 0); draw_box(0.70f, 0.42f, 0.12f); glPopMatrix();
+    glColor3f(cloth_r * 0.85f, cloth_g * 0.85f, cloth_b * 0.85f);
+    glPushMatrix(); glTranslatef(-0.20f, 0.31f, 1.08f); draw_box(0.58f, 0.08f, 0.08f); glPopMatrix();
+    glPopMatrix();
 }
 
 static void draw_weapon_muzzle_flash(int weapon_id, float intensity) {
@@ -2519,15 +2557,20 @@ static void draw_player_skin_alpine(PlayerState *p, float draw_pitch, float draw
 void draw_weapon_p(PlayerState *p) {
     static int prev_weapon = -1;
     static int prev_shooting = 0;
+    static int prev_flag_carrying = 0;
     static Uint32 knife_stab_start_ms = 0;
+    static Uint32 flag_swing_start_ms = 0;
     if (p->in_vehicle) return; 
     glPushMatrix();
     glLoadIdentity();
     const float viewmodel_global_scale = 0.72f;
-    ViewmodelTuning tune = viewmodel_tuning_for_weapon(p->current_weapon);
     Uint32 now_ms = SDL_GetTicks();
+    int flag_carrying_vm = player_is_flag_carrying_viewmodel(p);
+    ViewmodelTuning tune = flag_carrying_vm ? viewmodel_tuning_for_flag_carry(p->carried_flag_team_id) : viewmodel_tuning_for_weapon(p->current_weapon);
 
-    if (p->current_weapon == WPN_KNIFE) {
+    if (flag_carrying_vm) {
+        knife_stab_start_ms = 0;
+    } else if (p->current_weapon == WPN_KNIFE) {
         if (prev_weapon != WPN_KNIFE) knife_stab_start_ms = 0;
         if (p->is_shooting > 0 && prev_shooting <= 0) knife_stab_start_ms = now_ms;
     } else if (prev_weapon == WPN_KNIFE) {
@@ -2540,7 +2583,14 @@ void draw_weapon_p(PlayerState *p) {
         if (knife_stab_t >= 1.0f) knife_stab_start_ms = 0;
     }
 
-    float kick = (p->current_weapon == WPN_KNIFE) ? 0.0f : p->recoil_anim * tune.kick_scale;
+    if (flag_carrying_vm) {
+        if (!prev_flag_carrying) flag_swing_start_ms = 0;
+        if (p->is_shooting > 0 && prev_shooting <= 0) flag_swing_start_ms = now_ms;
+    } else {
+        flag_swing_start_ms = 0;
+    }
+
+    float kick = (p->current_weapon == WPN_KNIFE || flag_carrying_vm) ? 0.0f : p->recoil_anim * tune.kick_scale;
     float reload_dip = (p->reload_timer > 0) ? sinf(p->reload_timer * 0.2f) * 0.5f - 0.5f : 0.0f;
     float slash_swing = (p->current_weapon == WPN_KATANA && p->katana_slash_timer > 0) ? ((float)p->katana_slash_timer / (float)KATANA_SLASH_ACTIVE_TICKS) : 0.0f;
     float dash_push = (p->current_weapon == WPN_KATANA && p->dash_timer > 0) ? 0.22f : 0.0f;
@@ -2556,31 +2606,55 @@ void draw_weapon_p(PlayerState *p) {
     float knife_anim_drop = (knife_drive * 0.13f) - (knife_recover * 0.05f);
     float knife_anim_pitch = (knife_drive * 30.0f) - (knife_recover * 10.0f);
     float knife_anim_roll = (knife_drive * 7.0f) - (knife_recover * 3.0f);
+
+    float flag_swing_t = 0.0f;
+    if (flag_carrying_vm && flag_swing_start_ms > 0) {
+        flag_swing_t = clamp01f((float)(now_ms - flag_swing_start_ms) / 250.0f);
+        if (flag_swing_t >= 1.0f) flag_swing_start_ms = 0;
+    }
+    float flag_wind = clamp01f(flag_swing_t / 0.20f);
+    float flag_drive = clamp01f((flag_swing_t - 0.12f) / 0.36f);
+    float flag_recover = clamp01f((flag_swing_t - 0.48f) / 0.52f);
+    flag_wind = flag_wind * flag_wind;
+    flag_drive = 1.0f - (1.0f - flag_drive) * (1.0f - flag_drive);
+    flag_recover = flag_recover * flag_recover;
+    float flag_anim_x = (-0.06f * flag_wind) + (0.20f * flag_drive) - (0.13f * flag_recover);
+    float flag_anim_y = (0.04f * flag_wind) - (0.11f * flag_drive) + (0.05f * flag_recover);
+    float flag_anim_z = (0.09f * flag_wind) - (0.56f * flag_drive) + (0.20f * flag_recover);
+    float flag_anim_pitch = (5.0f * flag_wind) + (26.0f * flag_drive) - (10.0f * flag_recover);
+    float flag_anim_yaw = (-8.0f * flag_wind) + (-34.0f * flag_drive) + (14.0f * flag_recover);
+    float flag_anim_roll = (4.0f * flag_wind) + (18.0f * flag_drive) - (8.0f * flag_recover);
+
     float speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
     float bob = sinf(SDL_GetTicks() * 0.015f) * speed * tune.idle_scale;
     float ads_blend = (current_fov < 50.0f) ? 0.22f : 0.0f;
+    if (flag_carrying_vm) ads_blend = 0.0f;
     glTranslatef(
-        tune.base_x - ads_blend + slash_swing * 0.18f,
-        tune.base_y + kick + reload_dip * 0.7f + (bob * 0.4f) - knife_anim_drop,
-        tune.base_z + (kick * 0.45f) + bob - dash_push - p->recoil_anim * tune.recoil_back - knife_anim_forward
+        tune.base_x - ads_blend + slash_swing * 0.18f + flag_anim_x,
+        tune.base_y + kick + reload_dip * 0.7f + (bob * (flag_carrying_vm ? 0.55f : 0.4f)) - knife_anim_drop + flag_anim_y,
+        tune.base_z + (kick * 0.45f) + (bob * (flag_carrying_vm ? 1.15f : 1.0f)) - dash_push - p->recoil_anim * tune.recoil_back - knife_anim_forward + flag_anim_z
     );
-    glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f - knife_anim_pitch, 1, 0, 0);
-    glRotatef(-p->recoil_anim * tune.recoil_roll - knife_anim_roll, 0, 0, 1);
+    glRotatef(-p->recoil_anim * tune.recoil_pitch - slash_swing * 65.0f - knife_anim_pitch + flag_anim_pitch, 1, 0, 0);
+    glRotatef(flag_anim_yaw, 0, 1, 0);
+    glRotatef(-p->recoil_anim * tune.recoil_roll - knife_anim_roll + flag_anim_roll, 0, 0, 1);
     glRotatef(-slash_swing * 40.0f, 0, 0, 1);
-    if (p->current_weapon == WPN_KNIFE) glRotatef(-12.0f, 0, 1, 0);
+    if (flag_carrying_vm) glRotatef(-14.0f, 0, 1, 0);
+    else if (p->current_weapon == WPN_KNIFE) glRotatef(-12.0f, 0, 1, 0);
     glScalef(viewmodel_global_scale, viewmodel_global_scale, viewmodel_global_scale);
-    draw_viewmodel_weapon(p->current_weapon);
-    if (p->is_shooting > 0) {
+    if (flag_carrying_vm) draw_viewmodel_flag_carry(p->carried_flag_team_id);
+    else draw_viewmodel_weapon(p->current_weapon);
+    if (!flag_carrying_vm && p->is_shooting > 0) {
         float flash = 1.0f;
         if (p->current_weapon == WPN_AR) flash = 0.85f;
         else if (p->current_weapon == WPN_SHOTGUN) flash = 1.25f;
         else if (p->current_weapon == WPN_SNIPER) flash = 0.95f;
         draw_weapon_muzzle_flash(p->current_weapon, flash);
-    } else if (p->recoil_anim > 0.0f) {
+    } else if (!flag_carrying_vm && p->recoil_anim > 0.0f) {
         draw_weapon_muzzle_flash(p->current_weapon, p->recoil_anim * 0.55f);
     }
     prev_weapon = p->current_weapon;
     prev_shooting = p->is_shooting;
+    prev_flag_carrying = flag_carrying_vm;
     glPopMatrix();
 }
 

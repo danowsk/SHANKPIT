@@ -2,6 +2,21 @@
 
 ## Recent changes
 
+### 2026-04-18
+- Introduced a first-pass graphics transition initiative with stabilized world-light evaluation, world-light rig integration for terrain, and broader weapon visual upgrades for a more cohesive rendering pipeline (`6b48b81`, `4ee8159`, `656ea2e`, `906a2b2`, merged in #194, #197, #201, #203).
+- Added a simple death-animation feature, then tuned gun-hit death-state impulse and direction so knockback reads more clearly during combat (`59f609a`, `988f9d5`, `323fd49`, merged in #205, #210).
+- Expanded the stadium into a terrain rally-loop layout to improve traversal space and scene variety (`b3c5bca`, `315c9d7`, merged in #208).
+- Increased retro atmospheric fog/haze through scene-aware lighting presets for stronger mood consistency (`ab8d7c4`, `b6eb274`, merged in #207).
+- Iterated knife presentation and stab behavior across multiple fixes, ending on a simplified straight-thrust attack with sharpened geometry and corrected motion polarity (`4f0be59`, `a86f7d2`, `a912b5c`, `d6bf2f2`, `d3d30a6`, merged in #206, #213).
+- Fixed CTF base pedestal visuals and adjusted flag home anchoring for clearer capture-point presentation (`da1aa2a`, `00b7cf3`, merged in #212).
+
+### 2026-04-17
+- Added a new skin batch to the lobby customization lineup (`dde86dd`, merged in #191).
+- Implemented CTFB respawn-timer flow and fixed flag-drop behavior for more reliable objective-state handling (`6768fc3`, merged in #188).
+- Added a new sky rendering system with material abstraction support to expand scene rendering flexibility (`a432844`, merged in #186).
+- Added verbose multiplayer join-path diagnostics to improve troubleshooting for connection issues (`13df908`, merged in #190).
+- Updated the changelog with then-current merged work to keep release notes in sync (`d57168b`, merged in #185).
+
 ### 2026-04-16
 - Added authoritative **CTFB** mode with shared flag state replication and bot objective handling for online capture-the-flag battles (`a7785a5`, merged in #182).
 - Tuned first-person weapon viewmodel art direction and applied an additional global scale reduction pass for cleaner weapon framing (`41069c5`, `cfbcc8a`, merged in #176).

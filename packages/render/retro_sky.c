@@ -24,6 +24,30 @@ static float fracf(float v) {
     return v - floorf(v);
 }
 
+void retro_eval_sun_dir(float time_sec, float *out_x, float *out_y, float *out_z) {
+    float orbit_t = time_sec * 0.025f;
+    float tilt = 0.40f;
+    float sx = cosf(orbit_t);
+    float sy = sinf(orbit_t) * cosf(tilt);
+    float sz = sinf(orbit_t) * sinf(tilt);
+
+    if (out_x) *out_x = sx;
+    if (out_y) *out_y = sy;
+    if (out_z) *out_z = sz;
+}
+
+void retro_eval_sky_fog_rgb(float time_sec, float *out_r, float *out_g, float *out_b) {
+    float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+    retro_eval_sun_dir(time_sec, &sx, &sy, &sz);
+    float day = smoothstepf(-0.26f, 0.18f, sy);
+    float r = lerpf(0.17f, 0.63f, day);
+    float g = lerpf(0.23f, 0.77f, day);
+    float b = lerpf(0.33f, 0.96f, day);
+    if (out_r) *out_r = r;
+    if (out_g) *out_g = g;
+    if (out_b) *out_b = b;
+}
+
 static void fill_cloud_texture(ProcTexture *t) {
     if (!t || !t->pixels) return;
     for (int y = 0; y < t->height; ++y) {
@@ -230,11 +254,8 @@ void retro_sky_draw(RetroSky *sky, float cam_x, float cam_y, float cam_z, float 
      * Sun/moon move on one tilted circular orbit and are always opposite vectors.
      * This gives a simple, stable day-night motion suitable for a retro style.
      */
-    float orbit_t = time_sec * 0.025f;
-    float tilt = 0.40f;
-    float sun_dir_x = cosf(orbit_t);
-    float sun_dir_y = sinf(orbit_t) * cosf(tilt);
-    float sun_dir_z = sinf(orbit_t) * sinf(tilt);
+    float sun_dir_x = 0.0f, sun_dir_y = 0.0f, sun_dir_z = 0.0f;
+    retro_eval_sun_dir(time_sec, &sun_dir_x, &sun_dir_y, &sun_dir_z);
     float sun_dist = 2200.0f;
     float moon_dist = 2160.0f;
 

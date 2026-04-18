@@ -176,6 +176,30 @@ static float smoothstepf(float edge0, float edge1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
+static void retro_apply_fog_rgb(float *r, float *g, float *b, float fog, float fog_r, float fog_g, float fog_b) {
+    if (!r || !g || !b) return;
+    *r = lerpf(*r, fog_r, fog);
+    *g = lerpf(*g, fog_g, fog);
+    *b = lerpf(*b, fog_b, fog);
+}
+
+static float retro_eval_sun_lambert(float nx, float ny, float nz, float sun_x, float sun_y, float sun_z) {
+    float nlen = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (nlen < 0.0001f) return 0.0f;
+    nx /= nlen; ny /= nlen; nz /= nlen;
+    return clamp01f(nx * sun_x + ny * sun_y + nz * sun_z);
+}
+
+static void retro_eval_brush_lighting(float nx, float ny, float nz,
+                                      float sun_x, float sun_y, float sun_z,
+                                      float ambient_floor, float *out_mul) {
+    float sun_lambert = retro_eval_sun_lambert(nx, ny, nz, sun_x, sun_y, sun_z);
+    float hemi = clamp01f(0.45f + ny * 0.55f);
+    float fake_ao = clamp01f((1.0f - ny) * 0.20f);
+    float lit = ambient_floor + sun_lambert * 0.42f + hemi * 0.18f - fake_ao * 0.16f;
+    if (out_mul) *out_mul = clamp01f(lit);
+}
+
 #define Z_FAR 8000.0f
 
 static void draw_box(float w, float h, float d);
@@ -868,7 +892,13 @@ void draw_map() {
         return;
     }
 
-    const float sky_r = 0.18f, sky_g = 0.25f, sky_b = 0.36f;
+    float sun_x = 0.0f, sun_y = 0.0f, sun_z = 0.0f;
+    float sky_r = 0.18f, sky_g = 0.25f, sky_b = 0.36f;
+    float now_sec = SDL_GetTicks() * 0.001f;
+    retro_eval_sun_dir(now_sec, &sun_x, &sun_y, &sun_z);
+    retro_eval_sky_fog_rgb(now_sec, &sky_r, &sky_g, &sky_b);
+    float sun_day = clamp01f(0.42f + sun_y * 0.75f);
+    float ambient_floor = lerpf(0.60f, 0.71f, sun_day);
     int ref_id = (my_client_id >= 0 && my_client_id < MAX_CLIENTS) ? my_client_id : 0;
     const PlayerState *rp = &local_state.players[ref_id];
 
@@ -882,14 +912,36 @@ void draw_map() {
         float side_r = base_r * 0.82f, side_g = base_g * 0.84f, side_b = base_b * 0.90f;
         float back_r = base_r * 0.73f, back_g = base_g * 0.77f, back_b = base_b * 0.84f;
 
+        float lit_top = 1.0f, lit_bottom = 1.0f, lit_front = 1.0f, lit_back = 1.0f, lit_left = 1.0f, lit_right = 1.0f;
+        retro_eval_brush_lighting(0.0f, 1.0f, 0.0f, sun_x, sun_y, sun_z, ambient_floor, &lit_top);
+        retro_eval_brush_lighting(0.0f, -1.0f, 0.0f, sun_x, sun_y, sun_z, ambient_floor * 0.96f, &lit_bottom);
+        retro_eval_brush_lighting(0.0f, 0.0f, 1.0f, sun_x, sun_y, sun_z, ambient_floor, &lit_front);
+        retro_eval_brush_lighting(0.0f, 0.0f, -1.0f, sun_x, sun_y, sun_z, ambient_floor, &lit_back);
+        retro_eval_brush_lighting(-1.0f, 0.0f, 0.0f, sun_x, sun_y, sun_z, ambient_floor, &lit_left);
+        retro_eval_brush_lighting(1.0f, 0.0f, 0.0f, sun_x, sun_y, sun_z, ambient_floor, &lit_right);
+        top_r *= lit_top; top_g *= lit_top; top_b *= lit_top;
+        base_r *= lit_front; base_g *= lit_front; base_b *= lit_front;
+        back_r *= lit_back; back_g *= lit_back; back_b *= lit_back;
+        side_r *= lit_left; side_g *= lit_left; side_b *= lit_left;
+        float bottom_r = back_r * 0.85f * lit_bottom;
+        float bottom_g = back_g * 0.85f * lit_bottom;
+        float bottom_b = back_b * 0.85f * lit_bottom;
+        float right_r = side_r * (lit_right / (lit_left + 0.0001f));
+        float right_g = side_g * (lit_right / (lit_left + 0.0001f));
+        float right_b = side_b * (lit_right / (lit_left + 0.0001f));
+
         float dx = b.x - rp->x;
+        float dy = (b.y + b.h * 0.5f) - (rp->y + 32.0f);
         float dz = b.z - rp->z;
-        float dist = sqrtf(dx * dx + dz * dz);
-        float haze = clamp01f((dist - 450.0f) / 2200.0f);
-        top_r = lerpf(top_r, sky_r, haze); top_g = lerpf(top_g, sky_g, haze); top_b = lerpf(top_b, sky_b, haze);
-        base_r = lerpf(base_r, sky_r, haze); base_g = lerpf(base_g, sky_g, haze); base_b = lerpf(base_b, sky_b, haze);
-        side_r = lerpf(side_r, sky_r, haze); side_g = lerpf(side_g, sky_g, haze); side_b = lerpf(side_b, sky_b, haze);
-        back_r = lerpf(back_r, sky_r, haze); back_g = lerpf(back_g, sky_g, haze); back_b = lerpf(back_b, sky_b, haze);
+        float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+        float haze = clamp01f((dist - 520.0f) / 2400.0f);
+        haze *= lerpf(0.78f, 1.0f, sun_day);
+        retro_apply_fog_rgb(&top_r, &top_g, &top_b, haze, sky_r, sky_g, sky_b);
+        retro_apply_fog_rgb(&base_r, &base_g, &base_b, haze, sky_r, sky_g, sky_b);
+        retro_apply_fog_rgb(&side_r, &side_g, &side_b, haze, sky_r, sky_g, sky_b);
+        retro_apply_fog_rgb(&back_r, &back_g, &back_b, haze, sky_r, sky_g, sky_b);
+        retro_apply_fog_rgb(&bottom_r, &bottom_g, &bottom_b, haze, sky_r, sky_g, sky_b);
+        retro_apply_fog_rgb(&right_r, &right_g, &right_b, haze, sky_r, sky_g, sky_b);
 
         glPushMatrix(); 
         glTranslatef(b.x, b.y, b.z); 
@@ -898,7 +950,7 @@ void draw_map() {
         glBegin(GL_QUADS);
         glColor3f(top_r, top_g, top_b);
         glVertex3f(-0.5,0.5,0.5); glVertex3f(0.5,0.5,0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(-0.5,0.5,-0.5);
-        glColor3f(back_r * 0.85f, back_g * 0.85f, back_b * 0.85f);
+        glColor3f(bottom_r, bottom_g, bottom_b);
         glVertex3f(-0.5,-0.5,0.5); glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(-0.5,-0.5,-0.5);
         glColor3f(base_r, base_g, base_b);
         glVertex3f(-0.5,-0.5,0.5); glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,0.5,0.5); glVertex3f(-0.5,0.5,0.5);
@@ -906,7 +958,7 @@ void draw_map() {
         glVertex3f(-0.5,-0.5,-0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(-0.5,0.5,-0.5);
         glColor3f(side_r, side_g, side_b);
         glVertex3f(-0.5,-0.5,-0.5); glVertex3f(-0.5,-0.5,0.5); glVertex3f(-0.5,0.5,0.5); glVertex3f(-0.5,0.5,-0.5);
-        glColor3f(side_r * 0.95f, side_g * 0.95f, side_b * 0.95f);
+        glColor3f(right_r, right_g, right_b);
         glVertex3f(0.5,-0.5,0.5); glVertex3f(0.5,-0.5,-0.5); glVertex3f(0.5,0.5,-0.5); glVertex3f(0.5,0.5,0.5);
         glEnd();
 
@@ -988,6 +1040,15 @@ void draw_terrain() {
         }
     }
     float inv_h_range = (max_h > min_h + 0.001f) ? (1.0f / (max_h - min_h)) : 0.0f;
+    float now_sec = SDL_GetTicks() * 0.001f;
+    float sun_x = 0.0f, sun_y = 0.0f, sun_z = 0.0f;
+    float fog_r = 0.18f, fog_g = 0.25f, fog_b = 0.36f;
+    int ref_id = (my_client_id >= 0 && my_client_id < MAX_CLIENTS) ? my_client_id : 0;
+    const PlayerState *rp = &local_state.players[ref_id];
+    retro_eval_sun_dir(now_sec, &sun_x, &sun_y, &sun_z);
+    retro_eval_sky_fog_rgb(now_sec, &fog_r, &fog_g, &fog_b);
+    float sun_day = clamp01f(0.42f + sun_y * 0.75f);
+    float terrain_ambient = lerpf(0.60f, 0.72f, sun_day);
 
     glDisable(GL_LIGHTING);
     for (int gz = 0; gz < t->height - 1; gz++) {
@@ -1013,7 +1074,9 @@ void draw_terrain() {
                 float h_norm0 = clamp01f((h0 - min_h) * inv_h_range);
                 float grass_mix0 = smoothstepf(0.62f, 0.92f, h_norm0) * (0.55f + 0.45f * ny0);
                 float dark_mix0 = smoothstepf(0.0f, 0.35f, 1.0f - h_norm0) * (0.55f + 0.45f * (1.0f - ny0));
-                float sun0 = clamp01f(0.55f + nx0 * 0.23f + ny0 * 0.42f + nz0 * 0.14f);
+                float sun0 = retro_eval_sun_lambert(nx0, ny0, nz0, sun_x, sun_y, sun_z);
+                float hemi0 = clamp01f(0.42f + ny0 * 0.58f);
+                float ao0 = clamp01f((1.0f - ny0) * 0.22f + smoothstepf(0.0f, 0.25f, 1.0f - h_norm0) * 0.08f);
                 float base_r0 = 0.58f, base_g0 = 0.49f, base_b0 = 0.37f;
                 float r0 = lerpf(base_r0, 0.65f, grass_mix0);
                 float g0 = lerpf(base_g0, 0.62f, grass_mix0);
@@ -1021,9 +1084,16 @@ void draw_terrain() {
                 r0 = lerpf(r0, 0.35f, dark_mix0);
                 g0 = lerpf(g0, 0.33f, dark_mix0);
                 b0 = lerpf(b0, 0.30f, dark_mix0);
-                r0 *= 0.72f + sun0 * 0.32f;
-                g0 *= 0.72f + sun0 * 0.30f;
-                b0 *= 0.76f + sun0 * 0.24f;
+                float light0 = terrain_ambient + sun0 * 0.33f + hemi0 * 0.17f - ao0 * 0.18f;
+                r0 *= clamp01f(light0);
+                g0 *= clamp01f(light0 * 0.99f);
+                b0 *= clamp01f(light0 * 0.96f);
+                float dx0 = x - rp->x;
+                float dz0 = z0 - rp->z;
+                float dist0 = sqrtf(dx0 * dx0 + dz0 * dz0);
+                float fog0 = clamp01f((dist0 - 700.0f) / 2600.0f);
+                fog0 *= lerpf(0.76f, 1.0f, sun_day);
+                retro_apply_fog_rgb(&r0, &g0, &b0, fog0, fog_r, fog_g, fog_b);
                 glColor3f(r0, g0, b0);
             }
             glVertex3f(x, h0, z0);
@@ -1038,7 +1108,9 @@ void draw_terrain() {
                 float h_norm1 = clamp01f((h1 - min_h) * inv_h_range);
                 float grass_mix1 = smoothstepf(0.62f, 0.92f, h_norm1) * (0.55f + 0.45f * ny1);
                 float dark_mix1 = smoothstepf(0.0f, 0.35f, 1.0f - h_norm1) * (0.55f + 0.45f * (1.0f - ny1));
-                float sun1 = clamp01f(0.55f + nx1 * 0.23f + ny1 * 0.42f + nz1 * 0.14f);
+                float sun1 = retro_eval_sun_lambert(nx1, ny1, nz1, sun_x, sun_y, sun_z);
+                float hemi1 = clamp01f(0.42f + ny1 * 0.58f);
+                float ao1 = clamp01f((1.0f - ny1) * 0.22f + smoothstepf(0.0f, 0.25f, 1.0f - h_norm1) * 0.08f);
                 float base_r1 = 0.58f, base_g1 = 0.49f, base_b1 = 0.37f;
                 float r1 = lerpf(base_r1, 0.65f, grass_mix1);
                 float g1 = lerpf(base_g1, 0.62f, grass_mix1);
@@ -1046,9 +1118,16 @@ void draw_terrain() {
                 r1 = lerpf(r1, 0.35f, dark_mix1);
                 g1 = lerpf(g1, 0.33f, dark_mix1);
                 b1 = lerpf(b1, 0.30f, dark_mix1);
-                r1 *= 0.72f + sun1 * 0.32f;
-                g1 *= 0.72f + sun1 * 0.30f;
-                b1 *= 0.76f + sun1 * 0.24f;
+                float light1 = terrain_ambient + sun1 * 0.33f + hemi1 * 0.17f - ao1 * 0.18f;
+                r1 *= clamp01f(light1);
+                g1 *= clamp01f(light1 * 0.99f);
+                b1 *= clamp01f(light1 * 0.96f);
+                float dx1 = x - rp->x;
+                float dz1 = z1 - rp->z;
+                float dist1 = sqrtf(dx1 * dx1 + dz1 * dz1);
+                float fog1 = clamp01f((dist1 - 700.0f) / 2600.0f);
+                fog1 *= lerpf(0.76f, 1.0f, sun_day);
+                retro_apply_fog_rgb(&r1, &g1, &b1, fog1, fog_r, fog_g, fog_b);
                 glColor3f(r1, g1, b1);
             }
             glVertex3f(x, h1, z1);

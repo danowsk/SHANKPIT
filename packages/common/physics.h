@@ -790,6 +790,12 @@ static inline void tanker_add_box(float x, float y, float z, float w, float h, f
     map_geo_tanker[map_geo_tanker_count++] = (Box){x, y, z, w, h, d};
 }
 
+static inline int get_ctf_pedestal_anchor(int scene_id, int team_id,
+                                          float *center_x, float *center_y, float *center_z,
+                                          float *size_x, float *size_y, float *size_z,
+                                          float *top_y,
+                                          float *flag_x, float *flag_y, float *flag_z);
+
 static inline void init_oil_tanker_geo(void) {
     if (map_geo_tanker_init) return;
     map_geo_tanker_init = 1;
@@ -824,6 +830,19 @@ static inline void init_oil_tanker_geo(void) {
     tanker_add_box(-260.0f, 8.0f, -45.0f, 16.0f, 10.0f, 30.0f);
     tanker_add_box(-230.0f, 7.0f, 65.0f, 16.0f, 8.0f, 50.0f);
     tanker_add_box(-230.0f, 8.0f, 45.0f, 16.0f, 10.0f, 30.0f);
+
+    for (int team = 0; team <= 1; team++) {
+        float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+        float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+        if (!get_ctf_pedestal_anchor(SCENE_OIL_TANKER, team,
+                                     &cx, &cy, &cz,
+                                     &sx, &sy, &sz,
+                                     NULL,
+                                     NULL, NULL, NULL)) {
+            continue;
+        }
+        tanker_add_box(cx, cy, cz, sx, sy, sz);
+    }
 
     printf("[OIL_TANKER] authored geo boxes=%d\n", map_geo_tanker_count);
 }
@@ -1357,13 +1376,51 @@ static inline int scene_get_team_base_marker(int scene_id, int team_id,
     return 0;
 }
 
-static inline int get_ctf_flag_home(int scene_id, int team_id, float *x, float *y, float *z) {
+static inline int get_ctf_pedestal_anchor(int scene_id, int team_id,
+                                          float *center_x, float *center_y, float *center_z,
+                                          float *size_x, float *size_y, float *size_z,
+                                          float *top_y,
+                                          float *flag_x, float *flag_y, float *flag_z) {
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+
     if (scene_id == SCENE_OIL_TANKER) {
-        *x = (team_id == 0) ? -360.0f : 360.0f;
-        *z = (team_id == 0) ? -84.0f : 84.0f;
-        *y = 8.5f;
-        return 1;
+        x = (team_id == 0) ? -270.0f : 270.0f;
+        z = 0.0f;
+        sx = 18.0f; sy = 6.0f; sz = 18.0f;
+        y = 7.0f;
+    } else if (!scene_get_team_base_marker(scene_id, team_id, &x, &y, &z, &sx, &sy, &sz)) {
+        return 0;
+    } else {
+        sx = fmaxf(14.0f, sx * 0.5f);
+        sy = fmaxf(6.0f, sy * 0.5f);
+        sz = fmaxf(14.0f, sz * 0.5f);
     }
+
+    float pedestal_top_y = y + sy * 0.5f;
+    float home_flag_x = x;
+    float home_flag_y = pedestal_top_y + 6.0f;
+    float home_flag_z = z;
+
+    if (center_x) *center_x = x;
+    if (center_y) *center_y = y;
+    if (center_z) *center_z = z;
+    if (size_x) *size_x = sx;
+    if (size_y) *size_y = sy;
+    if (size_z) *size_z = sz;
+    if (top_y) *top_y = pedestal_top_y;
+    if (flag_x) *flag_x = home_flag_x;
+    if (flag_y) *flag_y = home_flag_y;
+    if (flag_z) *flag_z = home_flag_z;
+    return 1;
+}
+
+static inline int get_ctf_flag_home(int scene_id, int team_id, float *x, float *y, float *z) {
+    if (get_ctf_pedestal_anchor(scene_id, team_id,
+                                NULL, NULL, NULL,
+                                NULL, NULL, NULL,
+                                NULL,
+                                x, y, z)) return 1;
     if (scene_id == SCENE_VOXWORLD) {
         *x = (team_id == 0) ? voxworld_flag_home_red.x : voxworld_flag_home_blue.x;
         *z = (team_id == 0) ? voxworld_flag_home_red.y : voxworld_flag_home_blue.y;

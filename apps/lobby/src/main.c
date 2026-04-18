@@ -1077,6 +1077,26 @@ static int get_team_base_marker(int scene_id, int team_id, float *x, float *y, f
 static void draw_team_map_markers(int scene_id, int game_mode) {
     if (game_mode != MODE_TDMB && game_mode != MODE_TDMO && game_mode != MODE_CTFB) return;
     for (int team = 0; team <= 1; team++) {
+        if (game_mode == MODE_CTFB) {
+            float px = 0.0f, py = 0.0f, pz = 0.0f;
+            float psx = 0.0f, psy = 0.0f, psz = 0.0f;
+            float ptop = 0.0f;
+            if (get_ctf_pedestal_anchor(scene_id, team,
+                                        &px, &py, &pz,
+                                        &psx, &psy, &psz,
+                                        &ptop,
+                                        NULL, NULL, NULL)) {
+                if (team == 0) glColor3f(0.92f, 0.22f, 0.22f);
+                else glColor3f(0.22f, 0.48f, 0.95f);
+                glPushMatrix(); glTranslatef(px, py, pz); draw_box(psx, psy, psz); glPopMatrix();
+
+                if (team == 0) glColor3f(1.0f, 0.46f, 0.46f);
+                else glColor3f(0.44f, 0.72f, 1.0f);
+                glPushMatrix(); glTranslatef(px, ptop + 0.6f, pz); draw_box(psx * 0.82f, 1.2f, psz * 0.82f); glPopMatrix();
+                continue;
+            }
+        }
+
         float x = 0.0f, y = 0.0f, z = 0.0f;
         float sx = 0.0f, sy = 0.0f, sz = 0.0f;
         if (!get_team_base_marker(scene_id, team, &x, &y, &z, &sx, &sy, &sz)) continue;
@@ -1101,7 +1121,7 @@ static void draw_team_map_markers(int scene_id, int game_mode) {
         } else if (flag->state == FLAG_CARRIED) {
             glPushMatrix(); glTranslatef(flag->x, fy + 1.0f, flag->z); draw_box(3.0f, 8.0f, 3.0f); glPopMatrix();
         } else {
-            glPushMatrix(); glTranslatef(flag->x, fy + 6.0f, flag->z); draw_box(3.0f, 12.0f, 3.0f); glPopMatrix();
+            glPushMatrix(); glTranslatef(flag->x, fy, flag->z); draw_box(3.0f, 12.0f, 3.0f); glPopMatrix();
         }
     }
 }

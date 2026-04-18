@@ -4,6 +4,8 @@
 #include "../common/protocol.h"
 #include "../common/physics.h"
 #include "../common/shared_movement.h"
+#include "bot_policy.h"
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
@@ -23,6 +25,51 @@ static int tdmb_last_kills[MAX_CLIENTS];
 #define CTFB_CAPTURE_RADIUS 40.0f
 #define CTFB_CARRY_MELEE_DAMAGE 80
 #define CTFB_CARRY_MELEE_COOLDOWN_MS 450
+
+#define TDM_RECORD_FILE_DEFAULT "tdm_records.jsonl"
+
+typedef struct {
+    int train_tdm_local;
+    int eval_tdm_local;
+    int record_tdm;
+    unsigned int match_id;
+    FILE *record_file;
+    char record_path[256];
+    BotPolicyKind default_policy;
+} BotHarnessConfig;
+
+static BotHarnessConfig g_bot_harness = {0};
+static BotPolicyKind g_bot_policy_kind[MAX_CLIENTS];
+static BotPolicyRuntime g_bot_policy_runtime[MAX_CLIENTS];
+static BotRewardBreakdown g_bot_reward_step[MAX_CLIENTS];
+
+typedef struct {
+    int kills;
+    int deaths;
+    int shots_fired;
+    int hits_landed;
+    float damage_dealt;
+    float damage_taken;
+    float self_damage;
+    float life_time_sum;
+    int life_count;
+    float idle_time;
+    int stuck_count;
+} TdmBotMetrics;
+
+static TdmBotMetrics g_bot_metrics[MAX_CLIENTS];
+static int g_bot_prev_health[MAX_CLIENTS];
+static float g_bot_prev_x[MAX_CLIENTS];
+static float g_bot_prev_z[MAX_CLIENTS];
+static unsigned int g_bot_last_spawn_ms[MAX_CLIENTS];
+
+static inline void local_set_bot_harness_flags(int train_tdm_local, int eval_tdm_local, int record_tdm, const char *record_path) {
+    g_bot_harness.train_tdm_local = train_tdm_local ? 1 : 0;
+    g_bot_harness.eval_tdm_local = eval_tdm_local ? 1 : 0;
+    g_bot_harness.record_tdm = record_tdm ? 1 : 0;
+    if (record_path && record_path[0]) snprintf(g_bot_harness.record_path, sizeof(g_bot_harness.record_path), "%s", record_path);
+}
+
 
 static int mode_uses_team_scores(int mode) {
     return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB;
@@ -112,6 +159,8 @@ void update_entity(PlayerState *p, float dt, void *server_context, unsigned int 
 static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z);
 static void ctf_init_match_state(int scene_id);
 void local_init_match(int num_players, int mode);
+static void tdm_record_step(unsigned int tick_ms, int bot_idx, const BotObservation *obs, const BotAction *action, int done_flag);
+static void tdm_print_match_summary(void);
 
 float rand_weight() { return ((float)(rand()%2000)/1000.0f) - 1.0f; } 
 float rand_pos() { return ((float)(rand()%1000)/1000.0f); } 
@@ -435,18 +484,42 @@ static void ctf_try_carry_melee(PlayerState *attacker, unsigned int now_ms) {
             attacker->kills++;
             t->deaths++;
             phys_respawn(t, now_ms);
+            if (t->is_bot) g_bot_last_spawn_ms[t->id] = now_ms;
         }
     }
 }
 
-// --- BOT AI ---
-void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw, int *out_buttons) {
+// --- BOT AI / POLICY RUNTIME ---
+static BotPolicyKind select_bot_policy_for_player(int bot_idx) {
+    if (g_bot_policy_kind[bot_idx] == BOT_POLICY_NEURAL && !bot_policy_neural_weights_available()) {
+        g_bot_policy_kind[bot_idx] = BOT_POLICY_SCRIPTED;
+    }
+    return g_bot_policy_kind[bot_idx];
+}
+
+static void tdm_add_reward(int bot_idx, float value, float *bucket) {
+    if (bot_idx < 0 || bot_idx >= MAX_CLIENTS) return;
+    if (!local_state.players[bot_idx].active || !local_state.players[bot_idx].is_bot) return;
+    *bucket += value;
+    g_bot_reward_step[bot_idx].total += value;
+    local_state.players[bot_idx].accumulated_reward += value;
+}
+
+static void tdm_begin_step_rewards(void) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        memset(&g_bot_reward_step[i], 0, sizeof(g_bot_reward_step[i]));
+    }
+}
+
+void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_strafe, float *out_yaw, int *out_buttons) {
     PlayerState *me = &players[bot_idx];
+    *out_fwd = 0.0f;
+    *out_strafe = 0.0f;
     if (me->state == STATE_DEAD || local_state.match_over) { *out_buttons = 0; return; }
     if (local_state.game_mode == MODE_CTFB && local_state.ctf.active && team_id_is_valid(me->team_id)) {
-        CtfBotObservation obs;
-        build_ctf_bot_observation(bot_idx, &obs);
-        (void)obs;
+        CtfBotObservation ctf_obs;
+        build_ctf_bot_observation(bot_idx, &ctf_obs);
+        (void)ctf_obs;
         int intent = select_ctf_bot_intent(me);
         me->ctf_bot_intent = intent;
         int my_team = me->team_id;
@@ -476,55 +549,54 @@ void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw
         if (diff < -8.0f) diff = -8.0f;
         *out_yaw += diff;
         *out_fwd = 0.9f;
+        *out_strafe = ((local_state.server_tick / 30) % 2 == 0) ? 0.25f : -0.25f;
         float dist_sq = dx*dx + dz*dz;
         if (dist_sq < (CTFB_USE_RADIUS * CTFB_USE_RADIUS)) *out_buttons |= BTN_USE;
     }
 
-    int team_mode = (local_state.game_mode == MODE_TDM || local_state.game_mode == MODE_CTF || local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB);
-    int target_idx = -1;
-    float min_dist = 9999.0f;
+    int target_idx = bot_policy_find_target(bot_idx, &local_state, 1);
+    if (target_idx < 0) target_idx = bot_policy_find_target(bot_idx, &local_state, 0);
 
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (i == bot_idx) continue;
-        if (!players[i].active) continue;
-        if (players[i].state == STATE_DEAD) continue;
-        if (team_mode && players[i].team_id == me->team_id) continue;
-        
-        float dx = players[i].x - me->x;
-        float dz = players[i].z - me->z;
-        float dist = sqrtf(dx*dx + dz*dz);
-        
-        if (i == 0 || dist < min_dist) { 
-            if (i == 0 && (!team_mode || players[0].team_id != me->team_id)) dist *= 0.5f;
-            if (dist < min_dist) { min_dist = dist; target_idx = i; }
-        }
+    BotObservation obs;
+    BotAction action;
+    BotPolicyKind kind = select_bot_policy_for_player(bot_idx);
+    build_bot_observation(bot_idx, &local_state, target_idx, &obs);
+
+    if (kind == BOT_POLICY_NEURAL) {
+        bot_policy_neural_eval(&obs, &action);
+    } else if (kind == BOT_POLICY_GENOME) {
+        bot_policy_genome_eval(bot_idx, &local_state, target_idx, &action);
+    } else {
+        bot_policy_scripted_eval(bot_idx, &local_state, target_idx, &obs, &g_bot_policy_runtime[bot_idx], &action);
     }
 
-    if (target_idx != -1) {
-        PlayerState *t = &players[target_idx];
-        float dx = t->x - me->x;
-        float dz = t->z - me->z;
-        float target_yaw = atan2f(dx, dz) * (180.0f / 3.14159f);
-        
-        float turn_speed = (me->brain.w_turret > 1.0f) ? me->brain.w_turret : 10.0f;
-        float diff = angle_diff(target_yaw, *out_yaw);
-        if (diff > turn_speed) diff = turn_speed;
-        if (diff < -turn_speed) diff = -turn_speed;
-        *out_yaw += diff;
-        
-        *out_buttons |= BTN_ATTACK;
-        
-        if (min_dist > 15.0f) *out_fwd = me->brain.w_aggro;
-        else if (min_dist < 5.0f) *out_fwd = -me->brain.w_aggro; 
-        else *out_fwd = 0.2f; 
-        
-        *out_yaw += me->brain.w_strafe * 10.0f;
-        if (me->on_ground && (rand()%1000 < (me->brain.w_jump * 1000.0f))) *out_buttons |= BTN_JUMP;
-        if (me->on_ground && (rand()%1000 < (me->brain.w_slide * 1000.0f))) *out_buttons |= BTN_CROUCH;
-        if (me->ammo[me->current_weapon] <= 0) *out_buttons |= BTN_RELOAD;
+    bot_policy_action_to_usercmd(&action, out_fwd, out_strafe, out_yaw, out_buttons);
+
+    if (obs.aim_error_norm < 0.12f && obs.enemy_distance_norm < 0.75f) {
+        tdm_add_reward(bot_idx, 0.01f, &g_bot_reward_step[bot_idx].aim_on_target);
+    }
+
+    float moved = fabsf(me->x - g_bot_prev_x[bot_idx]) + fabsf(me->z - g_bot_prev_z[bot_idx]);
+    if (g_bot_prev_health[bot_idx] > 0 && moved < 0.015f) {
+        g_bot_policy_runtime[bot_idx].stuck_ticks++;
+        if (g_bot_policy_runtime[bot_idx].stuck_ticks > 60) {
+            tdm_add_reward(bot_idx, -0.03f, &g_bot_reward_step[bot_idx].stuck_penalty);
+            g_bot_metrics[bot_idx].stuck_count++;
+            g_bot_policy_runtime[bot_idx].stuck_ticks = 30;
+        } else {
+            tdm_add_reward(bot_idx, -0.003f, &g_bot_reward_step[bot_idx].idle_penalty);
+            g_bot_metrics[bot_idx].idle_time += 0.016f;
+        }
     } else {
-        *out_yaw += 2.0f;
-        *out_fwd = 0.5f;
+        g_bot_policy_runtime[bot_idx].stuck_ticks = 0;
+    }
+
+    tdm_add_reward(bot_idx, 0.001f, &g_bot_reward_step[bot_idx].time_alive);
+    g_bot_prev_x[bot_idx] = me->x;
+    g_bot_prev_z[bot_idx] = me->z;
+
+    if (g_bot_harness.record_tdm) {
+        tdm_record_step(local_state.server_tick * 16u, bot_idx, &obs, &action, me->state == STATE_DEAD);
     }
 }
 
@@ -592,6 +664,18 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
         else { damage -= target->shield; target->shield = 0; }
     }
     target->health -= damage;
+    if (owner && owner->is_bot) {
+        g_bot_metrics[owner->id].hits_landed++;
+        g_bot_metrics[owner->id].damage_dealt += (float)damage;
+        tdm_add_reward(owner->id, damage * 0.02f, &g_bot_reward_step[owner->id].damage_dealt);
+    }
+    if (target->is_bot) {
+        g_bot_metrics[target->id].damage_taken += (float)damage;
+        if (owner && owner->id == target->id) {
+            g_bot_metrics[target->id].self_damage += (float)damage;
+            tdm_add_reward(target->id, -damage * 0.015f, &g_bot_reward_step[target->id].self_damage);
+        }
+    }
     if (target->health <= 0) {
         if (local_state.game_mode == MODE_CTFB) {
             ctf_drop_flag_from_carrier(target->id, now_ms);
@@ -601,9 +685,22 @@ static void apply_projectile_damage(PlayerState *owner, PlayerState *target, int
         if (owner) {
             owner->kills++;
             owner->accumulated_reward += 500.0f;
+            if (owner->is_bot) {
+                g_bot_metrics[owner->id].kills++;
+                tdm_add_reward(owner->id, 1.0f, &g_bot_reward_step[owner->id].kill);
+            }
         }
         target->deaths++;
+        if (target->is_bot) {
+            g_bot_metrics[target->id].deaths++;
+            tdm_add_reward(target->id, -1.0f, &g_bot_reward_step[target->id].death);
+            if (g_bot_last_spawn_ms[target->id] > 0 && now_ms > g_bot_last_spawn_ms[target->id]) {
+                g_bot_metrics[target->id].life_time_sum += (float)(now_ms - g_bot_last_spawn_ms[target->id]) / 1000.0f;
+                g_bot_metrics[target->id].life_count++;
+            }
+        }
         phys_respawn(target, now_ms);
+        if (target->is_bot) g_bot_last_spawn_ms[target->id] = now_ms;
     }
 
     if (now_ms >= target->stun_immune_until_ms) {
@@ -669,6 +766,7 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         fwd = 0.0f; str = 0.0f; shoot = 0; jump = 0; crouch = 0; reload = 0; ability = 0;
     }
     scene_tick_transition();
+    tdm_begin_step_rewards();
     if (local_state.transition_timer > 0) {
         fwd = 0.0f;
         str = 0.0f;
@@ -738,15 +836,17 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         if (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER) {
             continue;
         }
-        if (i > 0 && p->active && p->state != STATE_DEAD) {
-            float b_fwd=0, b_yaw=p->yaw;
+        if (p->is_bot && p->active && p->state != STATE_DEAD) {
+            float b_fwd=0, b_strafe=0, b_yaw=p->yaw;
             int b_btns=0;
-            bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
+            bot_think(i, local_state.players, &b_fwd, &b_strafe, &b_yaw, &b_btns);
             p->yaw = b_yaw;
             float brad = b_yaw * 3.14159f / 180.0f;
-            float bx = sinf(brad) * b_fwd;
-            float bz = cosf(brad) * b_fwd;
+            float right_rad = (b_yaw + 90.0f) * 3.14159f / 180.0f;
+            float bx = sinf(brad) * b_fwd + sinf(right_rad) * b_strafe;
+            float bz = cosf(brad) * b_fwd + cosf(right_rad) * b_strafe;
             accelerate(p, bx, bz, MAX_SPEED, ACCEL);
+            if ((b_btns & BTN_ATTACK) && p->attack_cooldown <= 0 && p->ammo[p->current_weapon] > 0) g_bot_metrics[i].shots_fired++;
             p->in_shoot = (b_btns & BTN_ATTACK);
             p->in_jump = (b_btns & BTN_JUMP);
             p->in_reload = (b_btns & BTN_RELOAD);
@@ -764,6 +864,7 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         }
         phys_set_scene(p->scene_id);
         update_entity(p, 0.016f, server_context, cmd_time);
+        g_bot_prev_health[i] = p->health;
         if (local_state.game_mode == MODE_CTFB) ctf_try_capture(p, cmd_time);
         p->use_was_down = p->in_use;
     }
@@ -779,6 +880,9 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             if (pp->kills > prev && team_id_is_valid(pp->team_id)) {
                 int delta = pp->kills - prev;
                 if (local_state.game_mode != MODE_CTFB) local_state.team_scores[pp->team_id] += delta;
+                if (pp->is_bot) {
+                    tdm_add_reward(pp->id, delta * 0.2f, &g_bot_reward_step[pp->id].team_score_delta);
+                }
                 if (!local_state.match_over && local_state.score_limit > 0 && local_state.team_scores[pp->team_id] >= local_state.score_limit) {
                     local_state.match_over = 1;
                     local_state.winning_team = pp->team_id;
@@ -787,17 +891,75 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             tdmb_last_kills[i] = pp->kills;
         }
     }
+    if (local_state.match_over && g_bot_harness.eval_tdm_local) {
+        tdm_print_match_summary();
+        g_bot_harness.eval_tdm_local = 0;
+    }
 }
+
+
+static void tdm_record_step(unsigned int tick_ms, int bot_idx, const BotObservation *obs, const BotAction *action, int done_flag) {
+    if (!g_bot_harness.record_file) return;
+    PlayerState *p = &local_state.players[bot_idx];
+    BotRewardBreakdown *r = &g_bot_reward_step[bot_idx];
+    fprintf(g_bot_harness.record_file,
+            "{\"tick\":%u,\"match_id\":%u,\"bot_id\":%d,\"team_id\":%d,"
+            "\"obs\":[%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f],"
+            "\"action\":{\"forward\":%.4f,\"strafe\":%.4f,\"yaw_rate\":%.4f,\"shoot\":%d,\"reload\":%d},"
+            "\"reward\":{\"damage_dealt\":%.4f,\"kill\":%.4f,\"death\":%.4f,\"self_damage\":%.4f,\"time_alive\":%.4f,"
+            "\"aim_on_target\":%.4f,\"idle_penalty\":%.4f,\"stuck_penalty\":%.4f,\"team_score_delta\":%.4f,\"total\":%.4f},"
+            "\"done\":%d,\"health\":%d}\n",
+            tick_ms, g_bot_harness.match_id, bot_idx, p->team_id,
+            obs->rel_enemy_x, obs->rel_enemy_z, obs->enemy_distance_norm, obs->aim_error_norm,
+            obs->self_health_norm, obs->ammo_pressure, obs->team_crowding, obs->danger_signal,
+            action->forward, action->strafe, action->yaw_rate, action->shoot, action->reload,
+            r->damage_dealt, r->kill, r->death, r->self_damage, r->time_alive,
+            r->aim_on_target, r->idle_penalty, r->stuck_penalty, r->team_score_delta, r->total,
+            done_flag, p->health);
+    if ((local_state.server_tick % 60) == 0) fflush(g_bot_harness.record_file);
+}
+
+static void tdm_print_match_summary(void) {
+    int blue = local_state.team_scores[TDMB_BLUE_TEAM];
+    int red = local_state.team_scores[TDMB_RED_TEAM];
+    printf("[TDM_EVAL] match_id=%u winner=%d score=%d-%d\n", g_bot_harness.match_id, local_state.winning_team, blue, red);
+    for (int i = 1; i < MAX_CLIENTS; i++) {
+        PlayerState *p = &local_state.players[i];
+        if (!p->active || !p->is_bot) continue;
+        TdmBotMetrics *m = &g_bot_metrics[i];
+        float acc = (m->shots_fired > 0) ? ((float)m->hits_landed / (float)m->shots_fired) : 0.0f;
+        float avg_life = (m->life_count > 0) ? (m->life_time_sum / (float)m->life_count) : 0.0f;
+        float contrib = m->damage_dealt - m->damage_taken;
+        int won = (p->team_id >= 0 && p->team_id == local_state.winning_team) ? 1 : 0;
+        printf("[TDM_EVAL] bot=%d policy=%d team=%d kills=%d deaths=%d shots=%d hits=%d acc=%.3f dmg_dealt=%.1f dmg_taken=%.1f avg_life=%.2f score_diff=%d won=%d idle=%.2f stuck=%d contrib=%.1f\n",
+               i, g_bot_policy_kind[i], p->team_id, m->kills, m->deaths, m->shots_fired, m->hits_landed,
+               acc, m->damage_dealt, m->damage_taken, avg_life, blue - red, won, m->idle_time, m->stuck_count, contrib);
+    }
+}
+
 
 void local_init_match(int num_players, int mode) {
     memset(&local_state, 0, sizeof(ServerState));
     memset(tdmb_last_kills, 0, sizeof(tdmb_last_kills));
+    memset(g_bot_metrics, 0, sizeof(g_bot_metrics));
+    memset(g_bot_policy_runtime, 0, sizeof(g_bot_policy_runtime));
+    memset(g_bot_policy_kind, 0, sizeof(g_bot_policy_kind));
+    memset(g_bot_prev_health, 0, sizeof(g_bot_prev_health));
+    memset(g_bot_prev_x, 0, sizeof(g_bot_prev_x));
+    memset(g_bot_prev_z, 0, sizeof(g_bot_prev_z));
+    memset(g_bot_last_spawn_ms, 0, sizeof(g_bot_last_spawn_ms));
+    g_bot_harness.match_id++;
+    g_bot_harness.default_policy = bot_policy_select_default(0);
     local_state.game_mode = mode;
     scene_set_game_mode(mode);
     local_state.pending_scene = -1;
     local_state.transition_timer = 0;
     local_state.winning_team = -1;
     local_state.score_limit = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_SCORE_LIMIT : (mode == MODE_CTFB ? CTFB_SCORE_LIMIT : 0);
+
+    if (g_bot_harness.train_tdm_local || g_bot_harness.eval_tdm_local) {
+        mode = MODE_TDMB;
+    }
 
     if (mode == MODE_TDMB) {
         num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
@@ -816,11 +978,15 @@ void local_init_match(int num_players, int mode) {
     }
 
     local_state.players[0].active = 1;
-    local_state.players[0].is_bot = 0;
+    local_state.players[0].is_bot = (g_bot_harness.train_tdm_local || g_bot_harness.eval_tdm_local) ? 1 : 0;
     local_state.players[0].team_id = (mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB) ? TDMB_BLUE_TEAM : ((mode == MODE_TDM || mode == MODE_CTF) ? 0 : -1);
     local_state.players[0].scene_id = local_state.scene_id;
     local_state.players[0].carried_flag_team_id = -1;
     phys_respawn(&local_state.players[0], 0);
+    if (local_state.players[0].is_bot) {
+        g_bot_policy_kind[0] = g_bot_harness.default_policy;
+        g_bot_last_spawn_ms[0] = 0;
+    }
 
     for(int i=1; i<num_players; i++) {
         local_state.players[i].active = 1;
@@ -834,7 +1000,31 @@ void local_init_match(int num_players, int mode) {
         local_state.players[i].carried_flag_team_id = -1;
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);
+        g_bot_policy_kind[i] = g_bot_harness.default_policy;
+        g_bot_last_spawn_ms[i] = i * 100;
+        g_bot_prev_health[i] = local_state.players[i].health;
     }
+    if (g_bot_harness.record_tdm) {
+        const char *path = g_bot_harness.record_path[0] ? g_bot_harness.record_path : TDM_RECORD_FILE_DEFAULT;
+        if (!g_bot_harness.record_file) {
+            g_bot_harness.record_file = fopen(path, "a");
+            if (g_bot_harness.record_file) {
+                printf("[TDM_RECORD] recording enabled path=%s\n", path);
+            } else {
+                printf("[TDM_RECORD] failed to open path=%s\n", path);
+                g_bot_harness.record_tdm = 0;
+            }
+        }
+    }
+
+    if (g_bot_harness.default_policy == BOT_POLICY_NEURAL && !bot_policy_neural_weights_available()) {
+        printf("[BOT_POLICY] neural weights unavailable, falling back to scripted baseline\n");
+        g_bot_harness.default_policy = BOT_POLICY_SCRIPTED;
+        for (int bi = 0; bi < MAX_CLIENTS; bi++) {
+            if (local_state.players[bi].active && local_state.players[bi].is_bot) g_bot_policy_kind[bi] = BOT_POLICY_SCRIPTED;
+        }
+    }
+
     scene_load(local_state.scene_id);
     if (mode == MODE_CTFB) {
         ctf_init_match_state(local_state.scene_id);

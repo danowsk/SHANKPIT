@@ -583,7 +583,8 @@ static void lobby_apply_ui_state() {
         local_init_match(12, MODE_CTFB);
     } else if (strcmp(ui_state.active_mode_id, "mode.training") == 0) {
         app_state = STATE_GAME_LOCAL;
-        local_init_match(1, MODE_DEATHMATCH);
+        local_set_bot_harness_flags(1, 0, 0, NULL);
+        local_init_match(12, MODE_TDMB);
     } else if (strcmp(ui_state.active_mode_id, "mode.recorder") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(1, MODE_DEATHMATCH);
@@ -640,7 +641,8 @@ static void lobby_start_action(int action) {
                 local_init_match(1, MODE_DEATHMATCH);
                 break;
             case LOBBY_BATTLE:
-                local_init_match(12, MODE_DEATHMATCH);
+                local_set_bot_harness_flags(1, 0, 0, NULL);
+                local_init_match(12, MODE_TDMB);
                 break;
             case LOBBY_TDMB:
                 local_init_match(12, MODE_TDMB);

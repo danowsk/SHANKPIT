@@ -12,8 +12,8 @@ LIBS_GL  := -lSDL2 -lGL -lGLU -lm
 LIBS_M   := -lm
 
 # ---- Sources ----
-LOBBY_SRC    := apps/lobby/src/main.c packages/render/proc_tex.c packages/world/terrain.c
-SERVER_SRC   := apps/server/src/main.c packages/world/terrain.c
+LOBBY_SRC    := apps/lobby/src/main.c packages/render/proc_tex.c packages/world/terrain.c packages/simulation/bot_policy.c
+SERVER_SRC   := apps/server/src/main.c packages/world/terrain.c packages/simulation/bot_policy.c
 SERVERCTL_SRC:= apps/server/serverctl.c
 
 # ---- Outputs ----

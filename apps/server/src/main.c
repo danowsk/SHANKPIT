@@ -201,6 +201,7 @@ static int tdmo_spawn_bot_on_team(int team_id, unsigned int now_ms) {
     p->current_weapon = WPN_AR;
     p->ammo[WPN_AR] = WPN_STATS[WPN_AR].ammo_max;
     init_genome(&p->brain);
+    g_bot_policy_kind[slot] = g_bot_harness.default_policy ? g_bot_harness.default_policy : bot_policy_select_default(0);
     phys_respawn(p, now_ms);
     return 1;
 }
@@ -701,6 +702,15 @@ int main(int argc, char *argv[]) {
             recorder.enabled = 1;
             recorder_init_file(argv[i + 1]);
             i++;
+        } else if (strcmp(argv[i], "--train-tdm-local") == 0) {
+            local_set_bot_harness_flags(1, 0, g_bot_harness.record_tdm, g_bot_harness.record_path);
+        } else if (strcmp(argv[i], "--eval-tdm-local") == 0) {
+            local_set_bot_harness_flags(0, 1, g_bot_harness.record_tdm, g_bot_harness.record_path);
+        } else if (strcmp(argv[i], "--record-tdm") == 0) {
+            local_set_bot_harness_flags(g_bot_harness.train_tdm_local, g_bot_harness.eval_tdm_local, 1, g_bot_harness.record_path);
+        } else if (strcmp(argv[i], "--record-tdm-file") == 0 && i + 1 < argc) {
+            local_set_bot_harness_flags(g_bot_harness.train_tdm_local, g_bot_harness.eval_tdm_local, 1, argv[i + 1]);
+            i++;
         }
     }
 
@@ -710,6 +720,8 @@ int main(int argc, char *argv[]) {
 
     server_net_init();
     int mode = parse_server_mode(argc, argv);
+    g_bot_harness.default_policy = bot_policy_select_default(0);
+    printf("[BOT_POLICY] default=%d neural_available=%d\n", g_bot_harness.default_policy, bot_policy_neural_weights_available());
     local_init_match(1, mode);
     if (mode == MODE_TDMO) {
         tdmo_activate_match(get_server_time());
@@ -766,13 +778,15 @@ int main(int argc, char *argv[]) {
 
             if (local_state.game_mode == MODE_TDMO && p->active && p->is_bot && p->state != STATE_DEAD) {
                 float b_fwd = 0.0f;
+                float b_strafe = 0.0f;
                 float b_yaw = p->yaw;
                 int b_btns = 0;
-                bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
+                bot_think(i, local_state.players, &b_fwd, &b_strafe, &b_yaw, &b_btns);
                 p->yaw = b_yaw;
                 float brad = b_yaw * 3.14159f / 180.0f;
-                float bx = sinf(brad) * b_fwd;
-                float bz = cosf(brad) * b_fwd;
+                float srad = (b_yaw + 90.0f) * 3.14159f / 180.0f;
+                float bx = sinf(brad) * b_fwd + sinf(srad) * b_strafe;
+                float bz = cosf(brad) * b_fwd + cosf(srad) * b_strafe;
                 accelerate(p, bx, bz, MAX_SPEED, ACCEL);
                 p->in_shoot = (b_btns & BTN_ATTACK) ? 1 : 0;
                 p->in_jump = (b_btns & BTN_JUMP) ? 1 : 0;

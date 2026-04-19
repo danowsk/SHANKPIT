@@ -1193,6 +1193,13 @@ static void draw_box_solid(float hx, float hy, float hz) {
     glEnd();
 }
 
+static void draw_bush_lobe(float cx, float cy, float cz, float hx, float hy, float hz) {
+    glPushMatrix();
+    glTranslatef(cx, cy, cz);
+    draw_box_solid(hx, hy, hz);
+    glPopMatrix();
+}
+
 static void draw_single_bush(const BushProp *b) {
     float tint = b->tint;
     float base_r = lerpf(0.20f, 0.26f, tint);
@@ -1215,43 +1222,18 @@ static void draw_single_bush(const BushProp *b) {
     glPopMatrix();
 
     glColor3f(base_r, base_g, base_b);
-    glPushMatrix();
-    glTranslatef(-0.56f, 1.05f, -0.20f);
-    draw_box_solid(0.54f, 0.56f, 0.46f);
-    glPopMatrix();
-
-    glPushMatrix();
-    glTranslatef(0.48f, 1.16f, 0.14f);
-    draw_box_solid(0.52f, 0.52f, 0.48f);
-    glPopMatrix();
+    draw_bush_lobe(-0.56f, 1.05f, -0.20f, 0.54f, 0.56f, 0.46f);
+    draw_bush_lobe(0.48f, 1.16f, 0.14f, 0.52f, 0.52f, 0.48f);
 
     glColor3f(top_r, top_g, top_b);
-    glPushMatrix();
-    glTranslatef(-0.12f, 1.58f, 0.10f);
-    draw_box_solid(0.58f, 0.48f, 0.56f);
-    glPopMatrix();
+    draw_bush_lobe(-0.12f, 1.58f, 0.10f, 0.58f, 0.48f, 0.56f);
+    draw_bush_lobe(0.10f, 1.22f, -0.55f, 0.40f, 0.36f, 0.36f);
 
-    glPushMatrix();
-    glTranslatef(0.10f, 1.22f, -0.55f);
-    draw_box_solid(0.40f, 0.36f, 0.36f);
-    glPopMatrix();
-
-    if (b->variant == 1) {
-        glColor3f(base_r * 0.94f, base_g * 0.94f, base_b * 0.94f);
-        glPushMatrix();
-        glTranslatef(0.62f, 1.34f, -0.12f);
-        draw_box_solid(0.32f, 0.34f, 0.28f);
-        glPopMatrix();
-    } else if (b->variant == 2) {
-        glColor3f(top_r * 0.96f, top_g * 0.96f, top_b * 0.96f);
-        glPushMatrix();
-        glTranslatef(-0.46f, 1.34f, 0.56f);
-        draw_box_solid(0.36f, 0.28f, 0.30f);
-        glPopMatrix();
-        glPushMatrix();
-        glTranslatef(0.52f, 1.52f, 0.30f);
-        draw_box_solid(0.24f, 0.24f, 0.24f);
-        glPopMatrix();
+    glColor3f(top_r * 0.97f, top_g * 0.97f, top_b * 0.97f);
+    draw_bush_lobe(b->accent0_x, b->accent0_y, b->accent0_z, b->accent0_w, b->accent0_h, b->accent0_d);
+    if (b->accent_count > 1) {
+        glColor3f(base_r * 0.95f, base_g * 0.95f, base_b * 0.95f);
+        draw_bush_lobe(b->accent1_x, b->accent1_y, b->accent1_z, b->accent1_w, b->accent1_h, b->accent1_d);
     }
     glPopMatrix();
 }

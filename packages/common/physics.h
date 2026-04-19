@@ -279,8 +279,10 @@ typedef struct {
     float scale_y;
     float yaw;
     float tint;
-    unsigned char variant;
     unsigned char size_tier;
+    unsigned char accent_count;
+    float accent0_x, accent0_y, accent0_z, accent0_w, accent0_h, accent0_d;
+    float accent1_x, accent1_y, accent1_z, accent1_w, accent1_h, accent1_d;
 } BushProp;
 
 static const VehiclePad garage_vehicle_pads[] = {
@@ -918,38 +920,49 @@ static inline int voxworld_point_is_good_for_bush(TerrainHeightfield *t, float x
 }
 
 static inline float voxworld_bush_spacing_for_scale(float scale_xz) {
-    return 24.0f + scale_xz * 26.0f;
+    return 18.0f + scale_xz * 18.0f;
 }
 
-static inline void voxworld_pick_bush_style(int key_x, int key_z, float *out_scale_xz, float *out_scale_y,
-                                            float *out_tint, float *out_yaw, unsigned char *out_variant,
-                                            unsigned char *out_size_tier) {
+static inline void voxworld_configure_bush_style(BushProp *b, int key_x, int key_z) {
     float tier_roll = voxworld_bush_hash01(key_x, key_z, 401);
     float tier_local = voxworld_bush_hash01(key_x, key_z, 409);
     float scale = 1.0f;
-    unsigned char tier = 0;
+    b->size_tier = 0;
     if (tier_roll < 0.45f) {
-        tier = 0; /* small */
-        scale = 0.92f + tier_local * 0.22f;
+        b->size_tier = 0; /* small/current */
+        scale = 0.92f + tier_local * 0.30f;
     } else if (tier_roll < 0.80f) {
-        tier = 1; /* medium */
-        scale = 1.25f + tier_local * 0.42f;
+        b->size_tier = 1; /* medium */
+        scale = 1.25f + tier_local * 0.72f;
     } else if (tier_roll < 0.95f) {
-        tier = 2; /* large */
-        scale = 1.76f + tier_local * 0.56f;
+        b->size_tier = 2; /* large */
+        scale = 2.00f + tier_local * 1.30f;
     } else {
-        tier = 3; /* extra large hero bush */
-        scale = 2.76f + tier_local * 0.42f;
+        b->size_tier = 3; /* extra large hero bush (~5x accent) */
+        scale = 4.40f + tier_local * 0.80f;
     }
     float width_shape = 0.88f + voxworld_bush_hash01(key_x, key_z, 421) * 0.34f;
     float height_shape = 0.84f + voxworld_bush_hash01(key_x, key_z, 433) * 0.48f;
-    *out_scale_xz = scale * width_shape;
-    *out_scale_y = scale * height_shape;
-    *out_tint = fminf(1.0f, fmaxf(0.0f, 0.18f + voxworld_bush_hash01(key_x, key_z, 449) * 0.72f));
-    *out_yaw = voxworld_bush_hash01(key_x, key_z, 463) * 360.0f;
-    *out_variant = (unsigned char)(voxworld_bush_hash01(key_x, key_z, 479) * 3.0f);
-    if (*out_variant > 2) *out_variant = 2;
-    *out_size_tier = tier;
+    b->scale_xz = scale * width_shape;
+    b->scale_y = scale * height_shape;
+    b->tint = fminf(1.0f, fmaxf(0.0f, 0.18f + voxworld_bush_hash01(key_x, key_z, 449) * 0.72f));
+    b->yaw = voxworld_bush_hash01(key_x, key_z, 463) * 360.0f;
+
+    /* Continuous per-instance accent parameters (effectively unique silhouettes per bush). */
+    b->accent_count = (unsigned char)(1 + (voxworld_bush_hash01(key_x, key_z, 479) > 0.48f));
+    b->accent0_x = -0.70f + voxworld_bush_hash01(key_x, key_z, 491) * 1.42f;
+    b->accent0_y = 1.10f + voxworld_bush_hash01(key_x, key_z, 503) * 0.62f;
+    b->accent0_z = -0.68f + voxworld_bush_hash01(key_x, key_z, 509) * 1.36f;
+    b->accent0_w = 0.20f + voxworld_bush_hash01(key_x, key_z, 521) * 0.26f;
+    b->accent0_h = 0.20f + voxworld_bush_hash01(key_x, key_z, 523) * 0.28f;
+    b->accent0_d = 0.20f + voxworld_bush_hash01(key_x, key_z, 541) * 0.26f;
+
+    b->accent1_x = -0.70f + voxworld_bush_hash01(key_x, key_z, 547) * 1.42f;
+    b->accent1_y = 1.14f + voxworld_bush_hash01(key_x, key_z, 557) * 0.68f;
+    b->accent1_z = -0.66f + voxworld_bush_hash01(key_x, key_z, 563) * 1.32f;
+    b->accent1_w = 0.18f + voxworld_bush_hash01(key_x, key_z, 569) * 0.24f;
+    b->accent1_h = 0.18f + voxworld_bush_hash01(key_x, key_z, 571) * 0.30f;
+    b->accent1_d = 0.18f + voxworld_bush_hash01(key_x, key_z, 577) * 0.24f;
 }
 
 static inline int voxworld_bush_spot_is_valid(TerrainHeightfield *t, float x, float z, float scale_xz, unsigned char size_tier) {
@@ -989,21 +1002,24 @@ static inline int voxworld_bush_spacing_ok(float x, float z, float scale_xz) {
 
 static inline int voxworld_add_bush_instance(TerrainHeightfield *t, float x, float z, int key_x, int key_z, int mirror_from_left) {
     if (g_voxworld_bush_count >= MAX_VOXWORLD_BUSHES) return 0;
-    float scale_xz = 1.0f, scale_y = 1.0f, tint = 0.5f, yaw = 0.0f;
-    unsigned char variant = 0, size_tier = 0;
-    voxworld_pick_bush_style(key_x, key_z, &scale_xz, &scale_y, &tint, &yaw, &variant, &size_tier);
-    if (!voxworld_bush_spot_is_valid(t, x, z, scale_xz, size_tier)) return 0;
-    if (!voxworld_bush_spacing_ok(x, z, scale_xz)) return 0;
+    BushProp style = {0};
+    voxworld_configure_bush_style(&style, key_x, key_z);
+    if (!voxworld_bush_spot_is_valid(t, x, z, style.scale_xz, style.size_tier)) return 0;
+    if (!voxworld_bush_spacing_ok(x, z, style.scale_xz)) return 0;
     BushProp *b = &g_voxworld_bushes[g_voxworld_bush_count++];
     b->x = x;
     b->z = z;
     b->y = terrain_sample_height(t, x, z) + 0.10f;
-    b->scale_xz = scale_xz;
-    b->scale_y = scale_y;
-    b->yaw = mirror_from_left ? fmodf(540.0f - yaw, 360.0f) : yaw;
-    b->tint = tint;
-    b->variant = variant;
-    b->size_tier = size_tier;
+    b->scale_xz = style.scale_xz;
+    b->scale_y = style.scale_y;
+    b->yaw = mirror_from_left ? fmodf(540.0f - style.yaw, 360.0f) : style.yaw;
+    b->tint = style.tint;
+    b->size_tier = style.size_tier;
+    b->accent_count = style.accent_count;
+    b->accent0_x = style.accent0_x; b->accent0_y = style.accent0_y; b->accent0_z = style.accent0_z;
+    b->accent0_w = style.accent0_w; b->accent0_h = style.accent0_h; b->accent0_d = style.accent0_d;
+    b->accent1_x = style.accent1_x; b->accent1_y = style.accent1_y; b->accent1_z = style.accent1_z;
+    b->accent1_w = style.accent1_w; b->accent1_h = style.accent1_h; b->accent1_d = style.accent1_d;
     return 1;
 }
 

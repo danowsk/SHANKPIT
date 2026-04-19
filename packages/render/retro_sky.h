@@ -3,11 +3,23 @@
 
 #include "proc_tex.h"
 
+#define RETRO_SKY_STAR_COUNT 144
+
+typedef struct RetroSkyStar {
+    float dir_x;
+    float dir_y;
+    float dir_z;
+    float size;
+    float brightness;
+    float twinkle_phase;
+} RetroSkyStar;
+
 typedef struct RetroSky {
     int initialized;
     ProcTexture cloud_tex;
     ProcTexture sun_tex;
     ProcTexture moon_tex;
+    RetroSkyStar stars[RETRO_SKY_STAR_COUNT];
 } RetroSky;
 
 int retro_sky_init(RetroSky *sky);

@@ -24,6 +24,76 @@ static float fracf(float v) {
     return v - floorf(v);
 }
 
+static unsigned int lcg_next_u32(unsigned int *state) {
+    *state = (*state * 1664525u) + 1013904223u;
+    return *state;
+}
+
+static float rand01(unsigned int *state) {
+    return (float)(lcg_next_u32(state) & 0x00FFFFFFu) / 16777215.0f;
+}
+
+static void init_starfield(RetroSky *sky) {
+    if (!sky) return;
+
+    unsigned int rng = 0x534B5931u; /* "SKY1" deterministic seed for stable stars. */
+    for (int i = 0; i < RETRO_SKY_STAR_COUNT; ++i) {
+        RetroSkyStar *star = &sky->stars[i];
+        float azimuth = rand01(&rng) * (float)M_PI * 2.0f;
+        float horizon_bias = rand01(&rng);
+        float y = 0.06f + horizon_bias * horizon_bias * 0.94f;
+        float radial = sqrtf(fmaxf(0.0f, 1.0f - y * y));
+        float x = cosf(azimuth) * radial;
+        float z = sinf(azimuth) * radial;
+
+        float hero = (i < 12) ? 1.0f : 0.0f;
+        star->dir_x = x;
+        star->dir_y = y;
+        star->dir_z = z;
+        star->size = 4.0f + rand01(&rng) * 3.4f + hero * 3.0f;
+        star->brightness = 0.28f + rand01(&rng) * 0.42f + hero * 0.26f;
+        star->twinkle_phase = rand01(&rng) * (float)M_PI * 2.0f;
+    }
+}
+
+static void draw_starfield(const RetroSky *sky, float time_sec, float night_amount) {
+    if (!sky || night_amount <= 0.001f) return;
+
+    const float star_dist = 2500.0f;
+    const float twinkle = 0.94f + 0.06f * sinf(time_sec * 0.8f);
+
+    GLboolean prev_texture_2d = glIsEnabled(GL_TEXTURE_2D);
+    GLboolean prev_blend = glIsEnabled(GL_BLEND);
+    GLboolean prev_point_smooth = glIsEnabled(GL_POINT_SMOOTH);
+    GLfloat prev_point_size = 1.0f;
+    glGetFloatv(GL_POINT_SIZE, &prev_point_size);
+
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_POINT_SMOOTH);
+
+    for (int i = 0; i < RETRO_SKY_STAR_COUNT; ++i) {
+        const RetroSkyStar *star = &sky->stars[i];
+        float horizon_fade = smoothstepf(0.08f, 0.32f, star->dir_y);
+        float star_alpha = star->brightness * night_amount * horizon_fade;
+        float star_twinkle = 0.97f + 0.03f * sinf(time_sec * 0.65f + star->twinkle_phase);
+        float alpha = clamp01f(star_alpha * twinkle * star_twinkle);
+        if (alpha <= 0.01f) continue;
+
+        glPointSize(star->size);
+        glBegin(GL_POINTS);
+        glColor4f(0.90f, 0.95f, 1.0f, alpha * 0.7f);
+        glVertex3f(star->dir_x * star_dist, star->dir_y * star_dist, star->dir_z * star_dist);
+        glEnd();
+    }
+
+    glPointSize(prev_point_size);
+    if (prev_point_smooth) glEnable(GL_POINT_SMOOTH); else glDisable(GL_POINT_SMOOTH);
+    if (prev_blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    if (prev_texture_2d) glEnable(GL_TEXTURE_2D); else glDisable(GL_TEXTURE_2D);
+}
+
 void retro_sky_eval_sun_dir(float time_sec, float *out_x, float *out_y, float *out_z) {
     float orbit_t = time_sec * 0.025f;
     float tilt = 0.40f;
@@ -220,6 +290,8 @@ int retro_sky_init(RetroSky *sky) {
     fill_disc_texture(&sky->moon_tex, 0.80f, 0.87f, 1.0f, 0.07f);
     proctex_upload_to_gl(&sky->moon_tex);
 
+    init_starfield(sky);
+
     sky->initialized = 1;
     return 1;
 }
@@ -258,7 +330,13 @@ void retro_sky_draw(RetroSky *sky, float cam_x, float cam_y, float cam_z, float 
     float sun_dir_x = 0.0f, sun_dir_y = 1.0f, sun_dir_z = 0.0f;
     retro_sky_eval_sun_dir(time_sec, &sun_dir_x, &sun_dir_y, &sun_dir_z);
     float daylight = smoothstepf(-0.22f, 0.35f, sun_dir_y);
+    /*
+     * Stars intentionally key off daylight from the same sun-dir signal so
+     * dusk/dawn transitions match the existing sun/moon cycle.
+     */
+    float night_amount = smoothstepf(0.45f, 0.02f, daylight);
     draw_sky_cube(3200.0f, daylight);
+    draw_starfield(sky, time_sec, night_amount);
 
     float cloud_scroll = fracf(time_sec * 0.0016f);
     draw_cloud_layer(sky->cloud_tex.tex_id, 1800.0f, 940.0f, cloud_scroll, 0.10f + daylight * 0.16f);

@@ -5,6 +5,7 @@
 #define MAX_WEAPONS 6
 #define MAX_PROJECTILES 1024
 #define MAX_HELICOPTERS 8
+#define MAX_BUGGIES 16
 #define LAG_HISTORY 64
 
 #define SCENE_GARAGE_OSAKA 0
@@ -138,6 +139,20 @@ typedef struct {
 } NetHelicopter;
 
 typedef struct {
+    unsigned char id;
+    unsigned char scene_id;
+    unsigned char active;
+    unsigned char grounded;
+    float x, y, z;
+    float vx, vy, vz;
+    float yaw;
+    float pitch;
+    float roll;
+    float steer;
+    signed char occupant_player_id;
+} NetBuggy;
+
+typedef struct {
     int version;
     float w_aggro;
     float w_strafe; float w_jump; float w_slide; float w_turret; float w_repel;      
@@ -231,6 +246,22 @@ typedef struct {
     HeliInputState input;
 } HelicopterState;
 
+typedef struct {
+    int active;
+    int id;
+    int scene_id;
+    float x, y, z;
+    float vx, vy, vz;
+    float yaw;
+    float pitch;
+    float roll;
+    float steer;
+    float throttle;
+    int health;
+    int occupant_player_id;
+    int grounded;
+} BuggyState;
+
 typedef enum {
     FLAG_AT_HOME = 0,
     FLAG_CARRIED = 1,
@@ -263,6 +294,7 @@ typedef struct {
     PlayerState players[MAX_CLIENTS];
     Projectile projectiles[MAX_PROJECTILES];
     HelicopterState helicopters[MAX_HELICOPTERS];
+    BuggyState buggies[MAX_BUGGIES];
     LagRecord history[MAX_CLIENTS][LAG_HISTORY];
     int server_tick;
     int game_mode;

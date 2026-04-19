@@ -153,7 +153,7 @@ static inline void shankpit_apply_usercmd_inputs(PlayerState *p, const UserCmd *
 
 static inline void shankpit_simulate_movement_tick(PlayerState *p, unsigned int now_ms) {
     if (!p) return;
-    if (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER) {
+    if (p->in_vehicle && (p->vehicle_type == VEH_HELICOPTER || p->vehicle_type == VEH_BUGGY)) {
         p->vx = p->vy = p->vz = 0.0f;
         return;
     }
@@ -164,9 +164,7 @@ static inline void shankpit_simulate_movement_tick(PlayerState *p, unsigned int 
     //   server authority and client prediction/replay.
     // - Reconciliation should only correct transport drift, not hide sim mismatches.
 
-    if (p->in_vehicle) {
-        simulate_buggy_drive(p, p->in_fwd, p->in_strafe, SHANKPIT_NET_FIXED_DT);
-    } else {
+    if (!p->in_vehicle) {
         MoveIntent move_intent = {
             .forward = p->in_fwd,
             .strafe = p->in_strafe,
@@ -178,7 +176,7 @@ static inline void shankpit_simulate_movement_tick(PlayerState *p, unsigned int 
         accelerate(p, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, ACCEL);
     }
 
-    float g = p->in_vehicle ? BUGGY_GRAVITY : (p->in_jump ? GRAVITY_FLOAT : GRAVITY_DROP);
+    float g = (p->in_jump ? GRAVITY_FLOAT : GRAVITY_DROP);
     p->vy -= g;
     if (p->in_jump && p->on_ground) {
         p->y += 0.1f;

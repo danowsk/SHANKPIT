@@ -2083,6 +2083,161 @@ static void draw_box_outline(float w, float h, float d) {
     glPopMatrix();
 }
 
+typedef struct PlayerAnimPose {
+    float locomotion;
+    float torso_bob;
+    float torso_yaw;
+    float left_thigh;
+    float right_thigh;
+    float left_knee;
+    float right_knee;
+    float left_arm_swing;
+    float right_arm_swing;
+    float left_elbow;
+    float right_elbow;
+} PlayerAnimPose;
+
+static float g_player_run_phase[MAX_CLIENTS];
+static unsigned int g_player_anim_last_ms[MAX_CLIENTS];
+
+static PlayerAnimPose compute_player_anim_pose(const PlayerState *p) {
+    PlayerAnimPose pose;
+    memset(&pose, 0, sizeof(pose));
+    if (!p) return pose;
+
+    int anim_idx = p->id;
+    if (anim_idx < 0 || anim_idx >= MAX_CLIENTS) anim_idx = 0;
+    unsigned int now_ms = SDL_GetTicks();
+    unsigned int prev_ms = g_player_anim_last_ms[anim_idx];
+    float dt = (prev_ms > 0 && now_ms > prev_ms) ? (float)(now_ms - prev_ms) * 0.001f : (1.0f / 60.0f);
+    if (dt < 0.0f) dt = 0.0f;
+    if (dt > 0.06f) dt = 0.06f;
+    g_player_anim_last_ms[anim_idx] = now_ms;
+
+    float speed = sqrtf(p->vx * p->vx + p->vz * p->vz);
+    const float run_speed = 15.0f;
+    pose.locomotion = clamp01f(speed / run_speed);
+
+    if (p->state != STATE_DEAD && p->on_ground && pose.locomotion > 0.03f) {
+        float cycle_hz = lerpf(1.0f, 2.9f, pose.locomotion);
+        g_player_run_phase[anim_idx] += dt * (cycle_hz * 6.2831853f);
+        if (g_player_run_phase[anim_idx] > 6.2831853f) g_player_run_phase[anim_idx] -= 6.2831853f;
+    }
+
+    float phase = g_player_run_phase[anim_idx];
+    float leg = sinf(phase);
+    float opp_leg = sinf(phase + 3.1415926f);
+    float knee_l = fmaxf(0.0f, sinf(phase + 0.7f));
+    float knee_r = fmaxf(0.0f, sinf(phase + 3.1415926f + 0.7f));
+    float idle_sway = sinf(now_ms * 0.0022f) * (1.0f - pose.locomotion);
+
+    float airborne = p->on_ground ? 0.0f : 1.0f;
+    float locomotion_scale = (1.0f - 0.7f * airborne) * pose.locomotion;
+
+    pose.left_thigh = -leg * (12.0f + locomotion_scale * 16.0f);
+    pose.right_thigh = -opp_leg * (12.0f + locomotion_scale * 16.0f);
+    pose.left_knee = knee_l * (8.0f + locomotion_scale * 16.0f);
+    pose.right_knee = knee_r * (8.0f + locomotion_scale * 16.0f);
+    pose.left_arm_swing = opp_leg * (2.0f + locomotion_scale * 8.0f) + idle_sway * 2.0f;
+    pose.right_arm_swing = leg * (1.5f + locomotion_scale * 5.0f);
+    pose.left_elbow = 12.0f + locomotion_scale * 10.0f;
+    pose.right_elbow = 32.0f + locomotion_scale * 8.0f;
+    pose.torso_bob = fabsf(leg) * 0.05f * locomotion_scale;
+    pose.torso_yaw = leg * (1.0f + locomotion_scale * 2.0f);
+    if (p->crouching) pose.torso_bob -= 0.10f;
+    return pose;
+}
+
+static void draw_player_arm(int right_side, const PlayerAnimPose *pose, float draw_pitch, float draw_recoil, int weapon_id) {
+    float side = right_side ? 1.0f : -1.0f;
+    float shoulder_x = side * RONIN_SLEEVE_OFFSET;
+    float shoulder_y = 1.20f;
+    float shoulder_z = right_side ? 0.08f : -0.02f;
+    float upper_pitch = right_side ? (28.0f + pose->right_arm_swing) : (-6.0f + pose->left_arm_swing);
+    float elbow_pitch = right_side ? pose->right_elbow : pose->left_elbow;
+
+    glPushMatrix();
+    glTranslatef(shoulder_x, shoulder_y, shoulder_z);
+    glRotatef(upper_pitch, 1, 0, 0);
+    glRotatef(-side * 8.0f, 0, 0, 1);
+    draw_box(RONIN_ARM_UPPER_W, RONIN_ARM_UPPER_H, RONIN_ARM_UPPER_D);
+    draw_box_outline(RONIN_ARM_UPPER_W, RONIN_ARM_UPPER_H, RONIN_ARM_UPPER_D);
+
+    glTranslatef(0.0f, -RONIN_ARM_UPPER_H * 0.5f, 0.0f);
+    glRotatef(elbow_pitch, 1, 0, 0);
+    draw_box(RONIN_ARM_LOWER_W, RONIN_ARM_LOWER_H, RONIN_ARM_LOWER_D);
+    draw_box_outline(RONIN_ARM_LOWER_W, RONIN_ARM_LOWER_H, RONIN_ARM_LOWER_D);
+
+    glTranslatef(0.0f, -RONIN_ARM_LOWER_H * 0.5f, 0.08f);
+    draw_box(RONIN_HAND_W, RONIN_HAND_H, RONIN_HAND_D);
+    draw_box_outline(RONIN_HAND_W, RONIN_HAND_H, RONIN_HAND_D);
+
+    if (right_side) {
+        glPushMatrix();
+        glTranslatef(0.12f, 0.02f, 0.28f);
+        glRotatef(draw_pitch, 1, 0, 0);
+        glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
+        glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
+        glScalef(0.8f, 0.8f, 0.8f);
+        draw_gun_model(weapon_id);
+        glPopMatrix();
+    }
+    glPopMatrix();
+}
+
+static void draw_player_leg(int right_side, const PlayerAnimPose *pose) {
+    float side = right_side ? 1.0f : -1.0f;
+    float hip_x = side * RONIN_PANTS_OFFSET;
+    float hip_y = 0.30f;
+    float hip_pitch = right_side ? pose->right_thigh : pose->left_thigh;
+    float knee_pitch = right_side ? pose->right_knee : pose->left_knee;
+
+    glPushMatrix();
+    glTranslatef(hip_x, hip_y, 0.0f);
+    glRotatef(hip_pitch, 1, 0, 0);
+    draw_box(RONIN_LEG_UPPER_W, RONIN_LEG_UPPER_H, RONIN_LEG_UPPER_D);
+    draw_box_outline(RONIN_LEG_UPPER_W, RONIN_LEG_UPPER_H, RONIN_LEG_UPPER_D);
+
+    glTranslatef(0.0f, -RONIN_LEG_UPPER_H * 0.5f, 0.0f);
+    glRotatef(knee_pitch, 1, 0, 0);
+    draw_box(RONIN_LEG_LOWER_W, RONIN_LEG_LOWER_H, RONIN_LEG_LOWER_D);
+    draw_box_outline(RONIN_LEG_LOWER_W, RONIN_LEG_LOWER_H, RONIN_LEG_LOWER_D);
+
+    glTranslatef(0.0f, -RONIN_LEG_LOWER_H * 0.5f, 0.15f);
+    draw_box(RONIN_FOOT_W, RONIN_FOOT_H, RONIN_FOOT_D);
+    draw_box_outline(RONIN_FOOT_W, RONIN_FOOT_H, RONIN_FOOT_D);
+    glPopMatrix();
+}
+
+static void draw_ronin_shell_articulated(const PlayerAnimPose *pose, float draw_pitch, float draw_recoil, int weapon_id) {
+    if (vs0_art_direction_enabled) glColor3f(0.18f, 0.20f, 0.24f);
+    else glColor3f(0.1f, 0.1f, 0.1f);
+
+    glPushMatrix();
+    glTranslatef(0.0f, 0.9f + pose->torso_bob, 0.0f);
+    glRotatef(pose->torso_yaw, 0, 1, 0);
+    draw_box(RONIN_TORSO_W, RONIN_TORSO_H, RONIN_TORSO_D);
+    draw_box_outline(RONIN_TORSO_W, RONIN_TORSO_H, RONIN_TORSO_D);
+    glPushMatrix(); glTranslatef(-RONIN_SHOULDER_PAD_OFFSET, 0.35f, 0.0f); draw_box(RONIN_SHOULDER_PAD_W, RONIN_SHOULDER_PAD_H, RONIN_SHOULDER_PAD_D); draw_box_outline(RONIN_SHOULDER_PAD_W, RONIN_SHOULDER_PAD_H, RONIN_SHOULDER_PAD_D); glPopMatrix();
+    glPushMatrix(); glTranslatef(RONIN_SHOULDER_PAD_OFFSET, 0.35f, 0.0f); draw_box(RONIN_SHOULDER_PAD_W, RONIN_SHOULDER_PAD_H, RONIN_SHOULDER_PAD_D); draw_box_outline(RONIN_SHOULDER_PAD_W, RONIN_SHOULDER_PAD_H, RONIN_SHOULDER_PAD_D); glPopMatrix();
+
+    draw_player_arm(0, pose, draw_pitch, draw_recoil, weapon_id);
+    draw_player_arm(1, pose, draw_pitch, draw_recoil, weapon_id);
+
+    if (vs0_art_direction_enabled) glColor3f(0.42f, 0.17f, 0.17f);
+    else glColor3f(0.6f, 0.0f, 0.0f);
+    glBegin(GL_QUADS);
+    glVertex3f(-0.68f, RONIN_LINING_Y_BOTTOM, 0.39f); glVertex3f(0.68f, RONIN_LINING_Y_BOTTOM, 0.39f);
+    glVertex3f(0.68f, RONIN_LINING_Y_TOP, 0.39f); glVertex3f(-0.68f, RONIN_LINING_Y_TOP, 0.39f);
+    glEnd();
+    glPopMatrix();
+
+    if (vs0_art_direction_enabled) glColor3f(0.26f, 0.28f, 0.31f);
+    else glColor3f(0.18f, 0.18f, 0.2f);
+    draw_player_leg(0, pose);
+    draw_player_leg(1, pose);
+}
+
 static void draw_ronin_shell(void) {
     // Jacket core (cropped waist, broad shoulders)
     if (vs0_art_direction_enabled) glColor3f(0.18f, 0.20f, 0.24f);
@@ -2293,19 +2448,14 @@ static void draw_player_skin_cyborg(PlayerState *p, float draw_pitch, float draw
 }
 
 static void draw_player_skin_bat(PlayerState *p, float draw_pitch, float draw_recoil) {
-    (void)p;
-    draw_ronin_shell();
+    PlayerAnimPose pose = compute_player_anim_pose(p);
+    draw_ronin_shell_articulated(&pose, draw_pitch, draw_recoil, p->current_weapon);
     glPushMatrix();
-    glTranslatef(0.0f, 1.85f, 0.0f);
+    glTranslatef(0.0f, 1.85f + pose.torso_bob, 0.0f);
+    glRotatef(pose.torso_yaw * 0.35f, 0, 1, 0);
     glRotatef(draw_pitch, 1, 0, 0);
     draw_storm_mask();
     glPopMatrix();
-
-    glPushMatrix(); glTranslatef(0.6f, 1.1f, 0.55f);
-    glRotatef(draw_pitch, 1, 0, 0);
-    glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
-    glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
-    glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
 }
 
 static void draw_player_skin_mayrice(PlayerState *p, float draw_pitch, float draw_recoil) {

@@ -3,6 +3,11 @@
 ## Recent changes
 
 ### 2026-04-18
+- Added a deterministic night starfield layer to the retro sky system for richer low-light atmosphere while preserving visual reproducibility (`e0e441b`, merged in #235).
+- Refactored the buggy flow into a persistent terrain-aligned vehicle entity to improve movement coherence and world integration (`27af898`, merged in #234).
+- Added an articulated character animation pass with procedurally posed bat-skin limbs for more expressive third-person running motion (`54ca0f8`, merged in #227).
+- Added voxel grass tufts and swath shading over Voxworld terrain to increase scene depth and ground-detail readability (`e12eed8`, `4556a03`, merged in #225).
+- Retuned buggy acceleration behavior and corrected a vehicle friction regression for more realistic driving feel (`62ef86e`, `e1adde6`, merged in #224).
 - Added a dedicated CTFB flag-carry first-person viewmodel and reused the knife melee envelope while carrying to improve objective readability in combat (`282d0f2`, merged in #217).
 - Refined death-animation pacing with a short pre-fall hold and a subtle post-impact dead-state twist to make eliminations read more naturally (`9a51c17`, `54892f1`, merged in #220, #223).
 - Upgraded the stadium rally environment with a large tiered coliseum perimeter to strengthen scene scale and spectator-arena framing (`744b602`, merged in #218).

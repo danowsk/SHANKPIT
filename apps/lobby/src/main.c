@@ -229,7 +229,22 @@ static void retro_eval_brush_lighting_rgb(const RetroLightingState *lighting, fl
     retro_lighting_eval_surface_rgb(lighting, nx, ny, nz, ambient_floor, out_r, out_g, out_b);
 }
 
+static float voxworld_canyon_grass_mask(float world_x, float world_z) {
+    float centerline = 92.0f * sinf(world_x * 0.0045f) + 58.0f * sinf((world_x + 220.0f) * 0.0108f);
+    float center_band = 1.0f - smoothstepf(85.0f, 300.0f, fabsf(world_z - centerline));
+    float edge_band = 1.0f - smoothstepf(420.0f, 980.0f, fabsf(world_z));
+    float patch_noise = 0.5f + 0.5f * (
+        0.54f * sinf(world_x * 0.0075f + world_z * 0.0041f) +
+        0.31f * cosf(world_x * 0.0118f - world_z * 0.0063f) +
+        0.15f * sinf(world_z * 0.0170f)
+    );
+    float patch_mask = smoothstepf(0.37f, 0.74f, patch_noise);
+    return center_band * edge_band * patch_mask;
+}
+
 static void retro_eval_terrain_vertex_rgb(const RetroLightingState *lighting,
+                                          int scene_id,
+                                          float world_x, float world_z,
                                           float h, float min_h, float inv_h_range,
                                           float nx, float ny, float nz,
                                           float *out_r, float *out_g, float *out_b) {
@@ -237,6 +252,14 @@ static void retro_eval_terrain_vertex_rgb(const RetroLightingState *lighting,
 
     /* Keep terrain material identity from height/slope rules. */
     float grass_mix = smoothstepf(0.62f, 0.92f, h_norm) * (0.55f + 0.45f * ny);
+    if (scene_id == SCENE_VOXWORLD) {
+        /* Voxworld gets broad canyon-floor grass swaths with noisy breakup. */
+        float patch_mask = voxworld_canyon_grass_mask(world_x, world_z);
+        float flat_bias = smoothstepf(0.60f, 0.97f, ny);
+        float valley_bias = smoothstepf(0.90f, 0.15f, h_norm);
+        float canyon_grass = patch_mask * flat_bias * valley_bias;
+        if (canyon_grass > grass_mix) grass_mix = canyon_grass;
+    }
     float dark_mix = smoothstepf(0.0f, 0.35f, 1.0f - h_norm) * (0.55f + 0.45f * (1.0f - ny));
     float base_r = 0.58f, base_g = 0.49f, base_b = 0.37f;
     float material_r = lerpf(base_r, 0.65f, grass_mix);
@@ -1190,7 +1213,7 @@ void draw_terrain(const RetroLightingState *lighting) {
                 glColor3f(r0, g0, b0);
             } else {
                 float r0 = 1.0f, g0 = 1.0f, b0 = 1.0f;
-                retro_eval_terrain_vertex_rgb(lighting, h0, min_h, inv_h_range, nx0, ny0, nz0, &r0, &g0, &b0);
+                retro_eval_terrain_vertex_rgb(lighting, local_state.scene_id, x, z0, h0, min_h, inv_h_range, nx0, ny0, nz0, &r0, &g0, &b0);
                 if (local_state.scene_id == SCENE_STADIUM) {
                     float road0 = stadium_track_weight_at(x, z0) * 0.55f;
                     r0 = r0 * (1.0f - road0) + 0.60f * road0;
@@ -1224,7 +1247,7 @@ void draw_terrain(const RetroLightingState *lighting) {
                 glColor3f(r1, g1, b1);
             } else {
                 float r1 = 1.0f, g1 = 1.0f, b1 = 1.0f;
-                retro_eval_terrain_vertex_rgb(lighting, h1, min_h, inv_h_range, nx1, ny1, nz1, &r1, &g1, &b1);
+                retro_eval_terrain_vertex_rgb(lighting, local_state.scene_id, x, z1, h1, min_h, inv_h_range, nx1, ny1, nz1, &r1, &g1, &b1);
                 if (local_state.scene_id == SCENE_STADIUM) {
                     float road1 = stadium_track_weight_at(x, z1) * 0.55f;
                     r1 = r1 * (1.0f - road1) + 0.60f * road1;
@@ -1421,6 +1444,87 @@ static void draw_single_bush(const BushProp *b) {
     draw_box_solid(0.40f, 0.36f, 0.36f);
     glPopMatrix();
     glPopMatrix();
+}
+
+static float grass_hash01(float x, float z, float seed) {
+    float n = sinf(x * 0.127f + z * 0.193f + seed * 13.17f) * 43758.5453f;
+    return n - floorf(n);
+}
+
+static void draw_voxworld_grass_overlay(const RetroLightingState *lighting, const PlayerState *viewer) {
+    if (local_state.scene_id != SCENE_VOXWORLD || !viewer) return;
+    TerrainHeightfield *t = scene_active_terrain();
+    if (!t || !t->heights) return;
+
+    const float spacing = 26.0f;
+    const float radius = 980.0f;
+    const float start_x = floorf((viewer->x - radius) / spacing) * spacing;
+    const float end_x = ceilf((viewer->x + radius) / spacing) * spacing;
+    const float start_z = floorf((viewer->z - radius) / spacing) * spacing;
+    const float end_z = ceilf((viewer->z + radius) / spacing) * spacing;
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_CULL_FACE);
+    glBegin(GL_QUADS);
+    for (float z = start_z; z <= end_z; z += spacing) {
+        for (float x = start_x; x <= end_x; x += spacing) {
+            float jx = (grass_hash01(x, z, 1.0f) - 0.5f) * spacing * 0.72f;
+            float jz = (grass_hash01(x, z, 2.0f) - 0.5f) * spacing * 0.72f;
+            float gx = x + jx;
+            float gz = z + jz;
+            if (!terrain_contains_world(t, gx, gz)) continue;
+
+            float mask = voxworld_canyon_grass_mask(gx, gz);
+            if (mask < 0.34f) continue;
+            if (grass_hash01(gx, gz, 3.0f) > mask) continue;
+
+            float nx, ny, nz;
+            terrain_sample_normal(t, gx, gz, &nx, &ny, &nz);
+            if (ny < 0.72f) continue;
+
+            float y = terrain_sample_height(t, gx, gz) + 0.08f;
+            float dist_x = gx - viewer->x;
+            float dist_z = gz - viewer->z;
+            float dist = sqrtf(dist_x * dist_x + dist_z * dist_z);
+            float far_fade = 1.0f - smoothstepf(640.0f, radius, dist);
+            if (far_fade <= 0.02f) continue;
+
+            float h = 0.75f + grass_hash01(gx, gz, 5.0f) * 1.05f;
+            float half_w = 0.10f + grass_hash01(gx, gz, 7.0f) * 0.14f;
+            float yaw = grass_hash01(gx, gz, 9.0f) * 6.2831853f;
+            float dx = cosf(yaw) * half_w;
+            float dz = sinf(yaw) * half_w;
+
+            float lit_r = 1.0f, lit_g = 1.0f, lit_b = 1.0f;
+            retro_eval_brush_lighting_rgb(lighting, nx, ny, nz, 0.58f, &lit_r, &lit_g, &lit_b);
+
+            float base_r = (0.16f + mask * 0.07f) * lit_r * far_fade;
+            float base_g = (0.30f + mask * 0.18f) * lit_g * far_fade;
+            float base_b = (0.12f + mask * 0.06f) * lit_b * far_fade;
+            float top_r = (0.28f + mask * 0.09f) * lit_r * far_fade;
+            float top_g = (0.55f + mask * 0.22f) * lit_g * far_fade;
+            float top_b = (0.18f + mask * 0.08f) * lit_b * far_fade;
+            retro_apply_fog_rgb(&base_r, &base_g, &base_b, lighting, dist);
+            retro_apply_fog_rgb(&top_r, &top_g, &top_b, lighting, dist);
+
+            glColor3f(base_r, base_g, base_b);
+            glVertex3f(gx - dx, y, gz - dz);
+            glVertex3f(gx + dx, y, gz + dz);
+            glColor3f(top_r, top_g, top_b);
+            glVertex3f(gx + dx * 0.38f, y + h, gz + dz * 0.38f);
+            glVertex3f(gx - dx * 0.38f, y + h, gz - dz * 0.38f);
+
+            float dx2 = -dz;
+            float dz2 = dx;
+            glColor3f(base_r, base_g, base_b);
+            glVertex3f(gx - dx2, y, gz - dz2);
+            glVertex3f(gx + dx2, y, gz + dz2);
+            glColor3f(top_r, top_g, top_b);
+            glVertex3f(gx + dx2 * 0.38f, y + h * 0.92f, gz + dz2 * 0.38f);
+            glVertex3f(gx - dx2 * 0.38f, y + h * 0.92f, gz - dz2 * 0.38f);
+        }
+    }
+    glEnd();
 }
 
 static void draw_voxworld_bushes(void) {
@@ -3584,6 +3688,7 @@ void draw_scene(PlayerState *render_p) {
     draw_grid(); 
     update_and_draw_trails();
     draw_terrain(&world_lighting);
+    draw_voxworld_grass_overlay(&world_lighting, render_p);
     draw_voxworld_bushes();
     draw_map(&world_lighting);
     draw_team_map_markers(local_state.scene_id, local_state.game_mode);

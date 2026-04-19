@@ -3,6 +3,9 @@
 ## Recent changes
 
 ### 2026-04-18
+- Added a dedicated CTFB flag-carry first-person viewmodel and reused the knife melee envelope while carrying to improve objective readability in combat (`282d0f2`, merged in #217).
+- Refined death-animation pacing with a short pre-fall hold and a subtle post-impact dead-state twist to make eliminations read more naturally (`9a51c17`, `54892f1`, merged in #220, #223).
+- Upgraded the stadium rally environment with a large tiered coliseum perimeter to strengthen scene scale and spectator-arena framing (`744b602`, merged in #218).
 - Introduced a first-pass graphics transition initiative with stabilized world-light evaluation, world-light rig integration for terrain, and broader weapon visual upgrades for a more cohesive rendering pipeline (`6b48b81`, `4ee8159`, `656ea2e`, `906a2b2`, merged in #194, #197, #201, #203).
 - Added a simple death-animation feature, then tuned gun-hit death-state impulse and direction so knockback reads more clearly during combat (`59f609a`, `988f9d5`, `323fd49`, merged in #205, #210).
 - Expanded the stadium into a terrain rally-loop layout to improve traversal space and scene variety (`b3c5bca`, `315c9d7`, merged in #208).

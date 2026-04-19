@@ -230,6 +230,8 @@ static void retro_eval_brush_lighting_rgb(const RetroLightingState *lighting, fl
 }
 
 static void retro_eval_terrain_vertex_rgb(const RetroLightingState *lighting,
+                                          int scene_id,
+                                          float world_x, float world_z,
                                           float h, float min_h, float inv_h_range,
                                           float nx, float ny, float nz,
                                           float *out_r, float *out_g, float *out_b) {
@@ -237,6 +239,22 @@ static void retro_eval_terrain_vertex_rgb(const RetroLightingState *lighting,
 
     /* Keep terrain material identity from height/slope rules. */
     float grass_mix = smoothstepf(0.62f, 0.92f, h_norm) * (0.55f + 0.45f * ny);
+    if (scene_id == SCENE_VOXWORLD) {
+        /* Voxworld gets broad canyon-floor grass swaths with noisy breakup. */
+        float centerline = 92.0f * sinf(world_x * 0.0045f) + 58.0f * sinf((world_x + 220.0f) * 0.0108f);
+        float center_band = 1.0f - smoothstepf(85.0f, 300.0f, fabsf(world_z - centerline));
+        float edge_band = 1.0f - smoothstepf(420.0f, 980.0f, fabsf(world_z));
+        float patch_noise = 0.5f + 0.5f * (
+            0.54f * sinf(world_x * 0.0075f + world_z * 0.0041f) +
+            0.31f * cosf(world_x * 0.0118f - world_z * 0.0063f) +
+            0.15f * sinf(world_z * 0.0170f)
+        );
+        float patch_mask = smoothstepf(0.37f, 0.74f, patch_noise);
+        float flat_bias = smoothstepf(0.60f, 0.97f, ny);
+        float valley_bias = smoothstepf(0.90f, 0.15f, h_norm);
+        float canyon_grass = center_band * edge_band * patch_mask * flat_bias * valley_bias;
+        if (canyon_grass > grass_mix) grass_mix = canyon_grass;
+    }
     float dark_mix = smoothstepf(0.0f, 0.35f, 1.0f - h_norm) * (0.55f + 0.45f * (1.0f - ny));
     float base_r = 0.58f, base_g = 0.49f, base_b = 0.37f;
     float material_r = lerpf(base_r, 0.65f, grass_mix);
@@ -1190,7 +1208,7 @@ void draw_terrain(const RetroLightingState *lighting) {
                 glColor3f(r0, g0, b0);
             } else {
                 float r0 = 1.0f, g0 = 1.0f, b0 = 1.0f;
-                retro_eval_terrain_vertex_rgb(lighting, h0, min_h, inv_h_range, nx0, ny0, nz0, &r0, &g0, &b0);
+                retro_eval_terrain_vertex_rgb(lighting, local_state.scene_id, x, z0, h0, min_h, inv_h_range, nx0, ny0, nz0, &r0, &g0, &b0);
                 if (local_state.scene_id == SCENE_STADIUM) {
                     float road0 = stadium_track_weight_at(x, z0) * 0.55f;
                     r0 = r0 * (1.0f - road0) + 0.60f * road0;
@@ -1224,7 +1242,7 @@ void draw_terrain(const RetroLightingState *lighting) {
                 glColor3f(r1, g1, b1);
             } else {
                 float r1 = 1.0f, g1 = 1.0f, b1 = 1.0f;
-                retro_eval_terrain_vertex_rgb(lighting, h1, min_h, inv_h_range, nx1, ny1, nz1, &r1, &g1, &b1);
+                retro_eval_terrain_vertex_rgb(lighting, local_state.scene_id, x, z1, h1, min_h, inv_h_range, nx1, ny1, nz1, &r1, &g1, &b1);
                 if (local_state.scene_id == SCENE_STADIUM) {
                     float road1 = stadium_track_weight_at(x, z1) * 0.55f;
                     r1 = r1 * (1.0f - road1) + 0.60f * road1;

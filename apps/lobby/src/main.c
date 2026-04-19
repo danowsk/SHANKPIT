@@ -1910,11 +1910,32 @@ static void draw_viewmodel_accent_strip(const ViewmodelPalette *p, float w, floa
 }
 
 static void draw_viewmodel_magnum(const ViewmodelPalette *p) {
-    glPushMatrix(); glTranslatef(0.00f, 0.14f, 0.02f); draw_viewmodel_box_tone(p, 0.94f, 0.26f, 1.68f, 0); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, -0.14f, -0.24f); glRotatef(-15.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.46f, 0.70f, 0.66f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.03f, 0.94f); draw_viewmodel_box_tone(p, 0.62f, 0.18f, 0.46f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.28f, 0.16f); draw_viewmodel_box_tone(p, 0.74f, 0.08f, 0.90f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.19f, 1.20f); draw_viewmodel_box_tone(p, 0.18f, 0.10f, 0.14f, 1); glPopMatrix();
+    /* Rear-biased stepped upper: heavier back mass keeps a magnum silhouette. */
+    glPushMatrix(); glTranslatef(0.00f, 0.18f, -0.42f); draw_viewmodel_box_tone(p, 0.84f, 0.34f, 0.78f, 0); glPopMatrix(); /* rear upper block */
+    glPushMatrix(); glTranslatef(0.00f, 0.14f, 0.24f); draw_viewmodel_box_tone(p, 0.72f, 0.28f, 0.90f, 0); glPopMatrix();   /* mid upper block */
+    glPushMatrix(); glTranslatef(0.00f, 0.09f, 1.04f); draw_viewmodel_box_tone(p, 0.54f, 0.21f, 0.66f, 0); glPopMatrix();   /* front upper / muzzle body */
+
+    /* Stronger frame + cylinder zone, separated from the upper body. */
+    glPushMatrix(); glTranslatef(0.00f, -0.02f, 0.20f); draw_viewmodel_box_tone(p, 0.78f, 0.24f, 0.70f, 1); glPopMatrix();  /* frame / cylinder bulge */
+    glPushMatrix(); glTranslatef(0.00f, -0.08f, 0.92f); draw_viewmodel_box_tone(p, 0.48f, 0.16f, 0.56f, 1); glPopMatrix();  /* underbarrel support */
+    glPushMatrix(); glTranslatef(0.00f, -0.05f, -0.30f); draw_viewmodel_box_tone(p, 0.60f, 0.22f, 0.52f, 1); glPopMatrix(); /* rear frame block */
+
+    /* Sighting plane: readable rear notch + front post. */
+    glPushMatrix(); glTranslatef(0.00f, 0.34f, -0.30f); draw_viewmodel_box_tone(p, 0.30f, 0.09f, 0.16f, 1); glPopMatrix();  /* rear sight block */
+    glPushMatrix(); glTranslatef(0.00f, 0.24f, 1.36f); draw_viewmodel_box_tone(p, 0.14f, 0.11f, 0.10f, 1); glPopMatrix();   /* front sight post */
+
+    /* Intentional muzzle tip: narrower than the rear to avoid center-screen bloat. */
+    glPushMatrix(); glTranslatef(0.00f, 0.06f, 1.42f); draw_viewmodel_box_tone(p, 0.40f, 0.17f, 0.20f, 1); glPopMatrix();   /* muzzle cap */
+
+    /* Slimmer, longer grip with backward rake and a separate butt mass. */
+    glPushMatrix(); glTranslatef(0.00f, -0.30f, -0.38f); glRotatef(-19.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.34f, 0.74f, 0.44f, 1); glPopMatrix(); /* main grip */
+    glPushMatrix(); glTranslatef(0.00f, -0.52f, -0.58f); glRotatef(-14.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.38f, 0.20f, 0.30f, 1); glPopMatrix(); /* grip butt */
+
+    /* Small accent to increase local density around the cylinder/frame break. */
+    glPushMatrix(); glTranslatef(0.00f, 0.06f, 0.06f); draw_viewmodel_accent_strip(p, 0.52f, 0.04f, 0.34f); glPopMatrix();
+
+    /* Optional hammer spur mass to emphasize the heavy revolver rear profile. */
+    glPushMatrix(); glTranslatef(0.00f, 0.27f, -0.62f); draw_viewmodel_box_tone(p, 0.24f, 0.10f, 0.18f, 1); glPopMatrix();
 }
 
 static void draw_viewmodel_ar(const ViewmodelPalette *p) {

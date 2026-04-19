@@ -1,9 +1,205 @@
 # SHANKPIT Game Architecture Document
 
-## Overview
+## What SHANKPIT is right now
 
-SHANKPIT is a fast-paced 3D multiplayer first-person shooter built with C, SDL2, and OpenGL. The game features physics-based movement, multiple weapons, shield mechanics, and support for both human players and AI bots (including neural network-powered agents).
+At a high level, SHANKPIT currently includes:
 
+- a lobby/client app with local and networked play flows
+- a UDP server-authoritative game server
+- multiple local and networked game modes
+- linked scenes connected by portals
+- terrain-backed worlds in addition to box/block geometry
+- team modes including team deathmatch and capture the flag
+- bot support for local team modes and online cold-start scenarios
+- a growing retro rendering stack with procedural textures, sky, fog, and stylized lighting
+- persistent skin selection
+- test coverage for protocol and gameplay regressions. :contentReference[oaicite:2]{index=2} :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
+
+---
+
+## Current game modes
+
+The current lobby/game flow exposes these core modes:
+
+- **JOIN** — connect to the online deathmatch flow
+- **TDMO** — online team deathmatch with bots supporting cold start
+- **SOLO** — local single-player deathmatch flow
+- **TRAIN** — local training-oriented flow
+- **TDMB** — local team deathmatch with bots
+- **CTFB** — local capture the flag with bots. :contentReference[oaicite:5]{index=5}
+
+Internally, the client also recognizes additional local mode IDs such as `battle`, `tdm`, `training`, `recorder`, and `garage`, but the player-facing lobby is currently centered on the six modes above. :contentReference[oaicite:6]{index=6}
+
+---
+
+## Current worlds / scenes
+
+SHANKPIT is now a multi-scene game rather than a single arena. The active scene list in the current construct includes:
+
+- **Garage Osaka**
+- **Stadium**
+- **Voxworld**
+- **Dust Compound**
+- **Oil Tanker**
+- **Poo Poo Island**. :contentReference[oaicite:7]{index=7} :contentReference[oaicite:8]{index=8} :contentReference[oaicite:9]{index=9}
+
+These scenes are connected by explicit portal routing. The garage currently serves as a major hub and can route players into multiple destination worlds, while some worlds also provide return routes back to the garage or to adjacent connected scenes. :contentReference[oaicite:10]{index=10} :contentReference[oaicite:11]{index=11}
+
+---
+
+## Current visual direction
+
+SHANKPIT is pursuing a deliberately stylized visual identity rather than realism-first rendering.
+
+Key traits in the current renderer include:
+
+- **legacy OpenGL immediate-mode rendering**
+- **retro sky and retro lighting systems**
+- **procedural texture hooks**
+- **distance fog / haze tuning per scene**
+- **terrain shading from sampled normals**
+- **“neon brutalist” block rendering**
+- stylized accent elements like hot pink trails and cyan grid motifs
+- scene-specific readability tuning for larger outdoor worlds and tighter indoor spaces. :contentReference[oaicite:12]{index=12} :contentReference[oaicite:13]{index=13}
+
+The codebase is intentionally keeping a cheap, centralized “fake baked” atmosphere model so that look-and-feel can evolve quickly without re-architecting the entire game. :contentReference[oaicite:14]{index=14}
+
+---
+
+## Current networking model
+
+SHANKPIT uses a **server-authoritative UDP model**.
+
+The current protocol includes at least these packet types:
+
+- `PACKET_CONNECT`
+- `PACKET_USERCMD`
+- `PACKET_SNAPSHOT`
+- `PACKET_WELCOME`
+- `PACKET_DISCONNECT`. :contentReference[oaicite:15]{index=15}
+
+The client currently includes:
+
+- client-side command history
+- interpolation state for remote players
+- reconciliation correction values
+- spawn synchronization logic
+- snapshot timing and time offset tracking
+- structured network diagnostics and timeout logging. :contentReference[oaicite:16]{index=16}
+
+The lobby client defaults to:
+
+- host: `s.farthq.com`
+- port: `6969`. :contentReference[oaicite:17]{index=17}
+
+This is still an actively evolving stack. The project favors clear packet semantics, aggressive diagnostics, and playable iteration over excessive abstraction.
+
+---
+
+## Team play and objective systems
+
+SHANKPIT now has real team-mode support in both rules and world presentation.
+
+That includes:
+
+- team base markers
+- team IDs on net players
+- bot identity fields on net players
+- team deathmatch variants
+- online team deathmatch mode (`TDMO`)
+- capture-the-flag state and rendering
+- CTF pedestal / base anchors
+- dropped / carried / home flag rendering logic. :contentReference[oaicite:18]{index=18} :contentReference[oaicite:19]{index=19}
+
+A dedicated regression test exists for **CTFB carry melee**, confirming that flag carry attack behavior reuses the intended melee envelope and cooldown logic. :contentReference[oaicite:20]{index=20}
+
+---
+
+## Terrain and world systems
+
+The project now includes an actual terrain package rather than relying only on block-map geometry.
+
+Current terrain support includes:
+
+- heightfield allocation and cleanup
+- height sampling
+- world-space containment checks
+- normal sampling
+- terrain rendering in the client
+- terrain debug overlays
+- scene-specific route / spawn / objective anchors over terrain-backed worlds. :contentReference[oaicite:21]{index=21} :contentReference[oaicite:22]{index=22}
+
+This matters because SHANKPIT is no longer just a box-map shooter. It is now supporting larger outdoor spaces, racetrack-style terrain, canyon spaces, island spaces, and other scene-specific layouts. :contentReference[oaicite:23]{index=23}
+
+---
+
+## Bots
+
+There are currently at least two bot-side code paths in the construct:
+
+- a more direct / older bot sender
+- a dedicated `apps/bot_client` implementation with a simple “brain” file, target acquisition, reward accumulation, and autosave behavior. :contentReference[oaicite:24]{index=24}
+
+The current bot client can:
+
+- connect to the UDP server
+- load or initialize a brain file
+- track visible players by scene
+- target enemies
+- shoot / move / strafe
+- randomly jump / crouch
+- save updated brain data after hitting a reward threshold. :contentReference[oaicite:25]{index=25}
+
+Bot support is also part of the product strategy for team modes so the game remains playable before a large human player population exists. :contentReference[oaicite:26]{index=26}
+
+---
+
+## Skins
+
+The current skin list is:
+
+- BAT
+- MAYRICE
+- CYBORG
+- PIRATE
+- NINJA
+- PIMP
+- VIKING
+- BILL
+- GENIE
+- WANDERER
+- PINK
+- GEISHA
+- ALPINE. :contentReference[oaicite:27]{index=27}
+
+Skin selection is persisted through:
+
+- `shankpit_skin.cfg`. :contentReference[oaicite:28]{index=28}
+
+The lobby also includes a dedicated **SKINS** entry. :contentReference[oaicite:29]{index=29}
+
+---
+
+## Repo shape
+
+From the current construct, the repo includes work across these kinds of areas:
+
+- `apps/lobby`
+- `apps/server`
+- `apps/bot_client`
+- `apps/tests`
+- `packages/common`
+- `packages/simulation`
+- `packages/render`
+- `packages/world`
+- `services/game-server`. :contentReference[oaicite:30]{index=30} :contentReference[oaicite:31]{index=31}
+
+This reflects the current direction of the project:
+
+- small native apps
+- reusable low-level packages
+- simulation and rendering split into packages
+- services separated from the core client/server gameplay binaries.
 ## Controls (Player + Vehicles)
 
 ### Core movement & combat

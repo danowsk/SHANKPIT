@@ -20,13 +20,13 @@
 
 // --- BUGGY TUNING ---
 // Tuning target (60 Hz fixed step): ~5-6s 0->BUGGY_TOP_SPEED on flat ground at full throttle.
-#define BUGGY_TOP_SPEED 3.9f
-#define BUGGY_REVERSE_TOP_SPEED 1.35f
-#define BUGGY_BASE_DRIVE_FORCE 0.0200f
+#define BUGGY_TOP_SPEED 5.2f
+#define BUGGY_REVERSE_TOP_SPEED 1.8f
+#define BUGGY_BASE_DRIVE_FORCE 0.0280f
 #define BUGGY_COAST_FRICTION 0.0048f
 #define BUGGY_BRAKE_FRICTION 0.022f
-#define BUGGY_TURN_RATE_LOW 3.4f
-#define BUGGY_TURN_RATE_HIGH 1.05f
+#define BUGGY_TURN_RATE_LOW 3.1f
+#define BUGGY_TURN_RATE_HIGH 0.9f
 #define BUGGY_LATERAL_GRIP 0.12f
 #define BUGGY_TRANSMISSION_BAND1_END 0.22f
 #define BUGGY_TRANSMISSION_BAND2_END 0.52f
@@ -2284,7 +2284,7 @@ void apply_friction(PlayerState *p) {
     if (speed < 0.001f) { p->vx = 0; p->vz = 0; return; }
     
     float drop = 0;
-    if (p->on_ground) {
+    if (!p->in_vehicle && p->on_ground) {
         if (p->crouching) {
             if (speed > 0.75f) drop = speed * SLIDE_FRICTION;
             else drop = speed * (FRICTION * 3.0f); 

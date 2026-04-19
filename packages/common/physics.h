@@ -19,10 +19,10 @@
 #define CROUCH_SPEED 0.35f  
 
 // --- BUGGY TUNING ---
-// Tuning target (60 Hz fixed step): ~5-6s 0->BUGGY_TOP_SPEED on flat ground at full throttle.
-#define BUGGY_TOP_SPEED 5.2f
+// Tuning target (60 Hz fixed step): ~3.7-4.2s 0->BUGGY_TOP_SPEED on flat ground at full throttle.
+#define BUGGY_TOP_SPEED 6.24f
 #define BUGGY_REVERSE_TOP_SPEED 1.8f
-#define BUGGY_BASE_DRIVE_FORCE 0.0280f
+#define BUGGY_BASE_DRIVE_FORCE 0.0364f
 #define BUGGY_COAST_FRICTION 0.0048f
 #define BUGGY_BRAKE_FRICTION 0.022f
 #define BUGGY_TURN_RATE_LOW 3.1f
@@ -32,6 +32,10 @@
 #define BUGGY_TRANSMISSION_BAND2_END 0.52f
 #define BUGGY_TRANSMISSION_BAND3_END 0.78f
 #define BUGGY_GRAVITY 0.15f
+#define BUGGY_WHEELBASE 4.8f
+#define BUGGY_TRACK_WIDTH 3.8f
+#define BUGGY_WHEEL_RADIUS 1.05f
+#define BUGGY_CHASSIS_CLEARANCE 0.95f
 
 #define EYE_HEIGHT 2.59f    
 #define PLAYER_WIDTH 0.97f  
@@ -2349,8 +2353,25 @@ static inline float buggy_drive_force_for_speed(float speed_norm) {
     return 0.84f + (0.06f - 0.84f) * t;
 }
 
-static inline void simulate_buggy_drive(PlayerState *p, float throttle, float steer, float dt) {
-    if (!p || !p->in_vehicle) return;
+static inline void buggy_sample_wheel_heights(const BuggyState *b, float heights[4]) {
+    float r = -b->yaw * (3.14159265358979323846f / 180.0f);
+    float fwd_x = sinf(r), fwd_z = -cosf(r);
+    float right_x = cosf(r), right_z = sinf(r);
+    const float half_wb = BUGGY_WHEELBASE * 0.5f;
+    const float half_tw = BUGGY_TRACK_WIDTH * 0.5f;
+    const float ox[4] = { half_wb,  half_wb, -half_wb, -half_wb };
+    const float oz[4] = { -half_tw, half_tw, -half_tw,  half_tw };
+    for (int i = 0; i < 4; i++) {
+        float wx = b->x + fwd_x * ox[i] + right_x * oz[i];
+        float wz = b->z + fwd_z * ox[i] + right_z * oz[i];
+        float h = terrain_sample_height(&g_scene_terrain, wx, wz);
+        if (h < 0.0f) h = 0.0f;
+        heights[i] = h;
+    }
+}
+
+static inline void simulate_buggy_state(BuggyState *b, float throttle, float steer, float dt, int apply_input) {
+    if (!b || !b->active) return;
 
     if (throttle > 1.0f) throttle = 1.0f;
     if (throttle < -1.0f) throttle = -1.0f;
@@ -2360,14 +2381,19 @@ static inline void simulate_buggy_drive(PlayerState *p, float throttle, float st
     float dt_scale = dt / 0.016f;
     if (dt_scale < 0.0f) dt_scale = 0.0f;
 
-    float r = -p->yaw * (3.14159265358979323846f / 180.0f);
+    if (!apply_input) {
+        throttle = 0.0f;
+        steer = 0.0f;
+    }
+
+    float r = -b->yaw * (3.14159265358979323846f / 180.0f);
     float fwd_x = sinf(r);
     float fwd_z = -cosf(r);
     float right_x = cosf(r);
     float right_z = sinf(r);
 
-    float forward_speed = p->vx * fwd_x + p->vz * fwd_z;
-    float lateral_speed = p->vx * right_x + p->vz * right_z;
+    float forward_speed = b->vx * fwd_x + b->vz * fwd_z;
+    float lateral_speed = b->vx * right_x + b->vz * right_z;
     float speed_norm = fabsf(forward_speed) / BUGGY_TOP_SPEED;
     if (speed_norm > 1.0f) speed_norm = 1.0f;
 
@@ -2404,19 +2430,70 @@ static inline void simulate_buggy_drive(PlayerState *p, float throttle, float st
     float steer_rate = BUGGY_TURN_RATE_LOW + (BUGGY_TURN_RATE_HIGH - BUGGY_TURN_RATE_LOW) * abs_norm;
     float steer_authority = 0.38f + 0.62f * abs_norm;
     float steer_sign = (forward_speed < -0.03f) ? -1.0f : 1.0f;
-    p->yaw = norm_yaw_deg(p->yaw + steer * steer_rate * steer_authority * steer_sign * dt_scale);
+    float steer_response = apply_input ? 0.22f : 0.10f;
+    b->steer += (steer - b->steer) * steer_response * dt_scale;
+    if (b->steer > 1.0f) b->steer = 1.0f;
+    if (b->steer < -1.0f) b->steer = -1.0f;
+    b->yaw = norm_yaw_deg(b->yaw + b->steer * steer_rate * steer_authority * steer_sign * dt_scale);
 
     float grip = BUGGY_LATERAL_GRIP * (0.62f + 0.68f * abs_norm) * dt_scale;
     if (grip > 1.0f) grip = 1.0f;
     lateral_speed *= (1.0f - grip);
 
-    float r2 = -p->yaw * (3.14159265358979323846f / 180.0f);
+    float r2 = -b->yaw * (3.14159265358979323846f / 180.0f);
     float new_fwd_x = sinf(r2);
     float new_fwd_z = -cosf(r2);
     float new_right_x = cosf(r2);
     float new_right_z = sinf(r2);
-    p->vx = new_fwd_x * forward_speed + new_right_x * lateral_speed;
-    p->vz = new_fwd_z * forward_speed + new_right_z * lateral_speed;
+    b->vx = new_fwd_x * forward_speed + new_right_x * lateral_speed;
+    b->vz = new_fwd_z * forward_speed + new_right_z * lateral_speed;
+
+    if (!b->grounded) b->vy -= BUGGY_GRAVITY * dt_scale;
+    b->x += b->vx;
+    b->y += b->vy;
+    b->z += b->vz;
+
+    float heights[4];
+    buggy_sample_wheel_heights(b, heights);
+    float front_avg = 0.5f * (heights[0] + heights[1]);
+    float rear_avg = 0.5f * (heights[2] + heights[3]);
+    float left_avg = 0.5f * (heights[0] + heights[2]);
+    float right_avg = 0.5f * (heights[1] + heights[3]);
+    float target_pitch = atanf((front_avg - rear_avg) / BUGGY_WHEELBASE) * (180.0f / 3.14159265358979323846f);
+    float target_roll = atanf((left_avg - right_avg) / BUGGY_TRACK_WIDTH) * (180.0f / 3.14159265358979323846f);
+    if (target_pitch > 28.0f) target_pitch = 28.0f;
+    if (target_pitch < -28.0f) target_pitch = -28.0f;
+    if (target_roll > 22.0f) target_roll = 22.0f;
+    if (target_roll < -22.0f) target_roll = -22.0f;
+    float support_max = heights[0];
+    for (int i = 1; i < 4; i++) if (heights[i] > support_max) support_max = heights[i];
+    float support_y = support_max + BUGGY_WHEEL_RADIUS + BUGGY_CHASSIS_CLEARANCE;
+    if (b->y <= support_y + 0.05f) {
+        b->y = support_y;
+        b->vy = 0.0f;
+        b->grounded = 1;
+        b->pitch += (target_pitch - b->pitch) * 0.35f;
+        b->roll += (target_roll - b->roll) * 0.35f;
+    } else {
+        b->grounded = 0;
+        b->pitch *= 0.995f;
+        b->roll *= 0.995f;
+    }
+}
+
+static inline void simulate_buggy_drive(PlayerState *p, float throttle, float steer, float dt) {
+    if (!p || !p->in_vehicle) return;
+    BuggyState temp = {0};
+    temp.active = 1;
+    temp.x = p->x; temp.y = p->y; temp.z = p->z;
+    temp.vx = p->vx; temp.vy = p->vy; temp.vz = p->vz;
+    temp.yaw = p->yaw;
+    temp.grounded = p->on_ground;
+    simulate_buggy_state(&temp, throttle, steer, dt, 1);
+    p->x = temp.x; p->y = temp.y; p->z = temp.z;
+    p->vx = temp.vx; p->vy = temp.vy; p->vz = temp.vz;
+    p->yaw = temp.yaw;
+    p->on_ground = temp.grounded;
 }
 
 void accelerate(PlayerState *p, float wish_x, float wish_z, float wish_speed, float accel) {

@@ -119,6 +119,11 @@ static int ctf_enemy_team(int team_id) { return team_id == 0 ? 1 : 0; }
 void local_update(float fwd, float str, float yaw, float pitch, int shoot, int weapon_req, int jump, int crouch, int reload, int ability, void *server_context, unsigned int cmd_time);
 void update_entity(PlayerState *p, float dt, void *server_context, unsigned int cmd_time);
 static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id, float x, float y, float z);
+static inline void buggy_spawn_defaults(BuggyState *b, int id, int scene_id, float x, float z, float yaw);
+static inline BuggyState *buggy_find_nearby(int scene_id, float x, float y, float z, float radius);
+static inline int buggy_try_enter(PlayerState *p, BuggyState *b);
+static inline int buggy_try_exit(PlayerState *p, BuggyState *b);
+static inline void buggy_tick_all(void);
 static void ctf_init_match_state(int scene_id);
 void local_init_match(int num_players, int mode);
 
@@ -169,6 +174,17 @@ static inline void scene_load(int scene_id) {
         local_state.helicopters[hi].id = hi;
         local_state.helicopters[hi].occupant_player_id = -1;
     }
+    for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+        memset(&local_state.buggies[bi], 0, sizeof(local_state.buggies[bi]));
+        local_state.buggies[bi].id = bi;
+        local_state.buggies[bi].occupant_player_id = -1;
+    }
+    int pad_count = 0;
+    const VehiclePad *pads = scene_vehicle_pads(scene_id, &pad_count);
+    for (int i = 0; i < pad_count && i < MAX_BUGGIES; i++) {
+        buggy_spawn_defaults(&local_state.buggies[i], i, scene_id, pads[i].x, pads[i].z, 180.0f);
+        printf("[BUGGY] spawned id=%d scene=%d x=%.1f z=%.1f\n", i, scene_id, pads[i].x, pads[i].z);
+    }
 
     if (scene_id == SCENE_VOXWORLD) {
         float red_y = voxworld_heli_spawn_y(VOXWORLD_BASE_RED_X);
@@ -203,6 +219,98 @@ static inline void heli_spawn_defaults(HelicopterState *h, int id, int scene_id,
     h->occupant_player_id = -1;
     h->rotor_speed = 8.0f;
     h->yaw = 180.0f;
+}
+
+static inline void buggy_spawn_defaults(BuggyState *b, int id, int scene_id, float x, float z, float yaw) {
+    memset(b, 0, sizeof(*b));
+    b->active = 1;
+    b->id = id;
+    b->scene_id = scene_id;
+    b->x = x; b->z = z;
+    b->yaw = yaw;
+    b->occupant_player_id = -1;
+    float gy = terrain_sample_height(&g_scene_terrain, x, z);
+    if (gy < 0.0f) gy = 0.0f;
+    b->y = gy + BUGGY_WHEEL_RADIUS + BUGGY_CHASSIS_CLEARANCE;
+    b->grounded = 1;
+    b->health = 300;
+}
+
+static inline BuggyState *buggy_find_nearby(int scene_id, float x, float y, float z, float radius) {
+    float rr = radius * radius;
+    for (int i = 0; i < MAX_BUGGIES; i++) {
+        BuggyState *b = &local_state.buggies[i];
+        if (!b->active || b->scene_id != scene_id) continue;
+        float dx = b->x - x, dy = b->y - y, dz = b->z - z;
+        if ((dx*dx + dy*dy + dz*dz) <= rr) return b;
+    }
+    return NULL;
+}
+
+static inline int buggy_try_enter(PlayerState *p, BuggyState *b) {
+    if (!p || !b || !b->active || b->occupant_player_id >= 0) return 0;
+    b->occupant_player_id = p->id;
+    p->in_vehicle = 1;
+    p->vehicle_type = VEH_BUGGY;
+    p->x = b->x; p->y = b->y; p->z = b->z;
+    p->vx = p->vy = p->vz = 0.0f;
+    p->on_ground = b->grounded;
+    printf("[BUGGY] enter player=%d buggy=%d\n", p->id, b->id);
+    return 1;
+}
+
+static inline int buggy_try_exit(PlayerState *p, BuggyState *b) {
+    if (!p || !b || b->occupant_player_id != p->id) return 0;
+    float r = -b->yaw * 0.0174532925f;
+    float right_x = cosf(r), right_z = sinf(r);
+    float offsets[3][2] = { { right_x * 3.2f, right_z * 3.2f }, { -right_x * 3.2f, -right_z * 3.2f }, { 0.0f, -3.2f } };
+    for (int i = 0; i < 3; i++) {
+        float px = b->x + offsets[i][0];
+        float pz = b->z + offsets[i][1];
+        float py = terrain_sample_height(&g_scene_terrain, px, pz);
+        if (py < 0.0f) py = 0.0f;
+        if (!heli_point_collides(px, py + 1.0f, pz)) {
+            p->x = px; p->z = pz; p->y = py;
+            break;
+        }
+    }
+    p->in_vehicle = 0;
+    p->vehicle_type = VEH_NONE;
+    p->on_ground = 1;
+    b->occupant_player_id = -1;
+    printf("[BUGGY] exit player=%d buggy=%d persisted=1 speed=%.2f\n", p->id, b->id, sqrtf(b->vx*b->vx + b->vz*b->vz));
+    return 1;
+}
+
+static inline void buggy_tick_all(void) {
+    for (int i = 0; i < MAX_BUGGIES; i++) {
+        BuggyState *b = &local_state.buggies[i];
+        if (!b->active) continue;
+        float throttle = 0.0f;
+        float steer_intent = 0.0f;
+        if (b->occupant_player_id >= 0 && b->occupant_player_id < MAX_CLIENTS) {
+            PlayerState *occ = &local_state.players[b->occupant_player_id];
+            b->scene_id = occ->scene_id;
+            throttle = occ->in_fwd;
+            float yaw_err = norm_yaw_deg(occ->yaw - b->yaw);
+            if (yaw_err > 180.0f) yaw_err -= 360.0f;
+            if (yaw_err < -180.0f) yaw_err += 360.0f;
+            steer_intent = yaw_err / 75.0f;
+            if (steer_intent > 1.0f) steer_intent = 1.0f;
+            if (steer_intent < -1.0f) steer_intent = -1.0f;
+        } else {
+            b->occupant_player_id = -1;
+        }
+        phys_set_scene(b->scene_id);
+        simulate_buggy_state(b, throttle, steer_intent, SHANKPIT_NET_FIXED_DT, b->occupant_player_id >= 0);
+        if (b->occupant_player_id >= 0 && b->occupant_player_id < MAX_CLIENTS) {
+            PlayerState *occ = &local_state.players[b->occupant_player_id];
+            occ->x = b->x; occ->y = b->y; occ->z = b->z;
+            occ->yaw = b->yaw;
+            occ->vx = occ->vy = occ->vz = 0.0f;
+            occ->on_ground = b->grounded;
+        }
+    }
 }
 
 static inline HelicopterState *heli_find_nearby(int scene_id, float x, float y, float z, float radius) {
@@ -691,10 +799,9 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     if (p0->state == STATE_DEAD) {
         fwd = 0.0f; str = 0.0f; shoot = 0; jump = 0; crouch = 0; reload = 0; ability = 0;
     }
-    if (p0->state != STATE_DEAD && !(p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER)) {
-        if (p0->in_vehicle) {
-            simulate_buggy_drive(p0, fwd, str, 0.016f);
-        } else {
+    if (p0->state != STATE_DEAD && !(p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER) &&
+        !(p0->in_vehicle && p0->vehicle_type == VEH_BUGGY)) {
+        {
             MoveIntent move_intent = {
                 .forward = fwd,
                 .strafe = str,
@@ -751,6 +858,15 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         PlayerState *p = &local_state.players[i];
         if (!p->active) continue;
         if (p->state == STATE_DEAD) {
+            if (p->in_vehicle && p->vehicle_type == VEH_BUGGY) {
+                for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+                    if (local_state.buggies[bi].active && local_state.buggies[bi].occupant_player_id == i) {
+                        local_state.buggies[bi].occupant_player_id = -1;
+                    }
+                }
+                p->in_vehicle = 0;
+                p->vehicle_type = VEH_NONE;
+            }
             if (p->respawn_time != 0 && cmd_time >= p->respawn_time) {
                 phys_respawn(p, cmd_time);
                 p->respawn_time = 0;
@@ -770,7 +886,8 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
 #endif
             }
         }
-        if (p->in_vehicle && p->vehicle_type == VEH_HELICOPTER) {
+        if (p->in_vehicle && (p->vehicle_type == VEH_HELICOPTER || p->vehicle_type == VEH_BUGGY)) {
+            p->use_was_down = p->in_use;
             continue;
         }
         if (i > 0 && p->active && p->state != STATE_DEAD) {
@@ -778,9 +895,7 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             int b_btns=0;
             bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
             p->yaw = b_yaw;
-            if (p->in_vehicle) {
-                simulate_buggy_drive(p, b_fwd, 0.0f, 0.016f);
-            } else {
+            if (!p->in_vehicle) {
                 float brad = b_yaw * 3.14159f / 180.0f;
                 float bx = sinf(brad) * b_fwd;
                 float bz = cosf(brad) * b_fwd;
@@ -806,6 +921,7 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         if (local_state.game_mode == MODE_CTFB) ctf_try_capture(p, cmd_time);
         p->use_was_down = p->in_use;
     }
+    buggy_tick_all();
     update_projectiles(cmd_time);
     if (local_state.game_mode == MODE_CTFB) {
         ctf_tick_flags(cmd_time);

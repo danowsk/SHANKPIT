@@ -1706,6 +1706,20 @@ void draw_buggy_model(PlayerState *p) {
     glPopAttrib();
 }
 
+static void draw_buggy_entity(const BuggyState *b) {
+    if (!b || !b->active) return;
+    PlayerState style_driver;
+    memset(&style_driver, 0, sizeof(style_driver));
+    style_driver.id = (b->occupant_player_id >= 0) ? b->occupant_player_id : b->id;
+    glPushMatrix();
+    glTranslatef(b->x, b->y + 0.2f, b->z);
+    glRotatef(180.0f - norm_yaw_deg(b->yaw), 0, 1, 0);
+    glRotatef(b->roll, 0, 0, 1);
+    glRotatef(b->pitch, 1, 0, 0);
+    draw_buggy_model(&style_driver);
+    glPopMatrix();
+}
+
 static void draw_thirdperson_knife_model(void) {
     glPushMatrix();
     glScalef(0.88f, 0.88f, 0.88f);
@@ -2842,8 +2856,8 @@ void draw_player_3rd(PlayerState *p) {
         glRotatef(8.0f * fall * local_right, 0.0f, 0.0f, 1.0f);
         glTranslatef(0.0f, -1.1f, 0.0f);
     }
-    if (p->in_vehicle) {
-        draw_buggy_model(p);
+    if (p->in_vehicle && p->vehicle_type == VEH_BUGGY) {
+        /* Buggy is rendered from buggy world entities, not player pose. */
     } else {
         int forced_skin = -1;
         if (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB) {
@@ -3480,12 +3494,12 @@ static void draw_garage_overlay(PlayerState *p) {
     float list_y = 600.0f;
     for (int i = 0; i < pad_count; i++) {
         int occupied = 0;
-        for (int j = 0; j < MAX_CLIENTS; j++) {
-            PlayerState *other = &local_state.players[j];
-            if (!other->active) continue;
-            float dx = other->x - pads[i].x;
-            float dz = other->z - pads[i].z;
-            if (other->in_vehicle && (dx * dx + dz * dz) < 16.0f) {
+        for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+            BuggyState *b = &local_state.buggies[bi];
+            if (!b->active || b->scene_id != local_state.scene_id) continue;
+            float dx = b->x - pads[i].x;
+            float dz = b->z - pads[i].z;
+            if ((dx * dx + dz * dz) < 16.0f) {
                 occupied = 1;
                 break;
             }
@@ -3621,6 +3635,15 @@ void draw_scene(PlayerState *render_p) {
     float base_cam_y = (render_p->crouching ? 2.5f : EYE_HEIGHT);
     float cam_y = lerpf(base_cam_y, 4.5f, death_cam_blend);
     float cx = 0.0f, cz = 0.0f;
+    BuggyState *cam_buggy = NULL;
+    if (render_p->in_vehicle && render_p->vehicle_type == VEH_BUGGY) {
+        for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+            if (local_state.buggies[bi].active && local_state.buggies[bi].occupant_player_id == render_p->id) {
+                cam_buggy = &local_state.buggies[bi];
+                break;
+            }
+        }
+    }
     static float heli_cam_x = 0.0f, heli_cam_y = 0.0f, heli_cam_z = 0.0f;
     if (render_p->in_vehicle && render_p->vehicle_type == VEH_HELICOPTER) {
         HelicopterState *hh = NULL;
@@ -3646,10 +3669,15 @@ void draw_scene(PlayerState *render_p) {
             glTranslatef(-heli_cam_x, -heli_cam_y, -heli_cam_z);
         }
     } else {
-        float cam_z_off = render_p->in_vehicle ? 10.0f : lerpf(0.0f, 8.5f, death_cam_blend);
-        float rad = -cam_yaw * 0.01745f;
+        float follow_yaw = cam_buggy ? cam_buggy->yaw : cam_yaw;
+        float cam_z_off = cam_buggy ? 16.5f : (render_p->in_vehicle ? 10.0f : lerpf(0.0f, 8.5f, death_cam_blend));
+        float rad = -follow_yaw * 0.01745f;
         cx = sinf(rad) * cam_z_off;
         cz = cosf(rad) * cam_z_off;
+        if (cam_buggy) {
+            cam_y = 5.2f;
+            cam_yaw = follow_yaw;
+        }
     }
     
     float reconcile_x = 0.0f;
@@ -3694,13 +3722,18 @@ void draw_scene(PlayerState *render_p) {
     draw_team_map_markers(local_state.scene_id, local_state.game_mode);
     draw_garage_vehicle_pads();
     draw_garage_portal_frame();
+    for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+        BuggyState *b = &local_state.buggies[bi];
+        if (!b->active || b->scene_id != render_p->scene_id) continue;
+        draw_buggy_entity(b);
+    }
     for (int hi = 0; hi < MAX_HELICOPTERS; hi++) {
         HelicopterState *h = &local_state.helicopters[hi];
         if (!h->active || h->scene_id != render_p->scene_id) continue;
         draw_helicopter_model(h);
     }
     draw_projectiles();
-    if (render_p->in_vehicle) draw_player_3rd(render_p);
+    if (render_p->in_vehicle && render_p->vehicle_type != VEH_BUGGY) draw_player_3rd(render_p);
     for(int i=0; i<MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
         if (!p->active || p->scene_id != render_p->scene_id) continue;
@@ -4477,6 +4510,10 @@ void net_process_snapshot(char *buffer, int len) {
         local_state.helicopters[hi].active = 0;
         local_state.helicopters[hi].occupant_player_id = -1;
     }
+    for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+        local_state.buggies[bi].active = 0;
+        local_state.buggies[bi].occupant_player_id = -1;
+    }
     unsigned char heli_count = 0;
     if (cursor < len) {
         heli_count = *(unsigned char *)(buffer + cursor);
@@ -4504,6 +4541,35 @@ void net_process_snapshot(char *buffer, int len) {
                 PlayerState *occ = &local_state.players[h->occupant_player_id];
                 occ->in_vehicle = 1;
                 occ->vehicle_type = VEH_HELICOPTER;
+            }
+        }
+    }
+    if (cursor < len) {
+        unsigned char buggy_count = *(unsigned char *)(buffer + cursor);
+        cursor++;
+        for (int bi = 0; bi < buggy_count; bi++) {
+            if (cursor + (int)sizeof(NetBuggy) > len) break;
+            NetBuggy *nb = (NetBuggy *)(buffer + cursor);
+            cursor += (int)sizeof(NetBuggy);
+            if (nb->id >= MAX_BUGGIES) continue;
+            BuggyState *b = &local_state.buggies[nb->id];
+            b->active = nb->active;
+            b->id = nb->id;
+            b->scene_id = nb->scene_id;
+            b->grounded = nb->grounded;
+            b->x = nb->x; b->y = nb->y; b->z = nb->z;
+            b->vx = nb->vx; b->vy = nb->vy; b->vz = nb->vz;
+            b->yaw = nb->yaw;
+            b->pitch = nb->pitch;
+            b->roll = nb->roll;
+            b->steer = nb->steer;
+            b->occupant_player_id = nb->occupant_player_id;
+            if (b->occupant_player_id > 0 && b->occupant_player_id < MAX_CLIENTS) {
+                PlayerState *occ = &local_state.players[b->occupant_player_id];
+                occ->in_vehicle = 1;
+                occ->vehicle_type = VEH_BUGGY;
+                occ->x = b->x; occ->y = b->y; occ->z = b->z;
+                occ->yaw = b->yaw;
             }
         }
     }
@@ -4966,12 +5032,20 @@ int main(int argc, char* argv[]) {
                         p0->vehicle_type = VEH_HELICOPTER;
                         p0->x = near_h->x; p0->y = near_h->y; p0->z = near_h->z;
                         p0->vehicle_cooldown = 30;
-                    } else if (in_garage && scene_near_vehicle_pad(local_state.scene_id, p0->x, p0->z, 6.0f, NULL)) {
-                        p0->in_vehicle = !p0->in_vehicle;
+                    } else if (p0->in_vehicle && p0->vehicle_type == VEH_BUGGY) {
+                        for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+                            BuggyState *b = &local_state.buggies[bi];
+                            if (!b->active || b->occupant_player_id != 0) continue;
+                            buggy_try_exit(p0, b);
+                            break;
+                        }
                         p0->vehicle_cooldown = 30;
-                    } else if (!in_garage) {
-                        p0->in_vehicle = !p0->in_vehicle;
-                        p0->vehicle_cooldown = 30;
+                    } else {
+                        BuggyState *near_b = buggy_find_nearby(p0->scene_id, p0->x, p0->y, p0->z, in_garage ? 8.0f : 14.0f);
+                        if (near_b && near_b->occupant_player_id < 0) {
+                            buggy_try_enter(p0, near_b);
+                            p0->vehicle_cooldown = 30;
+                        }
                     }
                 }
                 if(local_state.players[0].vehicle_cooldown > 0) local_state.players[0].vehicle_cooldown--;

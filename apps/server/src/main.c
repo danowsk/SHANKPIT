@@ -367,6 +367,11 @@ static void free_slot(int slot) {
             local_state.helicopters[i].occupant_player_id = -1;
         }
     }
+    for (int i = 0; i < MAX_BUGGIES; i++) {
+        if (local_state.buggies[i].active && local_state.buggies[i].occupant_player_id == slot) {
+            local_state.buggies[i].occupant_player_id = -1;
+        }
+    }
     slots[slot].active = 0;
     slots[slot].welcomed = 0;
     slots[slot].cmd_seen = 0;
@@ -850,8 +855,35 @@ void server_broadcast() {
             nh.occupant_player_id = (signed char)h->occupant_player_id;
             memcpy(buffer + cursor, &nh, sizeof(NetHelicopter)); cursor += (int)sizeof(NetHelicopter);
         }
+        unsigned char buggy_count = 0;
+        for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+            BuggyState *b = &local_state.buggies[bi];
+            if (!b->active || b->scene_id != recipient_scene) continue;
+            buggy_count++;
+        }
+        if (cursor + 1 > (int)sizeof(buffer)) continue;
+        memcpy(buffer + cursor, &buggy_count, 1); cursor += 1;
+        for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+            BuggyState *b = &local_state.buggies[bi];
+            if (!b->active || b->scene_id != recipient_scene) continue;
+            if (cursor + (int)sizeof(NetBuggy) > (int)sizeof(buffer)) break;
+            NetBuggy nb;
+            memset(&nb, 0, sizeof(nb));
+            nb.id = (unsigned char)b->id;
+            nb.scene_id = (unsigned char)b->scene_id;
+            nb.active = (unsigned char)b->active;
+            nb.grounded = (unsigned char)b->grounded;
+            nb.x = b->x; nb.y = b->y; nb.z = b->z;
+            nb.vx = b->vx; nb.vy = b->vy; nb.vz = b->vz;
+            nb.yaw = b->yaw;
+            nb.pitch = b->pitch;
+            nb.roll = b->roll;
+            nb.steer = b->steer;
+            nb.occupant_player_id = (signed char)b->occupant_player_id;
+            memcpy(buffer + cursor, &nb, sizeof(NetBuggy)); cursor += (int)sizeof(NetBuggy);
+        }
 #if HELI_NET_DEBUG
-        printf("[HELI SNAPSHOT][TX] client=%d scene=%d heli_count=%u players=%u\n", i, recipient_scene, heli_count, count);
+        printf("[VEH SNAPSHOT][TX] client=%d scene=%d heli_count=%u buggy_count=%u players=%u\n", i, recipient_scene, heli_count, buggy_count, count);
 #endif
         if (slots[i].active) {
             sendto(sock, buffer, cursor, 0,
@@ -960,6 +992,15 @@ int main(int argc, char *argv[]) {
             }
 
             if (i > 0 && p->active && p->state == STATE_DEAD) {
+                if (p->in_vehicle && p->vehicle_type == VEH_BUGGY) {
+                    for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+                        if (local_state.buggies[bi].active && local_state.buggies[bi].occupant_player_id == i) {
+                            local_state.buggies[bi].occupant_player_id = -1;
+                        }
+                    }
+                    p->in_vehicle = 0;
+                    p->vehicle_type = VEH_NONE;
+                }
                 if (local_state.game_mode != MODE_SURVIVAL && p->respawn_time != 0 && now >= p->respawn_time) {
                     phys_respawn(p, now);
                     p->yaw = 0.0f;
@@ -984,6 +1025,11 @@ int main(int argc, char *argv[]) {
                         p->vx = 0.0f; p->vy = 0.0f; p->vz = 0.0f;
                         p->in_vehicle = 0;
                         p->vehicle_type = VEH_NONE;
+                        for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+                            if (local_state.buggies[bi].active && local_state.buggies[bi].occupant_player_id == i) {
+                                local_state.buggies[bi].occupant_player_id = -1;
+                            }
+                        }
                         p->portal_cooldown_until_ms = now + 1000;
                         p->in_use = 0;
                         printf("PORTAL_TRAVEL client=%d from=%d to=%d\n", i, from_scene, dest_scene);
@@ -999,6 +1045,14 @@ int main(int argc, char *argv[]) {
                             break;
                         }
                         p->vehicle_cooldown = 30;
+                    } else if (p->in_vehicle && p->vehicle_type == VEH_BUGGY) {
+                        for (int bi = 0; bi < MAX_BUGGIES; bi++) {
+                            BuggyState *b = &local_state.buggies[bi];
+                            if (!b->active || b->occupant_player_id != i) continue;
+                            buggy_try_exit(p, b);
+                            break;
+                        }
+                        p->vehicle_cooldown = 30;
                     } else {
                         HelicopterState *h = server_find_nearby_heli(p->scene_id, p->x, p->y, p->z, g_heli_tuning.enter_radius);
                         if (h && h->occupant_player_id < 0) {
@@ -1009,13 +1063,20 @@ int main(int argc, char *argv[]) {
                             p->vx = p->vy = p->vz = 0.0f;
                             p->vehicle_cooldown = 30;
                             printf("[HELI] enter client=%d heli=%d\n", i, h->id);
+                        } else {
+                            BuggyState *b = buggy_find_nearby(p->scene_id, p->x, p->y, p->z, 14.0f);
+                            if (b && b->occupant_player_id < 0) {
+                                buggy_try_enter(p, b);
+                                p->vehicle_cooldown = 30;
+                            }
                         }
                     }
                 }
                 p->use_was_down = p->in_use;
                 if (p->vehicle_cooldown > 0) p->vehicle_cooldown--;
 
-                if (!(p->in_vehicle && p->vehicle_type == VEH_HELICOPTER)) {
+                if (!(p->in_vehicle && p->vehicle_type == VEH_HELICOPTER) &&
+                    !(p->in_vehicle && p->vehicle_type == VEH_BUGGY)) {
                     shankpit_simulate_movement_tick(p, now);
                 }
             } else {
@@ -1048,6 +1109,7 @@ int main(int argc, char *argv[]) {
                 occ->vx = occ->vy = occ->vz = 0.0f;
             }
         }
+        buggy_tick_all();
 
         if ((local_state.game_mode == MODE_DEATHMATCH || local_state.game_mode == MODE_TDM) && server_scene_is_dm_map(g_server_match_scene)) {
             int top_frags = 0;

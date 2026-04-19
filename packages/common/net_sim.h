@@ -164,19 +164,19 @@ static inline void shankpit_simulate_movement_tick(PlayerState *p, unsigned int 
     //   server authority and client prediction/replay.
     // - Reconciliation should only correct transport drift, not hide sim mismatches.
 
-    MoveIntent move_intent = {
-        .forward = p->in_fwd,
-        .strafe = p->in_vehicle ? 0.0f : p->in_strafe,
-        .control_yaw_deg = p->yaw,
-        .wants_jump = p->in_jump,
-        .wants_sprint = 0
-    };
-    MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
-
-    float max_spd = p->in_vehicle ? BUGGY_MAX_SPEED : MAX_SPEED;
-    float acc = p->in_vehicle ? BUGGY_ACCEL : ACCEL;
-    float wish_speed = move_wish.magnitude * max_spd;
-    accelerate(p, move_wish.dir_x, move_wish.dir_z, wish_speed, acc);
+    if (p->in_vehicle) {
+        simulate_buggy_drive(p, p->in_fwd, p->in_strafe, SHANKPIT_NET_FIXED_DT);
+    } else {
+        MoveIntent move_intent = {
+            .forward = p->in_fwd,
+            .strafe = p->in_strafe,
+            .control_yaw_deg = p->yaw,
+            .wants_jump = p->in_jump,
+            .wants_sprint = 0
+        };
+        MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
+        accelerate(p, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, ACCEL);
+    }
 
     float g = p->in_vehicle ? BUGGY_GRAVITY : (p->in_jump ? GRAVITY_FLOAT : GRAVITY_DROP);
     p->vy -= g;

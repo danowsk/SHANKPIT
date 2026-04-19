@@ -19,10 +19,19 @@
 #define CROUCH_SPEED 0.35f  
 
 // --- BUGGY TUNING ---
-#define BUGGY_MAX_SPEED 2.5f    
-#define BUGGY_ACCEL 0.08f       
-#define BUGGY_FRICTION 0.03f    
-#define BUGGY_GRAVITY 0.15f     
+// Tuning target (60 Hz fixed step): ~5-6s 0->BUGGY_TOP_SPEED on flat ground at full throttle.
+#define BUGGY_TOP_SPEED 3.9f
+#define BUGGY_REVERSE_TOP_SPEED 1.35f
+#define BUGGY_BASE_DRIVE_FORCE 0.0200f
+#define BUGGY_COAST_FRICTION 0.0048f
+#define BUGGY_BRAKE_FRICTION 0.022f
+#define BUGGY_TURN_RATE_LOW 3.4f
+#define BUGGY_TURN_RATE_HIGH 1.05f
+#define BUGGY_LATERAL_GRIP 0.12f
+#define BUGGY_TRANSMISSION_BAND1_END 0.22f
+#define BUGGY_TRANSMISSION_BAND2_END 0.52f
+#define BUGGY_TRANSMISSION_BAND3_END 0.78f
+#define BUGGY_GRAVITY 0.15f
 
 #define EYE_HEIGHT 2.59f    
 #define PLAYER_WIDTH 0.97f  
@@ -2275,10 +2284,7 @@ void apply_friction(PlayerState *p) {
     if (speed < 0.001f) { p->vx = 0; p->vz = 0; return; }
     
     float drop = 0;
-    if (p->in_vehicle) {
-        drop = speed * BUGGY_FRICTION;
-    } 
-    else if (p->on_ground) {
+    if (p->on_ground) {
         if (p->crouching) {
             if (speed > 0.75f) drop = speed * SLIDE_FRICTION;
             else drop = speed * (FRICTION * 3.0f); 
@@ -2293,16 +2299,103 @@ void apply_friction(PlayerState *p) {
     p->vx *= newspeed; p->vz *= newspeed;
 }
 
-void accelerate(PlayerState *p, float wish_x, float wish_z, float wish_speed, float accel) {
-    if (p->in_vehicle) {
-        float current_speed = (p->vx * wish_x) + (p->vz * wish_z);
-        float add_speed = wish_speed - current_speed;
-        if (add_speed <= 0) return;
-        float acc_speed = accel * BUGGY_MAX_SPEED;
-        if (acc_speed > add_speed) acc_speed = add_speed;
-        p->vx += acc_speed * wish_x; p->vz += acc_speed * wish_z;
-        return;
+static inline float buggy_drive_force_for_speed(float speed_norm) {
+    if (speed_norm < 0.0f) speed_norm = 0.0f;
+    if (speed_norm > 1.0f) speed_norm = 1.0f;
+
+    if (speed_norm < BUGGY_TRANSMISSION_BAND1_END) {
+        float t = speed_norm / BUGGY_TRANSMISSION_BAND1_END;
+        return 1.30f + (0.92f - 1.30f) * t;
     }
+    if (speed_norm < BUGGY_TRANSMISSION_BAND2_END) {
+        float t = (speed_norm - BUGGY_TRANSMISSION_BAND1_END) /
+                  (BUGGY_TRANSMISSION_BAND2_END - BUGGY_TRANSMISSION_BAND1_END);
+        return 0.92f + (0.62f - 0.92f) * t;
+    }
+    if (speed_norm < BUGGY_TRANSMISSION_BAND3_END) {
+        float t = (speed_norm - BUGGY_TRANSMISSION_BAND2_END) /
+                  (BUGGY_TRANSMISSION_BAND3_END - BUGGY_TRANSMISSION_BAND2_END);
+        return 0.62f + (0.84f - 0.62f) * t;
+    }
+
+    float t = (speed_norm - BUGGY_TRANSMISSION_BAND3_END) / (1.0f - BUGGY_TRANSMISSION_BAND3_END);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    t = t * t * (3.0f - 2.0f * t); // smoothstep taper
+    return 0.84f + (0.06f - 0.84f) * t;
+}
+
+static inline void simulate_buggy_drive(PlayerState *p, float throttle, float steer, float dt) {
+    if (!p || !p->in_vehicle) return;
+
+    if (throttle > 1.0f) throttle = 1.0f;
+    if (throttle < -1.0f) throttle = -1.0f;
+    if (steer > 1.0f) steer = 1.0f;
+    if (steer < -1.0f) steer = -1.0f;
+
+    float dt_scale = dt / 0.016f;
+    if (dt_scale < 0.0f) dt_scale = 0.0f;
+
+    float r = -p->yaw * (3.14159265358979323846f / 180.0f);
+    float fwd_x = sinf(r);
+    float fwd_z = -cosf(r);
+    float right_x = cosf(r);
+    float right_z = sinf(r);
+
+    float forward_speed = p->vx * fwd_x + p->vz * fwd_z;
+    float lateral_speed = p->vx * right_x + p->vz * right_z;
+    float speed_norm = fabsf(forward_speed) / BUGGY_TOP_SPEED;
+    if (speed_norm > 1.0f) speed_norm = 1.0f;
+
+    if (throttle > 0.01f) {
+        float drive = BUGGY_BASE_DRIVE_FORCE * buggy_drive_force_for_speed(speed_norm) * throttle * dt_scale;
+        forward_speed += drive;
+    } else if (throttle < -0.01f) {
+        if (forward_speed > 0.03f) {
+            float brake_strength = 1.0f + (forward_speed / BUGGY_TOP_SPEED) * 0.55f;
+            forward_speed -= BUGGY_BRAKE_FRICTION * (-throttle) * brake_strength * dt_scale;
+            if (forward_speed < 0.0f) forward_speed = 0.0f;
+        } else {
+            float rev_norm = fabsf(forward_speed) / BUGGY_REVERSE_TOP_SPEED;
+            if (rev_norm > 1.0f) rev_norm = 1.0f;
+            float rev_force = BUGGY_BASE_DRIVE_FORCE * 0.72f * buggy_drive_force_for_speed(rev_norm);
+            forward_speed += throttle * rev_force * dt_scale;
+        }
+    } else {
+        if (forward_speed > 0.0f) {
+            forward_speed -= BUGGY_COAST_FRICTION * dt_scale;
+            if (forward_speed < 0.0f) forward_speed = 0.0f;
+        } else if (forward_speed < 0.0f) {
+            forward_speed += (BUGGY_COAST_FRICTION * 1.15f) * dt_scale;
+            if (forward_speed > 0.0f) forward_speed = 0.0f;
+        }
+    }
+
+    if (forward_speed > BUGGY_TOP_SPEED) forward_speed = BUGGY_TOP_SPEED;
+    if (forward_speed < -BUGGY_REVERSE_TOP_SPEED) forward_speed = -BUGGY_REVERSE_TOP_SPEED;
+
+    float abs_norm = fabsf(forward_speed) / BUGGY_TOP_SPEED;
+    if (abs_norm > 1.0f) abs_norm = 1.0f;
+
+    float steer_rate = BUGGY_TURN_RATE_LOW + (BUGGY_TURN_RATE_HIGH - BUGGY_TURN_RATE_LOW) * abs_norm;
+    float steer_authority = 0.38f + 0.62f * abs_norm;
+    float steer_sign = (forward_speed < -0.03f) ? -1.0f : 1.0f;
+    p->yaw = norm_yaw_deg(p->yaw + steer * steer_rate * steer_authority * steer_sign * dt_scale);
+
+    float grip = BUGGY_LATERAL_GRIP * (0.62f + 0.68f * abs_norm) * dt_scale;
+    if (grip > 1.0f) grip = 1.0f;
+    lateral_speed *= (1.0f - grip);
+
+    float r2 = -p->yaw * (3.14159265358979323846f / 180.0f);
+    float new_fwd_x = sinf(r2);
+    float new_fwd_z = -cosf(r2);
+    float new_right_x = cosf(r2);
+    float new_right_z = sinf(r2);
+    p->vx = new_fwd_x * forward_speed + new_right_x * lateral_speed;
+    p->vz = new_fwd_z * forward_speed + new_right_z * lateral_speed;
+}
+
+void accelerate(PlayerState *p, float wish_x, float wish_z, float wish_speed, float accel) {
     float speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
     if (p->crouching && speed > 0.75f && p->on_ground) return;
     if (p->crouching && p->on_ground && speed < 0.75f && wish_speed > CROUCH_SPEED) wish_speed = CROUCH_SPEED;

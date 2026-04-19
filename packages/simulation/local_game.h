@@ -685,20 +685,26 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         ability = 0;
     }
     p0->yaw = yaw; p0->pitch = pitch;
+    p0->in_fwd = fwd;
+    p0->in_strafe = str;
     if (weapon_req >= 0 && weapon_req < MAX_WEAPONS) p0->current_weapon = weapon_req;
     if (p0->state == STATE_DEAD) {
         fwd = 0.0f; str = 0.0f; shoot = 0; jump = 0; crouch = 0; reload = 0; ability = 0;
     }
     if (p0->state != STATE_DEAD && !(p0->in_vehicle && p0->vehicle_type == VEH_HELICOPTER)) {
-        MoveIntent move_intent = {
-            .forward = fwd,
-            .strafe = str,
-            .control_yaw_deg = yaw,
-            .wants_jump = jump,
-            .wants_sprint = 0
-        };
-        MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
-        accelerate(p0, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, ACCEL);
+        if (p0->in_vehicle) {
+            simulate_buggy_drive(p0, fwd, str, 0.016f);
+        } else {
+            MoveIntent move_intent = {
+                .forward = fwd,
+                .strafe = str,
+                .control_yaw_deg = yaw,
+                .wants_jump = jump,
+                .wants_sprint = 0
+            };
+            MoveWish move_wish = shankpit_move_wish_from_intent(move_intent);
+            accelerate(p0, move_wish.dir_x, move_wish.dir_z, move_wish.magnitude * MAX_SPEED, ACCEL);
+        }
     }
     
     int fresh_jump_press = (jump && !was_holding_jump);
@@ -772,10 +778,14 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             int b_btns=0;
             bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
             p->yaw = b_yaw;
-            float brad = b_yaw * 3.14159f / 180.0f;
-            float bx = sinf(brad) * b_fwd;
-            float bz = cosf(brad) * b_fwd;
-            accelerate(p, bx, bz, MAX_SPEED, ACCEL);
+            if (p->in_vehicle) {
+                simulate_buggy_drive(p, b_fwd, 0.0f, 0.016f);
+            } else {
+                float brad = b_yaw * 3.14159f / 180.0f;
+                float bx = sinf(brad) * b_fwd;
+                float bz = cosf(brad) * b_fwd;
+                accelerate(p, bx, bz, MAX_SPEED, ACCEL);
+            }
             p->in_shoot = (b_btns & BTN_ATTACK);
             p->in_jump = (b_btns & BTN_JUMP);
             p->in_reload = (b_btns & BTN_RELOAD);

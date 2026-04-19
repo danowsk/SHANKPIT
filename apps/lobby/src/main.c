@@ -1900,7 +1900,7 @@ static void draw_viewmodel_magnum(const ViewmodelPalette *p) {
     glPushMatrix(); glTranslatef(0.00f, -0.14f, -0.24f); glRotatef(-15.0f, 1, 0, 0); draw_viewmodel_box_tone(p, 0.46f, 0.70f, 0.66f, 1); glPopMatrix();
     glPushMatrix(); glTranslatef(0.00f, 0.03f, 0.94f); draw_viewmodel_box_tone(p, 0.62f, 0.18f, 0.46f, 1); glPopMatrix();
     glPushMatrix(); glTranslatef(0.00f, 0.28f, 0.16f); draw_viewmodel_box_tone(p, 0.74f, 0.08f, 0.90f, 1); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.00f, 0.19f, 1.20f); draw_viewmodel_box_tone(p, 0.18f, 0.10f, 0.14f, 1); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.00f, 0.19f, 1.34f); draw_viewmodel_box_tone(p, 0.036f, 0.020f, 0.028f, 1); glPopMatrix();
 }
 
 static void draw_viewmodel_ar(const ViewmodelPalette *p) {

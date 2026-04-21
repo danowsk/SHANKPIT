@@ -672,6 +672,7 @@ void draw_string(const char* str, float x, float y, float size) {
 typedef enum {
     LOBBY_JOIN = 0,
     LOBBY_TDMO,
+    LOBBY_STORY,
     LOBBY_SOLO,
     LOBBY_BATTLE,
     LOBBY_TDMB,
@@ -684,6 +685,7 @@ char lobby_labels_mutable[LOBBY_COUNT][64];
 static const char *LOBBY_LABELS[LOBBY_COUNT] = {
     "JOIN",
     "TDMO",
+    "STORY",
     "SOLO",
     "TRAIN",
     "TDMB",
@@ -796,6 +798,8 @@ static void lobby_apply_scene_id(const char *scene_id) {
         scene_load(SCENE_OIL_TANKER);
     } else if (strcmp(scene_id, "POO_POO_ISLAND") == 0) {
         scene_load(SCENE_POO_POO_ISLAND);
+    } else if (strcmp(scene_id, "STORY_CAVE") == 0) {
+        scene_load(SCENE_STORY_CAVE);
     }
 }
 
@@ -819,6 +823,10 @@ static void lobby_apply_ui_state() {
     if (strcmp(ui_state.active_mode_id, "mode.demo") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(1, MODE_DEATHMATCH);
+    } else if (strcmp(ui_state.active_mode_id, "mode.story") == 0) {
+        app_state = STATE_GAME_LOCAL;
+        local_init_match(1, MODE_STORY);
+        local_state.story_phase_start_ms = SDL_GetTicks();
     } else if (strcmp(ui_state.active_mode_id, "mode.battle") == 0) {
         app_state = STATE_GAME_LOCAL;
         local_init_match(12, MODE_DEATHMATCH);
@@ -888,6 +896,10 @@ static void lobby_start_action(int action) {
         switch (action) {
             case LOBBY_SOLO:
                 local_init_match(1, MODE_DEATHMATCH);
+                break;
+            case LOBBY_STORY:
+                local_init_match(1, MODE_STORY);
+                local_state.story_phase_start_ms = SDL_GetTicks();
                 break;
             case LOBBY_BATTLE:
                 local_init_match(12, MODE_DEATHMATCH);
@@ -3031,8 +3043,11 @@ void draw_player_3rd(PlayerState *p) {
         /* Buggy is rendered from buggy world entities, not player pose. */
     } else {
         int forced_skin = -1;
+        int story_bear = (local_state.game_mode == MODE_STORY && p->id > 0);
         if (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB) {
             forced_skin = (p->team_id == 1) ? SKIN_NINJA : SKIN_PIRATE;
+        } else if (story_bear) {
+            forced_skin = SKIN_CYBORG;
         }
         int draw_skin = (forced_skin >= 0) ? forced_skin : clamp_skin_id(g_selected_skin);
         switch (draw_skin) {
@@ -3221,6 +3236,22 @@ void draw_hud(PlayerState *p) {
             glColor3f(1.0f, 0.85f, 0.2f);
             draw_string("YOU HAVE THE FLAG · FIRE = 80 DMG MELEE", 430, 618, 4);
         }
+    } else if (local_state.game_mode == MODE_STORY) {
+        glColor3f(0.85f, 0.92f, 0.95f);
+        if (local_state.story_phase == STORY_PHASE_CUTSCENE) {
+            draw_string("STORY: CAVE ENTRY", 500, 682, 6);
+            draw_string("INTRO IN PROGRESS...", 500, 658, 4);
+        } else if (local_state.story_phase == STORY_PHASE_COMPLETE) {
+            glColor3f(0.55f, 1.0f, 0.65f);
+            draw_string("STORY COMPLETE", 510, 682, 8);
+            glColor3f(0.85f, 0.92f, 0.95f);
+            draw_string("PRESS ESC TO RETURN", 500, 650, 4);
+        } else if (local_state.story_phase == STORY_PHASE_FAILED) {
+            glColor3f(1.0f, 0.45f, 0.35f);
+            draw_string("MISSION FAILED", 520, 682, 7);
+        } else {
+            draw_string("OBJECTIVE: REACH THE END OF THE CAVE", 410, 682, 4);
+        }
     }
     float x0 = 50.0f, x1 = vs0_art_direction_enabled ? 220.0f : 250.0f;
     float y_health0 = 50.0f, y_health1 = vs0_art_direction_enabled ? 66.0f : 70.0f;
@@ -3292,6 +3323,7 @@ static const char *scene_name_ui(int scene_id) {
         case SCENE_DUST_COMPOUND: return "DUST_COMPOUND";
         case SCENE_OIL_TANKER: return "OIL_TANKER";
         case SCENE_POO_POO_ISLAND: return "POO_POO_ISLAND";
+        case SCENE_STORY_CAVE: return "STORY_CAVE";
         default: return "UNKNOWN";
     }
 }
@@ -3798,8 +3830,9 @@ void draw_scene(PlayerState *render_p) {
     local_state.scene_id = render_p->scene_id;
     phys_set_scene(render_p->scene_id);
     unsigned int now_ms = SDL_GetTicks();
+    int story_cutscene = (local_state.game_mode == MODE_STORY && local_state.story_phase == STORY_PHASE_CUTSCENE);
     int local_dead = (render_p->state == STATE_DEAD);
-    float death_target = local_dead ? 1.0f : 0.0f;
+    float death_target = (local_state.game_mode == MODE_STORY) ? 0.0f : (local_dead ? 1.0f : 0.0f);
     death_cam_blend += (death_target - death_cam_blend) * 0.18f;
     if (death_cam_blend < 0.001f) death_cam_blend = 0.0f;
     if (death_cam_blend > 0.999f) death_cam_blend = 1.0f;
@@ -3860,7 +3893,16 @@ void draw_scene(PlayerState *render_p) {
         reconcile_z = reconcile_corr_z;
     }
 
-    if (!(render_p->in_vehicle && render_p->vehicle_type == VEH_HELICOPTER)) {
+    if (story_cutscene) {
+        float look_x = render_p->x;
+        float look_y = render_p->y + 3.0f;
+        float look_z = render_p->z;
+        float yaw_rad = (180.0f - render_p->yaw) * 0.0174533f;
+        float cam_x = look_x + sinf(yaw_rad) * 18.0f;
+        float cam_y = look_y + 3.0f;
+        float cam_z = look_z + cosf(yaw_rad) * 18.0f;
+        gluLookAt(cam_x, cam_y, cam_z, look_x, look_y, look_z, 0.0f, 1.0f, 0.0f);
+    } else if (!(render_p->in_vehicle && render_p->vehicle_type == VEH_HELICOPTER)) {
         float draw_cam_pitch = lerpf(cam_pitch, -14.0f, death_cam_blend);
         glRotatef(-draw_cam_pitch, 1, 0, 0); glRotatef(-cam_yaw, 0, 1, 0);
         glTranslatef(-((render_p->x + reconcile_x) - cx), -((render_p->y + reconcile_y) + cam_y), -((render_p->z + reconcile_z) - cz));
@@ -5065,6 +5107,11 @@ int main(int argc, char* argv[]) {
                 }
                 if(e.type == SDL_MOUSEMOTION) {
                     if (app_state == STATE_GAME_NET && net_spawn_protect_cmds > 0) continue;
+                    if (app_state == STATE_GAME_LOCAL &&
+                        local_state.game_mode == MODE_STORY &&
+                        local_state.story_phase == STORY_PHASE_CUTSCENE) {
+                        continue;
+                    }
                     float sens = (current_fov < 50.0f) ? 0.05f : 0.15f; 
                     cam_yaw -= e.motion.xrel * sens;
                     if(cam_yaw > 360) cam_yaw -= 360; if(cam_yaw < 0) cam_yaw += 360;
@@ -5160,6 +5207,12 @@ int main(int argc, char* argv[]) {
                 net_apply_remote_interpolation(now_ms);
                 net_emit_client_summaries(now_ms);
             } else {
+                if (local_state.game_mode == MODE_STORY &&
+                    (local_state.story_phase == STORY_PHASE_CUTSCENE ||
+                     local_state.story_phase == STORY_PHASE_COMPLETE)) {
+                    fwd = 0.0f; str = 0.0f;
+                    jump = 0; crouch = 0; shoot = 0; reload = 0; use = 0; ability = 0;
+                }
                 local_state.players[0].in_use = use;
                 if (use && local_state.players[0].vehicle_cooldown == 0 && local_state.transition_timer == 0) {
                     PlayerState *p0 = &local_state.players[0];
@@ -5221,7 +5274,19 @@ int main(int argc, char* argv[]) {
                 }
                 if(local_state.players[0].vehicle_cooldown > 0) local_state.players[0].vehicle_cooldown--;
                 unsigned int now_ms = SDL_GetTicks();
+                if (local_state.game_mode == MODE_STORY &&
+                    local_state.story_phase == STORY_PHASE_CUTSCENE &&
+                    local_state.story_phase_start_ms == 0) {
+                    local_state.story_phase_start_ms = now_ms;
+                }
                 local_update(fwd, str, cam_yaw, cam_pitch, shoot, wpn_req, jump, crouch, reload, ability, NULL, now_ms);
+                if (local_state.game_mode == MODE_STORY && local_state.players[0].state == STATE_DEAD) {
+                    local_state.story_phase = STORY_PHASE_FAILED;
+                    local_init_match(1, MODE_STORY);
+                    local_state.story_phase_start_ms = SDL_GetTicks();
+                    cam_yaw = 0.0f;
+                    cam_pitch = 0.0f;
+                }
             }
             int render_pid = 0;
             if (app_state == STATE_GAME_NET &&

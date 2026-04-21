@@ -125,7 +125,6 @@ void grass_renderer_render(const GrassRenderer *renderer, const GrassInstance *i
 
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_CULL_FACE);
-    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_grass_tex);
     shader_use_program(&g_grass_program);
     shader_set_uniform_1i(g_u_diffuse_loc, 0);

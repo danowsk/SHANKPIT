@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <SDL2/SDL.h>
 
 typedef GLuint (*PFNGLCREATESHADERPROC)(GLenum type);
 typedef void (*PFNGLSHADERSOURCEPROC)(GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length);

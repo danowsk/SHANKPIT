@@ -120,6 +120,25 @@ static void grass_emit_card(float x, float y, float z,
     glTexCoord2f(0.0f, 0.0f); glVertex3f(x - dx * half_w * 0.35f, y + h, z - dz * half_w * 0.35f);
 }
 
+static void grass_emit_ground_patch(float x, float y, float z, float half_w, float mask, float fade, float tint) {
+    float patch = (0.26f + mask * 0.42f) * fade;
+    float r = (0.18f + tint * 0.05f) * patch;
+    float g = (0.33f + tint * 0.08f) * patch;
+    float b = (0.11f + tint * 0.04f) * patch;
+    float r2 = r * 1.18f;
+    float g2 = g * 1.24f;
+    float b2 = b * 1.12f;
+    float hw = half_w * (1.7f + mask * 1.3f);
+    float py = y + 0.03f;
+
+    glColor3f(r, g, b);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(x - hw, py, z + hw);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(x + hw, py, z + hw);
+    glColor3f(r2, g2, b2);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(x + hw, py, z - hw);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(x - hw, py, z - hw);
+}
+
 void grass_renderer_render(const GrassRenderer *renderer, const GrassInstance *instances, int count) {
     if (!grass_renderer_can_render(renderer) || !instances || count <= 0) return;
 
@@ -132,6 +151,7 @@ void grass_renderer_render(const GrassRenderer *renderer, const GrassInstance *i
     glBegin(GL_QUADS);
     for (int i = 0; i < count; i++) {
         const GrassInstance *g = &instances[i];
+        grass_emit_ground_patch(g->x, g->y, g->z, g->half_width, g->mask, g->fade, g->tint);
         float c = cosf(g->yaw);
         float s = sinf(g->yaw);
         grass_emit_card(g->x, g->y, g->z, g->half_width, g->height, c, s, g->mask, g->fade, g->tint);

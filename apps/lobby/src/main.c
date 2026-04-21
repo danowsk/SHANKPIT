@@ -3793,6 +3793,9 @@ void draw_scene(PlayerState *render_p) {
         for (int bi = 0; bi < MAX_BUGGIES; bi++) {
             if (local_state.buggies[bi].active && local_state.buggies[bi].occupant_player_id == render_p->id) {
                 cam_buggy = &local_state.buggies[bi];
+                cam_focus_x = cam_buggy->x;
+                cam_focus_y = cam_buggy->y;
+                cam_focus_z = cam_buggy->z;
                 break;
             }
         }
@@ -3845,9 +3848,11 @@ void draw_scene(PlayerState *render_p) {
         reconcile_y = reconcile_corr_y;
         reconcile_z = reconcile_corr_z;
     }
-    cam_focus_x += reconcile_x;
-    cam_focus_y += reconcile_y;
-    cam_focus_z += reconcile_z;
+    if (!cam_buggy) {
+        cam_focus_x += reconcile_x;
+        cam_focus_y += reconcile_y;
+        cam_focus_z += reconcile_z;
+    }
 
     if (!(render_p->in_vehicle && render_p->vehicle_type == VEH_HELICOPTER)) {
         float draw_cam_pitch = lerpf(cam_pitch, -14.0f, death_cam_blend);

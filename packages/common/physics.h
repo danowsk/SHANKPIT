@@ -165,6 +165,9 @@ static int map_geo_tanker_init = 0;
 static Box map_geo_poo_poo_island[CITY_MAX_BOXES];
 static int map_geo_poo_poo_island_count = 0;
 static int map_geo_poo_poo_island_init = 0;
+static Box map_geo_story_cave[CITY_MAX_BOXES];
+static int map_geo_story_cave_count = 0;
+static int map_geo_story_cave_init = 0;
 
 static const Box *map_geo = map_geo_stadium;
 static int map_count = 0;
@@ -228,6 +231,9 @@ static int map_count = 0;
 #define TANKER_KILL_Y -70.0f
 #define TANKER_BOUNDS_X 360.0f
 #define TANKER_BOUNDS_Z 240.0f
+#define STORY_CAVE_KILL_Y -80.0f
+#define STORY_CAVE_BOUNDS_X 120.0f
+#define STORY_CAVE_BOUNDS_Z 1360.0f
 #define POO_POO_ISLAND_KILL_Y -110.0f
 #define POO_POO_ISLAND_TERRAIN_W 172
 #define POO_POO_ISLAND_TERRAIN_H 172
@@ -951,6 +957,37 @@ static inline void init_poo_poo_island_geo(void) {
            (int)(sizeof(poo_poo_island_scenic_anchors) / sizeof(VoxRouteAnchor)));
 }
 
+static inline void story_cave_add_box(float x, float y, float z, float w, float h, float d) {
+    if (map_geo_story_cave_count >= CITY_MAX_BOXES) return;
+    map_geo_story_cave[map_geo_story_cave_count++] = (Box){x, y, z, w, h, d};
+}
+
+static inline void init_story_cave_geo(void) {
+    if (map_geo_story_cave_init) return;
+    map_geo_story_cave_init = 1;
+    map_geo_story_cave_count = 0;
+
+    story_cave_add_box(0.0f, -8.0f, 0.0f, 220.0f, 8.0f, 2600.0f);
+    story_cave_add_box(0.0f, 29.0f, 0.0f, 220.0f, 8.0f, 2600.0f);
+    story_cave_add_box(110.0f, 11.0f, 0.0f, 6.0f, 38.0f, 2600.0f);
+    story_cave_add_box(-110.0f, 11.0f, 0.0f, 6.0f, 38.0f, 2600.0f);
+    story_cave_add_box(0.0f, 11.0f, 1305.0f, 220.0f, 38.0f, 8.0f);
+    story_cave_add_box(0.0f, 11.0f, -1305.0f, 220.0f, 38.0f, 8.0f);
+
+    story_cave_add_box(-46.0f, 2.0f, -980.0f, 72.0f, 20.0f, 96.0f);
+    story_cave_add_box(48.0f, 2.0f, -620.0f, 82.0f, 20.0f, 110.0f);
+    story_cave_add_box(-44.0f, 2.0f, -260.0f, 72.0f, 20.0f, 102.0f);
+    story_cave_add_box(48.0f, 2.0f, 120.0f, 84.0f, 20.0f, 116.0f);
+    story_cave_add_box(-50.0f, 2.0f, 480.0f, 78.0f, 20.0f, 100.0f);
+    story_cave_add_box(48.0f, 2.0f, 830.0f, 80.0f, 20.0f, 110.0f);
+
+    story_cave_add_box(0.0f, 5.0f, -710.0f, 38.0f, 10.0f, 36.0f);
+    story_cave_add_box(0.0f, 5.0f, -160.0f, 38.0f, 10.0f, 36.0f);
+    story_cave_add_box(0.0f, 5.0f, 360.0f, 38.0f, 10.0f, 36.0f);
+    story_cave_add_box(0.0f, 6.0f, 1090.0f, 76.0f, 12.0f, 44.0f);
+    printf("[STORY_CAVE] authored geo boxes=%d\n", map_geo_story_cave_count);
+}
+
 static int phys_scene_id = SCENE_STADIUM;
 static TerrainHeightfield g_scene_terrain = {0};
 static int g_last_ground_source_terrain = 0;
@@ -1109,6 +1146,11 @@ static inline void phys_set_scene(int scene_id) {
         map_geo = map_geo_poo_poo_island;
         map_count = map_geo_poo_poo_island_count;
         g_scene_terrain.active = (g_scene_terrain.heights != NULL);
+    } else if (scene_id == SCENE_STORY_CAVE) {
+        init_story_cave_geo();
+        map_geo = map_geo_story_cave;
+        map_count = map_geo_story_cave_count;
+        g_scene_terrain.active = 0;
     } else if (scene_id == SCENE_VOXWORLD) {
         init_voxworld_bloodgulch_terrain();
         init_voxworld_bloodgulch_geo();
@@ -1525,6 +1567,12 @@ static inline void scene_spawn_point(int scene_id, int slot, float *out_x, float
         *out_y = stadium_height_at(*out_x, *out_z) + 6.0f;
         return;
     }
+    if (scene_id == SCENE_STORY_CAVE) {
+        *out_x = 0.0f;
+        *out_y = 6.0f;
+        *out_z = -1180.0f;
+        return;
+    }
     if (slot % 2 == 0) {
         *out_x = 0.0f; *out_z = 0.0f; *out_y = 80.0f;
     } else {
@@ -1681,6 +1729,14 @@ static inline void scene_safety_check(PlayerState *p) {
         if (p->y < POO_POO_ISLAND_KILL_Y ||
             p->x < -POO_POO_ISLAND_BOUNDS_X || p->x > POO_POO_ISLAND_BOUNDS_X ||
             p->z < -POO_POO_ISLAND_BOUNDS_Z || p->z > POO_POO_ISLAND_BOUNDS_Z) {
+            scene_force_spawn(p);
+        }
+        return;
+    }
+    if (p->scene_id == SCENE_STORY_CAVE) {
+        if (p->y < STORY_CAVE_KILL_Y ||
+            p->x < -STORY_CAVE_BOUNDS_X || p->x > STORY_CAVE_BOUNDS_X ||
+            p->z < -STORY_CAVE_BOUNDS_Z || p->z > STORY_CAVE_BOUNDS_Z) {
             scene_force_spawn(p);
         }
     }

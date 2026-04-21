@@ -5068,7 +5068,7 @@ int main(int argc, char* argv[]) {
              glColor3f(0, 1, 1); // CYAN TEXT
              draw_string("SHANKPIT", LOBBY_LAYOUT.title_x, LOBBY_LAYOUT.title_y, 12);
              glColor3f(1.0f, 1.0f, 0.0f);
-             draw_string("MADE IN AMERICA", LOBBY_LAYOUT.title_x + 10, LOBBY_LAYOUT.title_y - 28, 3);
+             draw_string("MADE IN AMERICA", LOBBY_LAYOUT.title_x + 10, LOBBY_LAYOUT.title_y - 52, 3);
              glColor3f(0, 1, 1);
              int menu_count = lobby_menu_count();
              draw_lobby_buttons(menu_count, &LOBBY_LAYOUT);

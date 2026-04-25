@@ -2292,6 +2292,8 @@ static void draw_skin_glow_end(void) {
     else glDisable(GL_LIGHTING);
     if (g_skin_glow_tex2d_was_enabled) glEnable(GL_TEXTURE_2D);
     else glDisable(GL_TEXTURE_2D);
+}
+
 static void draw_player_limb_segment(float w, float h, float d) {
     glPushMatrix();
     glTranslatef(0.0f, -h * 0.5f, 0.0f);
@@ -3068,8 +3070,8 @@ static void draw_player_skin_emiree(PlayerState *p, float draw_pitch, float draw
 
     /* Arms/gloves material zones. */
     float shoulder_y = 1.18f + pose.torso_bob;
-    float left_pitch = -6.0f + pose.left_arm_swing;
-    float right_pitch = 28.0f + pose.right_arm_swing;
+    float left_pitch = pose.left_upper_arm_pitch;
+    float right_pitch = pose.right_upper_arm_pitch;
     float left_elbow = pose.left_elbow;
     float right_elbow = pose.right_elbow;
     for (int right = 0; right <= 1; ++right) {

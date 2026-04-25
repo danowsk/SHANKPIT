@@ -143,6 +143,7 @@ typedef enum {
     SKIN_PINK,
     SKIN_GEISHA,
     SKIN_ALPINE,
+    SKIN_EMIREE,
     SKIN_COUNT
 } PlayerSkin;
 
@@ -160,7 +161,8 @@ static const char *SKIN_LABELS[SKIN_COUNT] = {
     "WANDERER",
     "PINK",
     "GEISHA",
-    "ALPINE"
+    "ALPINE",
+    "EMIREE"
 };
 static const char *SKIN_CONFIG_PATH = "shankpit_skin.cfg";
 static void ensure_skin_selection_visible(void);
@@ -2144,6 +2146,18 @@ typedef struct PlayerAnimPose {
     float right_elbow;
 } PlayerAnimPose;
 
+typedef struct PlayerSkinPalette {
+    float skin_r, skin_g, skin_b;
+    float hair_r, hair_g, hair_b;
+    float body_r, body_g, body_b;
+    float coat_r, coat_g, coat_b;
+    float coat_dark_r, coat_dark_g, coat_dark_b;
+    float trim_r, trim_g, trim_b;
+    float metal_r, metal_g, metal_b;
+    float glow_r, glow_g, glow_b;
+    float glow_strength;
+} PlayerSkinPalette;
+
 static float g_player_run_phase[MAX_CLIENTS];
 static unsigned int g_player_anim_last_ms[MAX_CLIENTS];
 
@@ -2193,6 +2207,114 @@ static PlayerAnimPose compute_player_anim_pose(const PlayerState *p) {
     pose.torso_yaw = leg * (1.0f + locomotion_scale * 2.0f);
     if (p->crouching) pose.torso_bob -= 0.10f;
     return pose;
+}
+
+static PlayerSkinPalette player_skin_palette(int skin_id) {
+    PlayerSkinPalette pal = {
+        0.88f, 0.76f, 0.62f, /* skin */
+        0.15f, 0.11f, 0.08f, /* hair */
+        0.18f, 0.20f, 0.24f, /* body */
+        0.10f, 0.10f, 0.12f, /* coat */
+        0.06f, 0.06f, 0.08f, /* coat_dark */
+        0.66f, 0.18f, 0.18f, /* trim */
+        0.30f, 0.30f, 0.34f, /* metal */
+        0.54f, 0.20f, 0.70f, /* glow */
+        0.55f              /* glow strength */
+    };
+
+    if (skin_id == SKIN_EMIREE) {
+        pal.skin_r = 0.90f; pal.skin_g = 0.88f; pal.skin_b = 0.86f;
+        pal.hair_r = 0.06f; pal.hair_g = 0.06f; pal.hair_b = 0.08f;
+        pal.body_r = 0.10f; pal.body_g = 0.11f; pal.body_b = 0.13f;
+        pal.coat_r = 0.08f; pal.coat_g = 0.09f; pal.coat_b = 0.11f;
+        pal.coat_dark_r = 0.04f; pal.coat_dark_g = 0.05f; pal.coat_dark_b = 0.06f;
+        pal.trim_r = 0.60f; pal.trim_g = 0.57f; pal.trim_b = 0.66f;
+        pal.metal_r = 0.36f; pal.metal_g = 0.38f; pal.metal_b = 0.42f;
+        pal.glow_r = 0.52f; pal.glow_g = 0.32f; pal.glow_b = 0.88f;
+        pal.glow_strength = 0.75f;
+    }
+    return pal;
+}
+
+static GLboolean g_skin_glow_prev_lighting = GL_FALSE;
+static GLboolean g_skin_glow_prev_blend = GL_FALSE;
+static GLint g_skin_glow_prev_src = GL_ONE;
+static GLint g_skin_glow_prev_dst = GL_ZERO;
+
+static void draw_skin_glow_begin(void) {
+    g_skin_glow_prev_lighting = glIsEnabled(GL_LIGHTING);
+    g_skin_glow_prev_blend = glIsEnabled(GL_BLEND);
+    glGetIntegerv(GL_BLEND_SRC, &g_skin_glow_prev_src);
+    glGetIntegerv(GL_BLEND_DST, &g_skin_glow_prev_dst);
+    glDisable(GL_LIGHTING);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+}
+
+static void draw_skin_glow_end(void) {
+    glBlendFunc(g_skin_glow_prev_src, g_skin_glow_prev_dst);
+    if (!g_skin_glow_prev_blend) glDisable(GL_BLEND);
+    if (g_skin_glow_prev_lighting) glEnable(GL_LIGHTING);
+}
+
+static void draw_emiree_coat(const PlayerAnimPose *pose, const PlayerSkinPalette *pal) {
+    glPushMatrix();
+    glTranslatef(0.0f, 0.90f + pose->torso_bob, -0.03f);
+    glRotatef(pose->torso_yaw, 0, 1, 0);
+
+    glColor3f(pal->coat_r, pal->coat_g, pal->coat_b);
+    draw_box(1.30f, 1.54f, 0.76f);
+    draw_box_outline(1.30f, 1.54f, 0.76f);
+
+    glColor3f(pal->coat_dark_r, pal->coat_dark_g, pal->coat_dark_b);
+    glPushMatrix(); glTranslatef(-0.84f, 1.00f, 0.0f); draw_box(0.32f, 1.24f, 0.36f); draw_box_outline(0.32f, 1.24f, 0.36f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.84f, 1.00f, 0.0f); draw_box(0.32f, 1.24f, 0.36f); draw_box_outline(0.32f, 1.24f, 0.36f); glPopMatrix();
+
+    /* Long split tails */
+    glColor3f(pal->coat_r, pal->coat_g, pal->coat_b);
+    glPushMatrix(); glTranslatef(-0.24f, -0.34f, -0.16f); glRotatef(4.0f, 0, 1, 0); draw_box(0.56f, 1.70f, 0.18f); draw_box_outline(0.56f, 1.70f, 0.18f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.24f, -0.34f, -0.16f); glRotatef(-4.0f, 0, 1, 0); draw_box(0.56f, 1.70f, 0.18f); draw_box_outline(0.56f, 1.70f, 0.18f); glPopMatrix();
+
+    /* Inner lining accent */
+    glColor3f(pal->glow_r * 0.45f, pal->glow_g * 0.45f, pal->glow_b * 0.45f);
+    glPushMatrix(); glTranslatef(-0.22f, -0.34f, -0.05f); draw_box(0.46f, 1.62f, 0.05f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.22f, -0.34f, -0.05f); draw_box(0.46f, 1.62f, 0.05f); glPopMatrix();
+
+    glPopMatrix();
+}
+
+static void draw_emiree_high_collar(const PlayerSkinPalette *pal) {
+    glColor3f(pal->coat_dark_r, pal->coat_dark_g, pal->coat_dark_b);
+    glPushMatrix(); glTranslatef(-0.24f, 0.14f, 0.24f); glRotatef(18.0f, 0, 1, 0); draw_box(0.24f, 0.44f, 0.08f); draw_box_outline(0.24f, 0.44f, 0.08f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.24f, 0.14f, 0.24f); glRotatef(-18.0f, 0, 1, 0); draw_box(0.24f, 0.44f, 0.08f); draw_box_outline(0.24f, 0.44f, 0.08f); glPopMatrix();
+}
+
+static void draw_emiree_chest_crystal(const PlayerAnimPose *pose, const PlayerSkinPalette *pal) {
+    glPushMatrix();
+    glTranslatef(0.0f, 1.06f + pose->torso_bob, 0.37f);
+    glRotatef(pose->torso_yaw, 0, 1, 0);
+    glColor3f(pal->glow_r, pal->glow_g, pal->glow_b);
+    draw_box(0.16f, 0.30f, 0.07f);
+    draw_box_outline(0.16f, 0.30f, 0.07f);
+    glColor3f(pal->trim_r, pal->trim_g, pal->trim_b);
+    glPushMatrix(); glTranslatef(0.0f, 0.18f, 0.0f); draw_box(0.08f, 0.14f, 0.05f); glPopMatrix();
+    glPopMatrix();
+}
+
+static void draw_emiree_earrings(const PlayerSkinPalette *pal) {
+    glColor3f(pal->glow_r, pal->glow_g, pal->glow_b);
+    glPushMatrix(); glTranslatef(-0.44f, 0.08f, 0.20f); draw_box(0.05f, 0.13f, 0.04f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.44f, 0.08f, 0.20f); draw_box(0.05f, 0.13f, 0.04f); glPopMatrix();
+}
+
+static void draw_emiree_back_crystal(const PlayerAnimPose *pose, const PlayerSkinPalette *pal) {
+    glPushMatrix();
+    glTranslatef(0.0f, 1.02f + pose->torso_bob, -0.40f);
+    glRotatef(pose->torso_yaw, 0, 1, 0);
+    glColor3f(pal->glow_r, pal->glow_g, pal->glow_b);
+    draw_box(0.18f, 0.36f, 0.06f);
+    draw_box_outline(0.18f, 0.36f, 0.06f);
+    glPopMatrix();
 }
 
 static void draw_player_arm(int right_side, const PlayerAnimPose *pose, float draw_pitch, float draw_recoil, int weapon_id) {
@@ -2492,6 +2614,73 @@ static void draw_player_skin_cyborg(PlayerState *p, float draw_pitch, float draw
     glRotatef(-draw_recoil * 10.0f, 1, 0, 0);
     glTranslatef(0.0f, 0.0f, -draw_recoil * 0.08f);
     glScalef(0.8f, 0.8f, 0.8f); draw_gun_model(p->current_weapon); glPopMatrix();
+}
+
+/* Emiree is the first PS2/FFXI-inspired premium low-poly skin pass: material-zoned, silhouette-first, with subtle authored glow accents. */
+static void draw_player_skin_emiree(PlayerState *p, float draw_pitch, float draw_recoil) {
+    PlayerAnimPose pose = compute_player_anim_pose(p);
+    PlayerSkinPalette pal = player_skin_palette(SKIN_EMIREE);
+
+    draw_emiree_coat(&pose, &pal);
+
+    glColor3f(pal.body_r, pal.body_g, pal.body_b);
+    glPushMatrix();
+    glTranslatef(0.0f, 0.92f + pose.torso_bob, 0.02f);
+    glRotatef(pose.torso_yaw, 0, 1, 0);
+    draw_box(0.92f, 1.36f, 0.62f);
+    draw_box_outline(0.92f, 1.36f, 0.62f);
+    glColor3f(pal.trim_r, pal.trim_g, pal.trim_b);
+    glPushMatrix(); glTranslatef(0.0f, 0.26f, 0.34f); draw_box(0.12f, 0.72f, 0.06f); draw_box_outline(0.12f, 0.72f, 0.06f); glPopMatrix();
+    glColor3f(pal.metal_r, pal.metal_g, pal.metal_b);
+    glPushMatrix(); glTranslatef(-0.24f, -0.22f, 0.34f); draw_box(0.10f, 0.14f, 0.05f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.24f, -0.22f, 0.34f); draw_box(0.10f, 0.14f, 0.05f); glPopMatrix();
+    glPopMatrix();
+
+    glColor3f(pal.coat_dark_r, pal.coat_dark_g, pal.coat_dark_b);
+    draw_player_arm(0, &pose, draw_pitch, draw_recoil, p->current_weapon);
+    draw_player_arm(1, &pose, draw_pitch, draw_recoil, p->current_weapon);
+    glColor3f(pal.body_r * 0.9f, pal.body_g * 0.9f, pal.body_b * 0.9f);
+    draw_player_leg(0, &pose);
+    draw_player_leg(1, &pose);
+    glColor3f(pal.coat_dark_r, pal.coat_dark_g, pal.coat_dark_b);
+    glPushMatrix(); glTranslatef(-0.24f, -0.86f, 0.08f); draw_box(0.44f, 0.24f, 0.44f); draw_box_outline(0.44f, 0.24f, 0.44f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.24f, -0.86f, 0.08f); draw_box(0.44f, 0.24f, 0.44f); draw_box_outline(0.44f, 0.24f, 0.44f); glPopMatrix();
+
+    draw_emiree_chest_crystal(&pose, &pal);
+    draw_emiree_back_crystal(&pose, &pal);
+
+    glPushMatrix();
+    glTranslatef(0.0f, 1.95f + pose.torso_bob, 0.00f);
+    glRotatef(pose.torso_yaw * 0.35f, 0, 1, 0);
+    glRotatef(draw_pitch, 1, 0, 0);
+    glColor3f(pal.skin_r, pal.skin_g, pal.skin_b);
+    draw_box(0.68f, 0.82f, 0.66f);
+    draw_box_outline(0.68f, 0.82f, 0.66f);
+    glColor3f(pal.hair_r, pal.hair_g, pal.hair_b);
+    glPushMatrix(); glTranslatef(0.0f, 0.36f, -0.02f); draw_box(0.90f, 0.30f, 0.78f); draw_box_outline(0.90f, 0.30f, 0.78f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 0.58f, -0.12f); draw_box(0.52f, 0.24f, 0.48f); draw_box_outline(0.52f, 0.24f, 0.48f); glPopMatrix();
+    glColor3f(pal.coat_dark_r, pal.coat_dark_g, pal.coat_dark_b);
+    glPushMatrix(); glTranslatef(0.0f, -0.05f, 0.37f); draw_box(0.56f, 0.20f, 0.08f); draw_box_outline(0.56f, 0.20f, 0.08f); glPopMatrix();
+    draw_emiree_high_collar(&pal);
+    draw_emiree_earrings(&pal);
+    glPopMatrix();
+
+    draw_skin_glow_begin();
+    glColor4f(pal.glow_r, pal.glow_g, pal.glow_b, 0.32f * pal.glow_strength);
+    glPushMatrix();
+    glTranslatef(0.0f, 1.06f + pose.torso_bob, 0.39f);
+    glRotatef(pose.torso_yaw, 0, 1, 0);
+    draw_box(0.24f, 0.40f, 0.10f);
+    glPopMatrix();
+    glPushMatrix();
+    glTranslatef(0.0f, 1.02f + pose.torso_bob, -0.42f);
+    glRotatef(pose.torso_yaw, 0, 1, 0);
+    draw_box(0.24f, 0.46f, 0.10f);
+    glPopMatrix();
+    glColor4f(pal.glow_r, pal.glow_g, pal.glow_b, 0.14f * pal.glow_strength);
+    glPushMatrix(); glTranslatef(-0.22f, 0.56f + pose.torso_bob, -0.10f); draw_box(0.46f, 1.54f, 0.08f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.22f, 0.56f + pose.torso_bob, -0.10f); draw_box(0.46f, 1.54f, 0.08f); glPopMatrix();
+    draw_skin_glow_end();
 }
 
 static void draw_player_skin_bat(PlayerState *p, float draw_pitch, float draw_recoil) {
@@ -3086,6 +3275,9 @@ void draw_player_3rd(PlayerState *p) {
                 break;
             case SKIN_ALPINE:
                 draw_player_skin_alpine(p, draw_pitch, draw_recoil);
+                break;
+            case SKIN_EMIREE:
+                draw_player_skin_emiree(p, draw_pitch, draw_recoil);
                 break;
             case SKIN_BAT:
             default:

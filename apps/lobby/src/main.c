@@ -3190,7 +3190,7 @@ static void draw_ability_one_tile(const PlayerState *p) {
     const float tile_x = 50.0f;
     const float tile_y = 122.0f;
     const float icon_inset = 12.0f;
-    const float cooldown_text_size = 14.0f;
+    const float cooldown_text_size = 3.5f;
     const float keybind_size = 4.0f;
 
     float cooldown_remaining = ((float)p->ability_cooldown) / 60.0f;
@@ -3222,11 +3222,11 @@ static void draw_ability_one_tile(const PlayerState *p) {
     const float icon_right = tile_x + tile_size - icon_inset;
     const float icon_bottom = tile_y + icon_inset;
     const float icon_top = tile_y + tile_size - icon_inset;
-    float icon_r = on_cooldown ? 0.92f : 0.46f;
-    float icon_g = on_cooldown ? 0.52f : 0.92f;
-    float icon_b = on_cooldown ? 0.52f : 1.00f;
+    float icon_r = on_cooldown ? 1.00f : 0.46f;
+    float icon_g = on_cooldown ? 0.42f : 0.92f;
+    float icon_b = on_cooldown ? 0.78f : 1.00f;
 
-    glColor4f(icon_r, icon_g, icon_b, on_cooldown ? 0.72f : 0.95f);
+    glColor4f(icon_r, icon_g, icon_b, on_cooldown ? 0.95f : 0.95f);
     glBegin(GL_QUADS);
     glVertex2f(icon_left + 6.0f, icon_bottom + 4.0f);
     glVertex2f(icon_left + 13.0f, icon_bottom + 4.0f);
@@ -3237,7 +3237,7 @@ static void draw_ability_one_tile(const PlayerState *p) {
     glVertex2f(icon_right - 6.0f, icon_top - 14.0f);
     glVertex2f(icon_right - 13.0f, icon_top - 14.0f);
     glEnd();
-    glColor4f(icon_r, icon_g, icon_b, on_cooldown ? 0.55f : 0.85f);
+    glColor4f(icon_r, icon_g, icon_b, on_cooldown ? 0.85f : 0.85f);
     glBegin(GL_TRIANGLES);
     glVertex2f(icon_left + 8.0f, icon_top - 2.0f);
     glVertex2f(icon_left + 14.0f, icon_top - 12.0f);
@@ -3255,14 +3255,10 @@ static void draw_ability_one_tile(const PlayerState *p) {
         float text_x = tile_x + (tile_size - approx_text_w) * 0.5f;
         float text_y = tile_y + tile_size * 0.32f;
 
-        glColor4f(0.55f, 0.02f, 0.06f, 0.42f);
-        glRectf(tile_x, tile_y, tile_x + tile_size, tile_y + tile_size);
         glColor3f(1.0f, 0.95f, 0.95f);
         draw_string(cooldown_buf, text_x, text_y, cooldown_text_size);
     }
 
-    glColor3f(0.80f, 0.88f, 0.95f);
-    draw_string("ABILITY 1", tile_x + 2.0f, tile_y - 14.0f, keybind_size);
     glColor3f(0.92f, 0.96f, 1.0f);
     draw_string("E", tile_x + tile_size - 10.0f, tile_y - 14.0f, keybind_size);
 }

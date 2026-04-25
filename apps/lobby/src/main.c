@@ -3276,14 +3276,8 @@ void draw_hud(PlayerState *p) {
         glColor3f(0.95f, 0.55f, 0.1f);
         draw_string(style_buf, 50, 98, vs0_art_direction_enabled ? 4 : 6);
     }
-    glColor3f(0.58f, 0.75f, 0.76f);
-    draw_string(terrain_wireframe_debug ? "F6 TERRAIN WIRE:ON" : "F6 TERRAIN WIRE:OFF", 50, 24, vs0_art_direction_enabled ? 3 : 5);
-    glColor3f(0.68f, 0.56f, 0.76f);
-    draw_string(terrain_normals_debug ? "F7 TERRAIN NORMALS:ON" : "F7 TERRAIN NORMALS:OFF", 220, 24, vs0_art_direction_enabled ? 3 : 5);
-    glColor3f(0.78f, 0.69f, 0.48f);
-    draw_string(voxworld_points_debug ? "F11 SCENE DEBUG:ON" : "F11 SCENE DEBUG:OFF", 430, 24, vs0_art_direction_enabled ? 3 : 5);
-    glColor3f(0.72f, 0.74f, 0.80f);
-    draw_string(vs0_art_direction_enabled ? "F12 VS0 ART:ON" : "F12 VS0 ART:OFF", 650, 24, 3);
+    /* Removed bottom-of-screen debug toggle readouts from player HUD.
+       Debug toggles and key handling remain active for internal use. */
 
     if (p->current_weapon == WPN_KATANA) {
         char katana_buf[64];
@@ -3306,10 +3300,6 @@ void draw_hud(PlayerState *p) {
         draw_string("E: STORM ARROWS READY", 50, 132, vs0_art_direction_enabled ? 3 : 4);
     }
     
-    float raw_speed = sqrtf(p->vx*p->vx + p->vz*p->vz);
-    char vel_buf[32]; sprintf(vel_buf, "VEL: %.2f", raw_speed);
-    glColor3f(vs0_art_direction_enabled ? 0.80f : 1.0f, vs0_art_direction_enabled ? 0.78f : 1.0f, vs0_art_direction_enabled ? 0.44f : 0.0f);
-    draw_string(vel_buf, 1120, 50, vs0_art_direction_enabled ? 5 : 8); 
     draw_ammo_bars(p);
 
     glEnable(GL_DEPTH_TEST); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();

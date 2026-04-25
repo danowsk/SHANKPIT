@@ -3673,36 +3673,8 @@ static void draw_garage_overlay(PlayerState *p) {
     glOrtho(0, 1280, 0, 720, -1, 1);
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
 
-    glColor3f(0.2f, 1.0f, 1.0f);
-    draw_string("OSAKA GARAGE", 40, 670, 10);
-    glColor3f(0.9f, 0.9f, 0.9f);
-    draw_string("PORTAL -> STADIUM", 40, 640, 6);
-    draw_string("PORTAL -> VOXWORLD TERRAIN", 40, 620, 6);
-    draw_string("PORTAL -> OIL TANKER", 40, 600, 6);
-    draw_string("PORTAL -> DUST COMPOUND", 40, 580, 6);
-    draw_string("PORTAL -> POO POO ISLAND", 40, 560, 6);
-
     int pad_count = 0;
     const VehiclePad *pads = scene_vehicle_pads(local_state.scene_id, &pad_count);
-    float list_y = 600.0f;
-    for (int i = 0; i < pad_count; i++) {
-        int occupied = 0;
-        for (int bi = 0; bi < MAX_BUGGIES; bi++) {
-            BuggyState *b = &local_state.buggies[bi];
-            if (!b->active || b->scene_id != local_state.scene_id) continue;
-            float dx = b->x - pads[i].x;
-            float dz = b->z - pads[i].z;
-            if ((dx * dx + dz * dz) < 16.0f) {
-                occupied = 1;
-                break;
-            }
-        }
-        char line[128];
-        snprintf(line, sizeof(line), "%s [%s]", pads[i].label, occupied ? "OCCUPIED" : "IDLE");
-        glColor3f(occupied ? 1.0f : 0.5f, occupied ? 0.6f : 0.9f, 0.6f);
-        draw_string(line, 40, list_y, 6);
-        list_y -= 20.0f;
-    }
 
     float portal_x = 0.0f, portal_y = 0.0f, portal_z = 0.0f, portal_r = 0.0f;
     scene_portal_info(local_state.scene_id, &portal_x, &portal_y, &portal_z, &portal_r);

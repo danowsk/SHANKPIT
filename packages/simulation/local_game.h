@@ -25,29 +25,10 @@ static int tdmb_last_kills[MAX_CLIENTS];
 #define CTFB_CARRY_MELEE_DAMAGE 80
 #define CTFB_CARRY_MELEE_COOLDOWN_MS 450
 #define CTFB_RESPAWN_DEBUG_LOG 0
-#define STORY_BEAR_COUNT 7
-#define STORY_END_TRIGGER_Z 1210.0f
-#define STORY_END_TRIGGER_RADIUS 72.0f
 #define STORY_CUTSCENE_DURATION_MS 5000
-
-typedef enum {
-    STORY_BEAR_IDLE = 0,
-    STORY_BEAR_ALERTED = 1,
-    STORY_BEAR_CHASING = 2,
-    STORY_BEAR_ATTACKING = 3,
-    STORY_BEAR_DEAD = 4
-} StoryBearState;
-
-static const Vec2 story_bear_spawn_points[STORY_BEAR_COUNT] = {
-    { 0.0f, -760.0f },
-    {-38.0f, -340.0f },
-    { 42.0f, -280.0f },
-    { 60.0f, 130.0f },
-    {-36.0f, 420.0f },
-    { 28.0f, 780.0f },
-    {-42.0f, 910.0f }
-};
-static StoryBearState story_bear_states[MAX_CLIENTS];
+#define STORY_BOSS_ATTACK_MIN_MS 2500U
+#define STORY_BOSS_ATTACK_MAX_MS 4000U
+#define STORY_BOSS_ATTACK_RADIUS 125.0f
 
 static int mode_uses_team_scores(int mode) {
     return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB;
@@ -561,55 +542,95 @@ static void ctf_try_carry_melee(PlayerState *attacker, unsigned int now_ms) {
     phys_try_melee_strike(attacker, local_state.players, CTFB_CARRY_MELEE_DAMAGE, 16, 0, now_ms, mode_respawn_delay_ms(local_state.game_mode));
 }
 
-static void story_update_bear_state(PlayerState *bear, PlayerState *target, float dist) {
-    StoryBearState state = story_bear_states[bear->id];
-    if (bear->state == STATE_DEAD) {
-        story_bear_states[bear->id] = STORY_BEAR_DEAD;
-        return;
+static float story_boss_weapon_damage(int weapon) {
+    if (weapon >= 0 && weapon < MAX_WEAPONS) return (float)WPN_STATS[weapon].dmg;
+    return 8.0f;
+}
+
+static int story_boss_is_targeted(const PlayerState *hero, const StoryBossState *boss, float max_dist, float cone_dot) {
+    float to_x = boss->x - hero->x;
+    float to_y = (boss->y + 36.0f) - (hero->y + EYE_HEIGHT);
+    float to_z = boss->z - hero->z;
+    float dist = sqrtf(to_x * to_x + to_y * to_y + to_z * to_z);
+    if (dist <= 0.001f || dist > max_dist) return 0;
+    float r = -hero->yaw * 0.0174533f;
+    float rp = hero->pitch * 0.0174533f;
+    float fx = sinf(r) * cosf(rp);
+    float fy = sinf(rp);
+    float fz = -cosf(r) * cosf(rp);
+    float inv = 1.0f / dist;
+    float dot = fx * (to_x * inv) + fy * (to_y * inv) + fz * (to_z * inv);
+    return dot >= cone_dot;
+}
+
+static void story_boss_apply_player_hit(PlayerState *hero, unsigned int now_ms) {
+    StoryBossState *boss = &local_state.story_boss;
+    if (local_state.game_mode != MODE_STORY || local_state.story_phase != STORY_PHASE_PLAYING) return;
+    if (!boss->active || boss->defeated || hero->state == STATE_DEAD) return;
+    int weapon = hero->current_weapon;
+    float max_dist = 560.0f;
+    float cone_dot = 0.93f;
+    if (weapon == WPN_SNIPER) cone_dot = 0.88f;
+    else if (weapon == WPN_SHOTGUN) cone_dot = 0.95f;
+    else if (weapon == WPN_KNIFE || weapon == WPN_KATANA) {
+        max_dist = 24.0f;
+        cone_dot = 0.72f;
     }
-    switch (state) {
-        case STORY_BEAR_IDLE:
-            if (dist < 210.0f) story_bear_states[bear->id] = STORY_BEAR_ALERTED;
-            break;
-        case STORY_BEAR_ALERTED:
-            story_bear_states[bear->id] = (dist < 170.0f) ? STORY_BEAR_CHASING : STORY_BEAR_IDLE;
-            break;
-        case STORY_BEAR_CHASING:
-            if (dist < 9.0f) story_bear_states[bear->id] = STORY_BEAR_ATTACKING;
-            else if (dist > 280.0f) story_bear_states[bear->id] = STORY_BEAR_IDLE;
-            break;
-        case STORY_BEAR_ATTACKING:
-            if (dist > 12.0f) story_bear_states[bear->id] = STORY_BEAR_CHASING;
-            break;
-        case STORY_BEAR_DEAD:
-            break;
+    if (!story_boss_is_targeted(hero, boss, max_dist, cone_dot)) return;
+    float dmg = story_boss_weapon_damage(weapon);
+    boss->health -= dmg;
+    if (boss->health < 0.0f) boss->health = 0.0f;
+    boss->hurt_flash_until_ms = now_ms + 130;
+    static unsigned int next_damage_log_ms = 0;
+    if (now_ms >= next_damage_log_ms) {
+        printf("[STORY] boss damaged %.1f hp=%.1f/%.1f\n", dmg, boss->health, boss->max_health);
+        next_damage_log_ms = now_ms + 350;
     }
-    (void)target;
+    if (boss->health <= 0.0f) {
+        boss->defeated = 1;
+        boss->active = 0;
+        local_state.story_phase = STORY_PHASE_COMPLETE;
+        local_state.story_phase_start_ms = now_ms;
+        local_state.match_over = 1;
+        printf("[STORY] boss defeated\n");
+    }
+}
+
+static void story_boss_tick(PlayerState *hero, unsigned int now_ms) {
+    StoryBossState *boss = &local_state.story_boss;
+    if (local_state.game_mode != MODE_STORY || local_state.story_phase != STORY_PHASE_PLAYING) return;
+    if (!boss->active || boss->defeated || hero->state == STATE_DEAD) return;
+    unsigned int cooldown = STORY_BOSS_ATTACK_MIN_MS + (unsigned int)(((boss->x + boss->z) < 0.0f ? -boss->z : boss->z));
+    cooldown = STORY_BOSS_ATTACK_MIN_MS + (cooldown % (STORY_BOSS_ATTACK_MAX_MS - STORY_BOSS_ATTACK_MIN_MS + 1U));
+    if (now_ms - boss->last_attack_ms < cooldown) return;
+    boss->last_attack_ms = now_ms;
+    boss->hurt_flash_until_ms = now_ms + 180;
+    float dx = hero->x - boss->x;
+    float dz = hero->z - boss->z;
+    float dist = sqrtf(dx * dx + dz * dz);
+    if (dist <= STORY_BOSS_ATTACK_RADIUS) {
+        int damage = 26;
+        hero->shield_regen_timer = SHIELD_REGEN_DELAY;
+        if (hero->shield > 0) {
+            if (hero->shield >= damage) { hero->shield -= damage; damage = 0; }
+            else { damage -= hero->shield; hero->shield = 0; }
+        }
+        hero->health -= damage;
+        if (hero->health <= 0) {
+            hero->health = 0;
+            phys_enter_death_state(NULL, hero, now_ms, mode_respawn_delay_ms(local_state.game_mode), 0.0f, 0.0f);
+            local_state.story_phase = STORY_PHASE_FAILED;
+            local_state.story_phase_start_ms = now_ms;
+            local_state.match_over = 1;
+        }
+    }
 }
 
 // --- BOT AI ---
 void bot_think(int bot_idx, PlayerState *players, float *out_fwd, float *out_yaw, int *out_buttons) {
     PlayerState *me = &players[bot_idx];
     if (me->state == STATE_DEAD || local_state.match_over) { *out_buttons = 0; return; }
-    if (local_state.game_mode == MODE_STORY) {
-        PlayerState *hero = &players[0];
-        float dx = hero->x - me->x;
-        float dz = hero->z - me->z;
-        float dist = sqrtf(dx*dx + dz*dz);
-        float target_yaw = atan2f(dx, dz) * (180.0f / 3.14159f);
-        float diff = angle_diff(target_yaw, me->yaw);
-        if (diff > 7.0f) diff = 7.0f;
-        if (diff < -7.0f) diff = -7.0f;
-        *out_yaw = me->yaw + diff;
-        story_update_bear_state(me, hero, dist);
-        StoryBearState state = story_bear_states[bot_idx];
-        if (state == STORY_BEAR_ALERTED || state == STORY_BEAR_CHASING) *out_fwd = 0.9f;
-        if (state == STORY_BEAR_ATTACKING) {
-            me->current_weapon = WPN_KNIFE;
-            *out_buttons |= BTN_ATTACK;
-        }
-        return;
-    }
+    if (local_state.game_mode == MODE_STORY) { *out_buttons = 0; *out_fwd = 0.0f; *out_yaw = me->yaw; return; }
     if (local_state.game_mode == MODE_CTFB && local_state.ctf.active && team_id_is_valid(me->team_id)) {
         CtfBotObservation obs;
         build_ctf_bot_observation(bot_idx, &obs);
@@ -855,6 +876,10 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
                 local_state.story_phase = STORY_PHASE_PLAYING;
                 local_state.story_phase_start_ms = cmd_time;
             }
+            float dx = local_state.story_boss.x - p0->x;
+            float dz = local_state.story_boss.z - p0->z;
+            yaw = atan2f(dx, dz) * (180.0f / 3.14159f);
+            pitch = -5.0f;
         } else if (local_state.story_phase == STORY_PHASE_COMPLETE || local_state.story_phase == STORY_PHASE_FAILED) {
             fwd = 0.0f; str = 0.0f; shoot = 0; jump = 0; crouch = 0; reload = 0; ability = 0;
         }
@@ -1010,13 +1035,10 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     buggy_tick_all();
     update_projectiles(cmd_time);
     if (local_state.game_mode == MODE_STORY && local_state.story_phase == STORY_PHASE_PLAYING) {
-        float ex = p0->x - 0.0f;
-        float ez = p0->z - STORY_END_TRIGGER_Z;
-        if (ex * ex + ez * ez <= STORY_END_TRIGGER_RADIUS * STORY_END_TRIGGER_RADIUS) {
-            local_state.story_phase = STORY_PHASE_COMPLETE;
-            local_state.story_phase_start_ms = cmd_time;
-            local_state.match_over = 1;
+        if (p0->is_shooting >= 5 || (p0->current_weapon == WPN_KNIFE && p0->in_shoot) || (p0->current_weapon == WPN_KATANA && p0->in_shoot)) {
+            story_boss_apply_player_hit(p0, cmd_time);
         }
+        story_boss_tick(p0, cmd_time);
     }
     if (local_state.game_mode == MODE_CTFB) {
         ctf_tick_flags(cmd_time);
@@ -1050,7 +1072,6 @@ void local_init_match(int num_players, int mode) {
     local_state.score_limit = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_SCORE_LIMIT : (mode == MODE_CTFB ? CTFB_SCORE_LIMIT : 0);
     local_state.story_phase = (mode == MODE_STORY) ? STORY_PHASE_CUTSCENE : STORY_PHASE_PLAYING;
     local_state.story_phase_start_ms = 0;
-    memset(story_bear_states, 0, sizeof(story_bear_states));
 
     if (mode == MODE_TDMB) {
         num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
@@ -1060,8 +1081,9 @@ void local_init_match(int num_players, int mode) {
         num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;
         local_state.scene_id = SCENE_OIL_TANKER;
     } else if (mode == MODE_STORY) {
-        num_players = 1 + STORY_BEAR_COUNT;
-        local_state.scene_id = SCENE_STORY_CAVE;
+        num_players = 1;
+        local_state.scene_id = SCENE_VOXWORLD;
+        printf("[STORY] starting Voxworld boss encounter\n");
     } else {
         local_state.scene_id = SCENE_GARAGE_OSAKA;
     }
@@ -1093,21 +1115,22 @@ void local_init_match(int num_players, int mode) {
         local_state.players[i].carried_flag_team_id = -1;
         phys_respawn(&local_state.players[i], i*100);
         init_genome(&local_state.players[i].brain);
-        if (mode == MODE_STORY) {
-            int bear_slot = i - 1;
-            if (bear_slot >= 0 && bear_slot < STORY_BEAR_COUNT) {
-                local_state.players[i].x = story_bear_spawn_points[bear_slot].x;
-                local_state.players[i].z = story_bear_spawn_points[bear_slot].y;
-                local_state.players[i].y = 6.0f;
-                local_state.players[i].yaw = 180.0f;
-                local_state.players[i].current_weapon = WPN_KNIFE;
-                local_state.players[i].health = (bear_slot >= STORY_BEAR_COUNT - 2) ? 100 : 80;
-                local_state.players[i].shield = 0;
-                story_bear_states[i] = STORY_BEAR_IDLE;
-            }
-        }
     }
     scene_load(local_state.scene_id);
+    if (mode == MODE_STORY) {
+        StoryBossState *boss = &local_state.story_boss;
+        boss->active = 1;
+        boss->defeated = 0;
+        boss->x = 0.0f;
+        boss->z = -420.0f;
+        boss->y = voxworld_height_at(boss->x, boss->z) + 42.0f;
+        boss->yaw = 180.0f;
+        boss->max_health = 1000.0f;
+        boss->health = boss->max_health;
+        boss->last_attack_ms = 0;
+        boss->hurt_flash_until_ms = 0;
+        printf("[STORY] boss spawned at %.1f/%.1f/%.1f hp=%.1f\n", boss->x, boss->y, boss->z, boss->max_health);
+    }
     if (mode == MODE_CTFB) {
         ctf_init_match_state(local_state.scene_id);
         ctf_training_on_episode_begin();

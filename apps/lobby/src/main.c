@@ -799,7 +799,7 @@ static void lobby_apply_scene_id(const char *scene_id) {
     } else if (strcmp(scene_id, "POO_POO_ISLAND") == 0) {
         scene_load(SCENE_POO_POO_ISLAND);
     } else if (strcmp(scene_id, "STORY_CAVE") == 0) {
-        scene_load(SCENE_STORY_CAVE);
+        scene_load(SCENE_VOXWORLD);
     }
 }
 
@@ -3043,11 +3043,8 @@ void draw_player_3rd(PlayerState *p) {
         /* Buggy is rendered from buggy world entities, not player pose. */
     } else {
         int forced_skin = -1;
-        int story_bear = (local_state.game_mode == MODE_STORY && p->id > 0);
         if (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_TDMO || local_state.game_mode == MODE_CTFB) {
             forced_skin = (p->team_id == 1) ? SKIN_NINJA : SKIN_PIRATE;
-        } else if (story_bear) {
-            forced_skin = SKIN_CYBORG;
         }
         int draw_skin = (forced_skin >= 0) ? forced_skin : clamp_skin_id(g_selected_skin);
         switch (draw_skin) {
@@ -3125,6 +3122,90 @@ static void draw_helicopter_model(const HelicopterState *h) {
     draw_box(1.4f, 0.05f, 0.16f);
     glPopMatrix();
     glPopMatrix();
+}
+
+static void draw_story_boss_world(const StoryBossState *boss, unsigned int now_ms) {
+    if (!boss || !boss->active) return;
+    float pulse = 0.5f + 0.5f * sinf((float)now_ms * 0.004f);
+    int hurt_flash = now_ms < boss->hurt_flash_until_ms;
+    glPushMatrix();
+    glTranslatef(boss->x, boss->y, boss->z);
+    glRotatef(180.0f - norm_yaw_deg(boss->yaw), 0, 1, 0);
+    glScalef(8.8f, 11.5f, 8.8f);
+
+    glColor3f(hurt_flash ? 0.56f : 0.23f, hurt_flash ? 0.24f : 0.24f, hurt_flash ? 0.62f : 0.28f);
+    glPushMatrix(); glTranslatef(0.0f, 1.9f, 0.0f); draw_box(1.7f, 2.6f, 1.4f); glPopMatrix();
+    glColor3f(0.18f, 0.20f, 0.23f);
+    glPushMatrix(); glTranslatef(0.46f, 2.55f, -0.20f); draw_box(0.7f, 1.4f, 0.8f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.50f, 2.45f, 0.14f); draw_box(0.8f, 1.3f, 0.7f); glPopMatrix();
+    glColor3f(0.22f + pulse * 0.12f, 0.28f, 0.20f + pulse * 0.1f);
+    glPushMatrix(); glTranslatef(0.0f, 3.65f, 0.24f); draw_box(0.92f, 0.74f, 0.90f); glPopMatrix();
+    glColor3f(0.08f, 0.09f, 0.11f);
+    glPushMatrix(); glTranslatef(0.0f, 3.42f, 0.78f); draw_box(0.54f, 0.18f, 0.16f); glPopMatrix();
+
+    glColor3f(0.30f, 0.24f + pulse * 0.06f, 0.34f + pulse * 0.08f);
+    for (int s = 0; s < 5; s++) {
+        float off = -0.8f + 0.4f * (float)s;
+        glPushMatrix(); glTranslatef(off, 2.8f + 0.2f * (float)(s % 2), -0.7f); glRotatef((float)(s * 7), 1, 0, 0); draw_box(0.20f, 0.78f, 0.16f); glPopMatrix();
+    }
+
+    glColor3f(0.26f, 0.30f, 0.35f);
+    glPushMatrix(); glTranslatef(-1.28f, 2.65f, 0.0f); draw_box(0.72f, 0.64f, 0.72f); glPopMatrix();
+    glPushMatrix(); glTranslatef(1.28f, 2.62f, 0.1f); draw_box(0.84f, 0.66f, 0.70f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-1.62f, 1.5f, 0.0f); glRotatef(14.0f, 0, 0, 1); draw_box(0.42f, 1.8f, 0.42f); glPopMatrix();
+    glPushMatrix(); glTranslatef(1.70f, 1.38f, -0.15f); glRotatef(-21.0f, 0, 0, 1); draw_box(0.46f, 2.2f, 0.46f); glPopMatrix();
+    glColor3f(0.11f, 0.12f, 0.13f);
+    glPushMatrix(); glTranslatef(-1.9f, 0.3f, 0.25f); draw_box(0.46f, 0.66f, 0.64f); glPopMatrix();
+    glPushMatrix(); glTranslatef(2.0f, -0.1f, -0.10f); draw_box(0.58f, 0.78f, 0.72f); glPopMatrix();
+
+    glColor3f(0.20f, 0.22f, 0.24f);
+    glPushMatrix(); glTranslatef(-0.44f, 0.34f, 0.0f); draw_box(0.60f, 1.8f, 0.62f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.36f, 0.34f, 0.0f); draw_box(0.62f, 1.7f, 0.64f); glPopMatrix();
+    glPushMatrix(); glTranslatef(-0.46f, -0.56f, 0.18f); draw_box(0.42f, 0.28f, 0.28f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.44f, -0.52f, 0.14f); draw_box(0.40f, 0.24f, 0.28f); glPopMatrix();
+
+    glColor3f(0.34f, 0.28f, 0.42f);
+    glPushMatrix(); glTranslatef(-0.42f, 4.14f, -0.02f); glRotatef(28.0f, 0, 0, 1); draw_box(0.16f, 1.1f, 0.20f); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.44f, 4.18f, -0.02f); glRotatef(-28.0f, 0, 0, 1); draw_box(0.16f, 1.2f, 0.20f); glPopMatrix();
+    glPopMatrix();
+
+    glDisable(GL_CULL_FACE);
+    glColor4f(0.72f, 0.12f + pulse * 0.36f, 0.92f, 0.55f);
+    glBegin(GL_LINE_LOOP);
+    for (int i = 0; i < 36; i++) {
+        float a = ((float)i / 36.0f) * 6.28318f;
+        glVertex3f(boss->x + cosf(a) * 110.0f, boss->y - 35.0f, boss->z + sinf(a) * 110.0f);
+    }
+    glEnd();
+    glEnable(GL_CULL_FACE);
+
+    for (int i = 0; i < 28; i++) {
+        float fi = (float)i;
+        float ox = sinf(fi * 4.1f + now_ms * 0.0013f) * 44.0f;
+        float oy = 10.0f + cosf(fi * 3.1f + now_ms * 0.0017f) * 28.0f;
+        float oz = cosf(fi * 2.7f + now_ms * 0.0019f) * 42.0f;
+        glPushMatrix();
+        glTranslatef(boss->x + ox, boss->y + oy, boss->z + oz);
+        glColor3f((i % 3 == 0) ? 0.62f : 0.28f, (i % 2 == 0) ? 0.86f : 0.34f, 0.78f);
+        draw_box(1.8f, 1.8f, 1.8f);
+        glPopMatrix();
+    }
+}
+
+static void draw_story_boss_hud(const StoryBossState *boss) {
+    if (!boss || (!boss->active && !boss->defeated)) return;
+    float pct = (boss->max_health > 0.0f) ? (boss->health / boss->max_health) : 0.0f;
+    if (pct < 0.0f) pct = 0.0f;
+    if (pct > 1.0f) pct = 1.0f;
+    float x0 = 320.0f, x1 = 960.0f, y0 = 690.0f, y1 = 710.0f;
+    glColor4f(0.06f, 0.04f, 0.08f, 0.78f); glRectf(x0 - 8.0f, y0 - 10.0f, x1 + 8.0f, y1 + 10.0f);
+    glColor3f(0.25f, 0.10f, 0.16f); glRectf(x0, y0, x1, y1);
+    glColor3f(0.84f, 0.20f, 0.34f); glRectf(x0, y0, x0 + (x1 - x0) * pct, y1);
+    glColor3f(0.95f, 0.70f, 0.90f); draw_string("BREACH TITAN", 530, 714, 4);
+    if (boss->defeated) {
+        glColor3f(0.55f, 1.0f, 0.65f);
+        draw_string("DEFEATED", 600, 694, 4);
+    }
 }
 
 // --- NEW HELPER: Wireframe Circle ---
@@ -3320,19 +3401,20 @@ void draw_hud(PlayerState *p) {
     } else if (local_state.game_mode == MODE_STORY) {
         glColor3f(0.85f, 0.92f, 0.95f);
         if (local_state.story_phase == STORY_PHASE_CUTSCENE) {
-            draw_string("STORY: CAVE ENTRY", 500, 682, 6);
+            draw_string("STORY: VOXWORLD BREACH", 452, 682, 6);
             draw_string("INTRO IN PROGRESS...", 500, 658, 4);
         } else if (local_state.story_phase == STORY_PHASE_COMPLETE) {
             glColor3f(0.55f, 1.0f, 0.65f);
-            draw_string("STORY COMPLETE", 510, 682, 8);
+            draw_string("BREACH TITAN DEFEATED", 420, 682, 7);
             glColor3f(0.85f, 0.92f, 0.95f);
             draw_string("PRESS ESC TO RETURN", 500, 650, 4);
         } else if (local_state.story_phase == STORY_PHASE_FAILED) {
             glColor3f(1.0f, 0.45f, 0.35f);
             draw_string("MISSION FAILED", 520, 682, 7);
         } else {
-            draw_string("OBJECTIVE: REACH THE END OF THE CAVE", 410, 682, 4);
+            draw_string("OBJECTIVE: DEFEAT THE BREACH TITAN", 390, 682, 4);
         }
+        draw_story_boss_hud(&local_state.story_boss);
     }
     float x0 = 50.0f, x1 = vs0_art_direction_enabled ? 220.0f : 250.0f;
     float y_health0 = 50.0f, y_health1 = vs0_art_direction_enabled ? 66.0f : 70.0f;
@@ -3941,13 +4023,13 @@ void draw_scene(PlayerState *render_p) {
     }
 
     if (story_cutscene) {
-        float look_x = render_p->x;
-        float look_y = render_p->y + 3.0f;
-        float look_z = render_p->z;
-        float yaw_rad = (180.0f - render_p->yaw) * 0.0174533f;
-        float cam_x = look_x + sinf(yaw_rad) * 18.0f;
-        float cam_y = look_y + 3.0f;
-        float cam_z = look_z + cosf(yaw_rad) * 18.0f;
+        const StoryBossState *boss = &local_state.story_boss;
+        float look_x = boss->x;
+        float look_y = boss->y + 24.0f;
+        float look_z = boss->z;
+        float cam_x = boss->x + 140.0f;
+        float cam_y = boss->y + 70.0f;
+        float cam_z = boss->z + 190.0f;
         gluLookAt(cam_x, cam_y, cam_z, look_x, look_y, look_z, 0.0f, 1.0f, 0.0f);
     } else if (!(render_p->in_vehicle && render_p->vehicle_type == VEH_HELICOPTER)) {
         float draw_cam_pitch = lerpf(cam_pitch, -14.0f, death_cam_blend);
@@ -3991,6 +4073,9 @@ void draw_scene(PlayerState *render_p) {
         HelicopterState *h = &local_state.helicopters[hi];
         if (!h->active || h->scene_id != render_p->scene_id) continue;
         draw_helicopter_model(h);
+    }
+    if (local_state.game_mode == MODE_STORY && render_p->scene_id == SCENE_VOXWORLD) {
+        draw_story_boss_world(&local_state.story_boss, now_ms);
     }
     draw_projectiles();
     if (render_p->in_vehicle && render_p->vehicle_type != VEH_BUGGY) draw_player_3rd(render_p);
@@ -5256,7 +5341,8 @@ int main(int argc, char* argv[]) {
             } else {
                 if (local_state.game_mode == MODE_STORY &&
                     (local_state.story_phase == STORY_PHASE_CUTSCENE ||
-                     local_state.story_phase == STORY_PHASE_COMPLETE)) {
+                     local_state.story_phase == STORY_PHASE_COMPLETE ||
+                     local_state.story_phase == STORY_PHASE_FAILED)) {
                     fwd = 0.0f; str = 0.0f;
                     jump = 0; crouch = 0; shoot = 0; reload = 0; use = 0; ability = 0;
                 }
@@ -5327,13 +5413,6 @@ int main(int argc, char* argv[]) {
                     local_state.story_phase_start_ms = now_ms;
                 }
                 local_update(fwd, str, cam_yaw, cam_pitch, shoot, wpn_req, jump, crouch, reload, ability, NULL, now_ms);
-                if (local_state.game_mode == MODE_STORY && local_state.players[0].state == STATE_DEAD) {
-                    local_state.story_phase = STORY_PHASE_FAILED;
-                    local_init_match(1, MODE_STORY);
-                    local_state.story_phase_start_ms = SDL_GetTicks();
-                    cam_yaw = 0.0f;
-                    cam_pitch = 0.0f;
-                }
             }
             int render_pid = 0;
             if (app_state == STATE_GAME_NET &&

@@ -215,6 +215,8 @@ This reflects the current direction of the project:
 - `F`: use/interact (portal use, enter/exit vehicles).
 - `E`: ability 1.
 
+if you are crouching when you land a jump you get a speed boost while you slide
+
 ### Helicopter controls
 - `F`: enter/exit helicopter when in range.
 - `W / S`: helicopter forward/back thrust.

@@ -3182,6 +3182,87 @@ static void draw_ammo_bars(const PlayerState *p) {
     glEnd();
 }
 
+static void draw_ability_one_tile(const PlayerState *p) {
+    if (!p) return;
+
+    const float tile_size = 72.0f;
+    const float tile_border = 2.0f;
+    const float tile_x = 50.0f;
+    const float tile_y = 122.0f;
+    const float icon_inset = 12.0f;
+    const float cooldown_text_size = 3.5f;
+    const float keybind_size = 4.0f;
+
+    float cooldown_remaining = ((float)p->ability_cooldown) / 60.0f;
+    int on_cooldown = cooldown_remaining > 0.0f;
+    int cooldown_display = (int)ceilf(cooldown_remaining);
+    if (on_cooldown && cooldown_display < 1) cooldown_display = 1;
+
+    float bg_r = on_cooldown ? 0.42f : 0.08f;
+    float bg_g = on_cooldown ? 0.08f : 0.10f;
+    float bg_b = on_cooldown ? 0.10f : 0.14f;
+    float border_r = on_cooldown ? 1.0f : 0.62f;
+    float border_g = on_cooldown ? 0.18f : 0.78f;
+    float border_b = on_cooldown ? 0.18f : 0.95f;
+
+    glColor4f(bg_r, bg_g, bg_b, 0.78f);
+    glRectf(tile_x, tile_y, tile_x + tile_size, tile_y + tile_size);
+
+    glColor4f(border_r, border_g, border_b, 0.95f);
+    glLineWidth(tile_border);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(tile_x, tile_y);
+    glVertex2f(tile_x + tile_size, tile_y);
+    glVertex2f(tile_x + tile_size, tile_y + tile_size);
+    glVertex2f(tile_x, tile_y + tile_size);
+    glEnd();
+    glLineWidth(1.0f);
+
+    const float icon_left = tile_x + icon_inset;
+    const float icon_right = tile_x + tile_size - icon_inset;
+    const float icon_bottom = tile_y + icon_inset;
+    const float icon_top = tile_y + tile_size - icon_inset;
+    float icon_r = on_cooldown ? 1.00f : 0.46f;
+    float icon_g = on_cooldown ? 0.42f : 0.92f;
+    float icon_b = on_cooldown ? 0.78f : 1.00f;
+
+    glColor4f(icon_r, icon_g, icon_b, on_cooldown ? 0.95f : 0.95f);
+    glBegin(GL_QUADS);
+    glVertex2f(icon_left + 6.0f, icon_bottom + 4.0f);
+    glVertex2f(icon_left + 13.0f, icon_bottom + 4.0f);
+    glVertex2f(icon_right - 2.0f, icon_top - 4.0f);
+    glVertex2f(icon_right - 9.0f, icon_top - 4.0f);
+    glVertex2f(icon_left + 2.0f, icon_bottom + 8.0f);
+    glVertex2f(icon_left + 9.0f, icon_bottom + 8.0f);
+    glVertex2f(icon_right - 6.0f, icon_top - 14.0f);
+    glVertex2f(icon_right - 13.0f, icon_top - 14.0f);
+    glEnd();
+    glColor4f(icon_r, icon_g, icon_b, on_cooldown ? 0.85f : 0.85f);
+    glBegin(GL_TRIANGLES);
+    glVertex2f(icon_left + 8.0f, icon_top - 2.0f);
+    glVertex2f(icon_left + 14.0f, icon_top - 12.0f);
+    glVertex2f(icon_left + 4.0f, icon_top - 12.0f);
+    glVertex2f(icon_right - 7.0f, icon_bottom + 2.0f);
+    glVertex2f(icon_right - 13.0f, icon_bottom + 12.0f);
+    glVertex2f(icon_right - 3.0f, icon_bottom + 12.0f);
+    glEnd();
+
+    if (on_cooldown) {
+        char cooldown_buf[8];
+        snprintf(cooldown_buf, sizeof(cooldown_buf), "%d", cooldown_display);
+        int digit_count = (int)strlen(cooldown_buf);
+        float approx_text_w = digit_count * cooldown_text_size * 3.8f;
+        float text_x = tile_x + (tile_size - approx_text_w) * 0.5f;
+        float text_y = tile_y + tile_size * 0.32f;
+
+        glColor3f(1.0f, 0.95f, 0.95f);
+        draw_string(cooldown_buf, text_x, text_y, cooldown_text_size);
+    }
+
+    glColor3f(0.92f, 0.96f, 1.0f);
+    draw_string("E", tile_x + tile_size - 10.0f, tile_y - 14.0f, keybind_size);
+}
+
 void draw_hud(PlayerState *p) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 1280, 0, 720);
@@ -3279,25 +3360,29 @@ void draw_hud(PlayerState *p) {
     /* Removed bottom-of-screen debug toggle readouts from player HUD.
        Debug toggles and key handling remain active for internal use. */
 
+    draw_ability_one_tile(p);
+
     if (p->current_weapon == WPN_KATANA) {
         char katana_buf[64];
         if (p->dash_timer > 0) {
             snprintf(katana_buf, sizeof(katana_buf), "KATANA DASHING");
         } else if (p->ability_cooldown == 0) {
-            snprintf(katana_buf, sizeof(katana_buf), "E: BLADE DASH READY");
+            snprintf(katana_buf, sizeof(katana_buf), "BLADE DASH READY");
         } else {
-            snprintf(katana_buf, sizeof(katana_buf), "BLADE DASH CD: %.1f", p->ability_cooldown / 60.0f);
+            int cooldown_seconds = (int)ceilf(((float)p->ability_cooldown) / 60.0f);
+            if (cooldown_seconds < 1) cooldown_seconds = 1;
+            snprintf(katana_buf, sizeof(katana_buf), "BLADE DASH CD: %ds", cooldown_seconds);
         }
         glColor3f(0.0f, 0.85f, 1.0f);
-        draw_string(katana_buf, 50, 132, vs0_art_direction_enabled ? 6 : 8);
+        draw_string(katana_buf, 132, 154, vs0_art_direction_enabled ? 5 : 6);
     } else if (p->storm_charges > 0) {
         char storm_buf[32];
         sprintf(storm_buf, "STORM ARROWS: %d", p->storm_charges);
         glColor3f(1.0f, 0.2f, 0.2f);
-        draw_string(storm_buf, 50, 132, vs0_art_direction_enabled ? 6 : 8);
+        draw_string(storm_buf, 132, 154, vs0_art_direction_enabled ? 5 : 6);
     } else if (p->ability_cooldown == 0) {
         glColor3f(0.0f, 0.8f, 1.0f);
-        draw_string("E: STORM ARROWS READY", 50, 132, vs0_art_direction_enabled ? 3 : 4);
+        draw_string("STORM ARROWS READY", 132, 154, vs0_art_direction_enabled ? 3 : 4);
     }
     
     draw_ammo_bars(p);

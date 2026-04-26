@@ -315,11 +315,16 @@ static inline void buggy_tick_all(void) {
         if (b->occupant_player_id >= 0 && b->occupant_player_id < MAX_CLIENTS) {
             PlayerState *occ = &local_state.players[b->occupant_player_id];
             b->scene_id = occ->scene_id;
+            /* While driving a buggy:
+               - occ->yaw is the driver's desired look/steer yaw (camera yaw target)
+               - b->yaw is the buggy body yaw */
             throttle = occ->in_fwd;
             float yaw_err = norm_yaw_deg(occ->yaw - b->yaw);
             if (yaw_err > 180.0f) yaw_err -= 360.0f;
             if (yaw_err < -180.0f) yaw_err += 360.0f;
-            steer_intent = yaw_err / 75.0f;
+            steer_intent = yaw_err / 50.0f;
+            float throttle_abs = fabsf(throttle);
+            if (throttle_abs < 0.05f) steer_intent = 0.0f;
             if (steer_intent > 1.0f) steer_intent = 1.0f;
             if (steer_intent < -1.0f) steer_intent = -1.0f;
         } else {
@@ -330,7 +335,6 @@ static inline void buggy_tick_all(void) {
         if (b->occupant_player_id >= 0 && b->occupant_player_id < MAX_CLIENTS) {
             PlayerState *occ = &local_state.players[b->occupant_player_id];
             occ->x = b->x; occ->y = b->y; occ->z = b->z;
-            occ->yaw = b->yaw;
             occ->vx = occ->vy = occ->vz = 0.0f;
             occ->on_ground = b->grounded;
         }

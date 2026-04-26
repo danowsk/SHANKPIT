@@ -4222,14 +4222,13 @@ void draw_scene(PlayerState *render_p) {
             glTranslatef(-heli_cam_x, -heli_cam_y, -heli_cam_z);
         }
     } else {
-        float follow_yaw = cam_buggy ? cam_buggy->yaw : cam_yaw;
-        float cam_z_off = cam_buggy ? 16.5f : (render_p->in_vehicle ? 10.0f : lerpf(0.0f, 8.5f, death_cam_blend));
+        float follow_yaw = cam_yaw;
+        float cam_z_off = cam_buggy ? 26.0f : (render_p->in_vehicle ? 10.0f : lerpf(0.0f, 8.5f, death_cam_blend));
         float rad = -follow_yaw * 0.01745f;
         cx = sinf(rad) * cam_z_off;
         cz = cosf(rad) * cam_z_off;
         if (cam_buggy) {
-            cam_y = 5.2f;
-            cam_yaw = follow_yaw;
+            cam_y = 7.8f;
         }
     }
     
@@ -5131,7 +5130,6 @@ void net_process_snapshot(char *buffer, int len) {
                 occ->in_vehicle = 1;
                 occ->vehicle_type = VEH_BUGGY;
                 occ->x = b->x; occ->y = b->y; occ->z = b->z;
-                occ->yaw = b->yaw;
             }
         }
     }

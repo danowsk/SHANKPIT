@@ -126,8 +126,10 @@ static int terrain_normals_debug = 0;
 static int voxworld_points_debug = 0;
 static int g_enemy_outline_enabled = 1;
 static int g_enemy_nameplates_enabled = 1;
-#define ENEMY_OUTLINE_MAX_DIST 2200.0f
-#define ENEMY_NAMEPLATE_MAX_DIST 2600.0f
+#define ENEMY_OUTLINE_MAX_DIST 1600.0f
+#define ENEMY_NAMEPLATE_MAX_DIST 420.0f
+#define ENEMY_NAMEPLATE_FADE_START_DIST 300.0f
+#define ENEMY_NAMEPLATE_HEAD_OFFSET_Y 24.0f
 static unsigned int terrain_debug_last_log_ms = 0;
 static ProcTexture g_vehicle_noise_tex = {0};
 static ProcTexture g_vehicle_glitch_tex = {0};
@@ -3774,24 +3776,46 @@ static int world_to_screen(float wx, float wy, float wz, float *out_x, float *ou
     return 1;
 }
 
-static void draw_enemy_outline_player(const PlayerState *p, unsigned int now_ms) {
-    (void)now_ms;
+static void draw_wire_box(float cx, float cy, float cz, float sx, float sy, float sz) {
+    float hx = sx * 0.5f;
+    float hy = sy * 0.5f;
+    float hz = sz * 0.5f;
+    float x0 = cx - hx, x1 = cx + hx;
+    float y0 = cy - hy, y1 = cy + hy;
+    float z0 = cz - hz, z1 = cz + hz;
+    glBegin(GL_LINES);
+    glVertex3f(x0, y0, z0); glVertex3f(x1, y0, z0);
+    glVertex3f(x1, y0, z0); glVertex3f(x1, y1, z0);
+    glVertex3f(x1, y1, z0); glVertex3f(x0, y1, z0);
+    glVertex3f(x0, y1, z0); glVertex3f(x0, y0, z0);
+    glVertex3f(x0, y0, z1); glVertex3f(x1, y0, z1);
+    glVertex3f(x1, y0, z1); glVertex3f(x1, y1, z1);
+    glVertex3f(x1, y1, z1); glVertex3f(x0, y1, z1);
+    glVertex3f(x0, y1, z1); glVertex3f(x0, y0, z1);
+    glVertex3f(x0, y0, z0); glVertex3f(x0, y0, z1);
+    glVertex3f(x1, y0, z0); glVertex3f(x1, y0, z1);
+    glVertex3f(x1, y1, z0); glVertex3f(x1, y1, z1);
+    glVertex3f(x0, y1, z0); glVertex3f(x0, y1, z1);
+    glEnd();
+}
+
+static void draw_enemy_outline_proxy(const PlayerState *p, float alpha) {
     if (!p) return;
+    glColor4f(1.0f, 0.04f, 0.02f, alpha);
     glPushMatrix();
     glTranslatef(p->x, p->y, p->z);
     glRotatef(p->yaw, 0, 1, 0);
-
-    glPushMatrix(); glTranslatef(0.0f, 3.05f, 0.0f); draw_box_outline(0.38f, 0.45f, 0.30f); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.0f, 2.15f, 0.0f); draw_box_outline(0.60f, 0.90f, 0.34f); glPopMatrix();
-    glPushMatrix(); glTranslatef(-0.53f, 2.08f, 0.0f); draw_box_outline(0.16f, 0.88f, 0.16f); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.53f, 2.08f, 0.0f); draw_box_outline(0.16f, 0.88f, 0.16f); glPopMatrix();
-    glPushMatrix(); glTranslatef(-0.18f, 0.88f, 0.0f); draw_box_outline(0.22f, 1.15f, 0.22f); glPopMatrix();
-    glPushMatrix(); glTranslatef(0.18f, 0.88f, 0.0f); draw_box_outline(0.22f, 1.15f, 0.22f); glPopMatrix();
-
+    draw_wire_box(0.0f, 12.0f, 0.0f, 8.0f, 14.0f, 4.0f);
+    draw_wire_box(0.0f, 23.0f, 0.0f, 6.0f, 6.0f, 6.0f);
+    draw_wire_box(-6.0f, 13.0f, 0.0f, 3.0f, 12.0f, 3.0f);
+    draw_wire_box(6.0f, 13.0f, 0.0f, 3.0f, 12.0f, 3.0f);
+    draw_wire_box(-2.5f, 4.0f, 0.0f, 3.0f, 9.0f, 3.0f);
+    draw_wire_box(2.5f, 4.0f, 0.0f, 3.0f, 9.0f, 3.0f);
     glPopMatrix();
 }
 
 static void draw_enemy_outlines(PlayerState *self, unsigned int now_ms) {
+    (void)now_ms;
     if (!g_enemy_outline_enabled || !self) return;
     const float max_dist_sq = ENEMY_OUTLINE_MAX_DIST * ENEMY_OUTLINE_MAX_DIST;
     const int was_depth_test = glIsEnabled(GL_DEPTH_TEST);
@@ -3809,7 +3833,7 @@ static void draw_enemy_outlines(PlayerState *self, unsigned int now_ms) {
     glDisable(GL_LIGHTING);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glLineWidth(3.5f);
+    glLineWidth(3.0f);
     /* v1 intentionally uses x-ray readability. Later we can switch to depth-tested/LOS-gated outlines. */
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -3833,9 +3857,8 @@ static void draw_enemy_outlines(PlayerState *self, unsigned int now_ms) {
 
         float dist = sqrtf(dist_sq);
         float t = clamp01f(dist / ENEMY_OUTLINE_MAX_DIST);
-        float alpha = lerpf(0.95f, 0.35f, t);
-        glColor4f(1.0f, 0.05f, 0.02f, alpha);
-        draw_enemy_outline_player(p, now_ms);
+        float alpha = lerpf(0.95f, 0.25f, t);
+        draw_enemy_outline_proxy(p, alpha);
     }
 
     glDepthMask(old_depth_mask);
@@ -3855,6 +3878,7 @@ static void draw_enemy_nameplates(PlayerState *self) {
     float sy[MAX_CLIENTS];
     char names[MAX_CLIENTS][16];
     int valid[MAX_CLIENTS];
+    float alphas[MAX_CLIENTS];
     memset(valid, 0, sizeof(valid));
 
     for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -3865,8 +3889,16 @@ static void draw_enemy_nameplates(PlayerState *self) {
         float dz = p->z - self->z;
         float dist_sq = dx * dx + dy * dy + dz * dz;
         if (dist_sq > max_dist_sq) continue;
-        if (!world_to_screen(p->x, p->y + 4.0f, p->z, &sx[i], &sy[i])) continue;
+        if (!world_to_screen(p->x, p->y + ENEMY_NAMEPLATE_HEAD_OFFSET_Y, p->z, &sx[i], &sy[i])) continue;
+        float dist = sqrtf(dist_sq);
+        float alpha = 1.0f;
+        if (dist > ENEMY_NAMEPLATE_FADE_START_DIST) {
+            float fade_t = clamp01f((dist - ENEMY_NAMEPLATE_FADE_START_DIST) /
+                                    (ENEMY_NAMEPLATE_MAX_DIST - ENEMY_NAMEPLATE_FADE_START_DIST));
+            alpha = lerpf(1.0f, 0.20f, fade_t);
+        }
         format_player_display_name(names[i], sizeof(names[i]), p, i);
+        alphas[i] = alpha;
         valid[i] = 1;
     }
 
@@ -3882,14 +3914,14 @@ static void draw_enemy_nameplates(PlayerState *self) {
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (!valid[i]) continue;
-        float text_size = 4.0f;
+        float text_size = 3.8f;
         float name_w = (float)strlen(names[i]) * text_size * 3.8f;
         float text_x = sx[i] - name_w * 0.5f;
-        float text_y = sy[i] + 8.0f;
-        float pad = 4.0f;
-        glColor4f(0.02f, 0.0f, 0.0f, 0.45f);
-        glRectf(text_x - pad, text_y - pad, text_x + name_w + pad, text_y + text_size * 7.0f + pad);
-        glColor3f(1.0f, 0.18f, 0.12f);
+        float text_y = sy[i];
+        float pad = 2.5f;
+        glColor4f(0.02f, 0.0f, 0.0f, 0.30f * alphas[i]);
+        glRectf(text_x - pad, text_y - pad, text_x + name_w + pad, text_y + text_size * 6.0f + pad);
+        glColor4f(1.0f, 0.18f, 0.12f, alphas[i]);
         draw_string(names[i], text_x, text_y, text_size);
     }
     glMatrixMode(GL_PROJECTION); glPopMatrix();
@@ -4476,8 +4508,9 @@ void draw_scene(PlayerState *render_p) {
     }
     draw_enemy_outlines(render_p, now_ms);
     draw_weapon_p(render_p);
+    draw_hud(render_p);
     draw_enemy_nameplates(render_p);
-    draw_hud(render_p); draw_garage_overlay(render_p); draw_tab_scoreboard(render_p);
+    draw_garage_overlay(render_p); draw_tab_scoreboard(render_p);
     draw_travel_overlay();
     draw_tdmb_match_over_overlay();
 }

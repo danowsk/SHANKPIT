@@ -4,6 +4,7 @@
 #include "../common/protocol.h"
 #include "../common/physics.h"
 #include "../common/shared_movement.h"
+#include "story_ai.h"
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
@@ -1156,6 +1157,10 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
         }
     }
 
+    if (local_state.game_mode == MODE_STORY && local_state.story_phase == STORY_PHASE_PLAYING) {
+        story_ai_tick(&local_state, cmd_time);
+    }
+
     for(int i=0; i<MAX_CLIENTS; i++) {
         PlayerState *p = &local_state.players[i];
         if (!p->active) continue;
@@ -1197,23 +1202,38 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             continue;
         }
         if (i > 0 && p->active && p->state != STATE_DEAD) {
-            float b_fwd=0, b_yaw=p->yaw;
-            int b_btns=0;
-            bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
-            p->yaw = b_yaw;
-            if (!p->in_vehicle) {
-                float brad = b_yaw * 3.14159f / 180.0f;
-                float bx = sinf(brad) * b_fwd;
-                float bz = cosf(brad) * b_fwd;
-                accelerate(p, bx, bz, MAX_SPEED, ACCEL);
+            if (local_state.game_mode == MODE_STORY && local_state.story_phase == STORY_PHASE_PLAYING) {
+                if (!p->in_vehicle) {
+                    MoveIntent bot_move_intent = {
+                        .forward = p->in_fwd,
+                        .strafe = p->in_strafe,
+                        .control_yaw_deg = p->yaw,
+                        .wants_jump = p->in_jump,
+                        .wants_sprint = 0
+                    };
+                    MoveWish bot_move_wish = shankpit_move_wish_from_intent(bot_move_intent);
+                    accelerate(p, bot_move_wish.dir_x, bot_move_wish.dir_z, bot_move_wish.magnitude * MAX_SPEED, ACCEL);
+                }
+                if (p->in_jump && p->on_ground) { p->y += 0.1f; p->vy += JUMP_FORCE; }
+            } else {
+                float b_fwd=0, b_yaw=p->yaw;
+                int b_btns=0;
+                bot_think(i, local_state.players, &b_fwd, &b_yaw, &b_btns);
+                p->yaw = b_yaw;
+                if (!p->in_vehicle) {
+                    float brad = b_yaw * 3.14159f / 180.0f;
+                    float bx = sinf(brad) * b_fwd;
+                    float bz = cosf(brad) * b_fwd;
+                    accelerate(p, bx, bz, MAX_SPEED, ACCEL);
+                }
+                p->in_shoot = (b_btns & BTN_ATTACK);
+                p->in_jump = (b_btns & BTN_JUMP);
+                p->in_reload = (b_btns & BTN_RELOAD);
+                p->crouching = (b_btns & BTN_CROUCH);
+                p->in_use = ((b_btns & BTN_USE) != 0);
+                p->in_ability = 0;
+                if ((b_btns & BTN_JUMP) && p->on_ground) { p->y += 0.1f; p->vy += JUMP_FORCE; }
             }
-            p->in_shoot = (b_btns & BTN_ATTACK);
-            p->in_jump = (b_btns & BTN_JUMP);
-            p->in_reload = (b_btns & BTN_RELOAD);
-            p->crouching = (b_btns & BTN_CROUCH);
-            p->in_use = ((b_btns & BTN_USE) != 0);
-            p->in_ability = 0;
-            if ((b_btns & BTN_JUMP) && p->on_ground) { p->y += 0.1f; p->vy += JUMP_FORCE; }
         }
         if (local_state.game_mode == MODE_CTFB) {
             ctf_handle_use_interactions(p, cmd_time);
@@ -1319,6 +1339,8 @@ void local_init_match(int num_players, int mode) {
     }
     scene_load(local_state.scene_id);
     if (mode == MODE_STORY) {
+        story_ai_reset(&local_state);
+        story_ai_seed_voxworld_encounter(&local_state);
         StoryBossState *boss = &local_state.story_boss;
         boss->active = 1;
         boss->defeated = 0;

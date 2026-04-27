@@ -3510,6 +3510,98 @@ static void draw_story_boss_hud(const StoryBossState *boss) {
     }
 }
 
+static void draw_story_rift_world(const StoryRiftState *rift, unsigned int now_ms, int phase) {
+    if (!rift || !rift->active) return;
+    float phase_t = 1.0f;
+    if (phase == STORY_PHASE_RIFT_OPENING) {
+        float d = (float)(now_ms - rift->opened_ms) / 1200.0f;
+        if (d < 0.0f) d = 0.0f;
+        if (d > 1.0f) d = 1.0f;
+        phase_t = d;
+    }
+    float pulse = 0.55f + 0.45f * sinf((float)(now_ms + rift->pulse_seed) * 0.006f);
+    float rad = (rift->radius > 4.0f ? rift->radius : 4.0f) * (0.45f + 0.55f * phase_t);
+
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glColor4f(0.35f + pulse * 0.35f, 0.08f + pulse * 0.15f, 0.65f + pulse * 0.22f, 0.45f);
+    glBegin(GL_TRIANGLE_FAN);
+    glVertex3f(rift->x, rift->y + 8.0f, rift->z);
+    for (int i = 0; i <= 48; i++) {
+        float a = ((float)i / 48.0f) * 6.28318f;
+        float wobble = 1.0f + 0.16f * sinf(a * 5.0f + now_ms * 0.008f);
+        glVertex3f(rift->x + cosf(a) * rad * wobble, rift->y + 8.0f, rift->z + sinf(a) * rad * wobble);
+    }
+    glEnd();
+
+    glColor4f(0.9f, 0.35f, 1.0f, 0.8f);
+    glBegin(GL_LINE_LOOP);
+    for (int i = 0; i < 40; i++) {
+        float a = ((float)i / 40.0f) * 6.28318f;
+        glVertex3f(rift->x + cosf(a) * (rad + 10.0f), rift->y + 10.0f + sinf(a * 3.0f + now_ms * 0.01f) * 4.0f, rift->z + sinf(a) * (rad + 10.0f));
+    }
+    glEnd();
+
+    if (now_ms - rift->last_spew_ms < 360U) {
+        float spew_t = (float)(now_ms - rift->last_spew_ms) / 360.0f;
+        if (spew_t < 0.0f) spew_t = 0.0f;
+        if (spew_t > 1.0f) spew_t = 1.0f;
+        for (int i = 0; i < 16; i++) {
+            float fi = (float)i;
+            float a = fi * 0.392f + now_ms * 0.004f;
+            float d = (8.0f + fi * 1.8f) * spew_t;
+            glColor4f(1.0f, 0.42f + 0.02f * fi, 0.2f, 0.9f * (1.0f - spew_t));
+            glPushMatrix();
+            glTranslatef(rift->x + cosf(a) * d, rift->y + 10.0f + fi * 0.6f * spew_t, rift->z + sinf(a) * d);
+            draw_box(1.4f, 1.4f, 1.4f);
+            glPopMatrix();
+        }
+    }
+
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_BLEND);
+    glEnable(GL_CULL_FACE);
+}
+
+static void draw_story_swarm_enemy_world(const StoryEnemy *enemy, unsigned int now_ms) {
+    if (!enemy || !enemy->active) return;
+    float pulse = 0.45f + 0.55f * sinf((float)(now_ms - enemy->spawn_ms) * 0.01f);
+    int hurt = now_ms < enemy->hurt_flash_until_ms;
+    glPushMatrix();
+    glTranslatef(enemy->x, enemy->y + enemy->height * 0.5f, enemy->z);
+    glRotatef(180.0f - norm_yaw_deg(enemy->yaw), 0, 1, 0);
+
+    float body_r = hurt ? 0.9f : 0.22f;
+    float body_g = hurt ? 0.2f : 0.16f;
+    float body_b = hurt ? 0.2f : 0.28f;
+    glColor3f(body_r, body_g, body_b);
+    if (enemy->type == STORY_ENEMY_RIFT_HOUND) {
+        draw_box(14.0f, 10.0f, 24.0f);
+        glPushMatrix(); glTranslatef(0.0f, 5.5f, 10.0f); draw_box(10.0f, 8.0f, 12.0f); glPopMatrix();
+    } else if (enemy->type == STORY_ENEMY_SHAMBLER_TROOPER) {
+        draw_box(16.0f, 24.0f, 12.0f);
+        glPushMatrix(); glTranslatef(0.0f, 16.0f, 0.0f); draw_box(12.0f, 10.0f, 10.0f); glPopMatrix();
+    } else {
+        draw_box(24.0f, 34.0f, 20.0f);
+        glPushMatrix(); glTranslatef(0.0f, 20.0f, 0.0f); draw_box(16.0f, 12.0f, 14.0f); glPopMatrix();
+    }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glColor4f(0.95f, 0.2f + pulse * 0.5f, 1.0f, 0.5f);
+    glBegin(GL_LINES);
+    for (int i = 0; i < 8; i++) {
+        float x = -6.0f + i * 1.7f;
+        glVertex3f(x, -enemy->height * 0.3f, 0.5f);
+        glVertex3f(x + 1.0f, enemy->height * 0.3f, -0.5f);
+    }
+    glEnd();
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_BLEND);
+    glPopMatrix();
+}
+
 // --- NEW HELPER: Wireframe Circle ---
 void draw_circle(float x, float y, float r, int segments) {
     glBegin(GL_LINE_LOOP);
@@ -3705,16 +3797,31 @@ void draw_hud(PlayerState *p) {
         if (local_state.story_phase == STORY_PHASE_CUTSCENE) {
             draw_string("STORY: VOXWORLD BREACH", 452, 682, 6);
             draw_string("INTRO IN PROGRESS...", 500, 658, 4);
+        } else if (local_state.story_phase == STORY_PHASE_PLAYING) {
+            draw_string("OBJECTIVE: DEFEAT THE BREACH TITAN", 390, 682, 4);
+        } else if (local_state.story_phase == STORY_PHASE_RIFT_OPENING) {
+            glColor3f(0.9f, 0.6f, 1.0f);
+            draw_string("RIFT DETECTED", 520, 682, 6);
+            glColor3f(0.85f, 0.92f, 0.95f);
+            draw_string("REPOSITION - HOSTILES INBOUND", 430, 658, 4);
+        } else if (local_state.story_phase == STORY_PHASE_SWARM) {
+            glColor3f(1.0f, 0.45f, 0.82f);
+            draw_string("PORTAL SWARM ACTIVE", 482, 682, 6);
+            glColor3f(0.9f, 0.95f, 1.0f);
+            draw_string("CLEAR RIFT HOUND + SHAMBLER + GORE BRUTE", 350, 658, 4);
+        } else if (local_state.story_phase == STORY_PHASE_AFTER_SWARM) {
+            glColor3f(0.62f, 1.0f, 0.72f);
+            draw_string("SWARM CLEARED", 520, 682, 6);
+            glColor3f(0.88f, 0.95f, 1.0f);
+            draw_string("STORY CONTINUES...", 520, 658, 4);
         } else if (local_state.story_phase == STORY_PHASE_COMPLETE) {
             glColor3f(0.55f, 1.0f, 0.65f);
-            draw_string("BREACH TITAN DEFEATED", 420, 682, 7);
+            draw_string("BREACH STABILIZED", 500, 682, 7);
             glColor3f(0.85f, 0.92f, 0.95f);
             draw_string("PRESS ESC TO RETURN", 500, 650, 4);
         } else if (local_state.story_phase == STORY_PHASE_FAILED) {
             glColor3f(1.0f, 0.45f, 0.35f);
             draw_string("MISSION FAILED", 520, 682, 7);
-        } else {
-            draw_string("OBJECTIVE: DEFEAT THE BREACH TITAN", 390, 682, 4);
         }
         draw_story_boss_hud(&local_state.story_boss);
     }
@@ -4377,6 +4484,10 @@ void draw_scene(PlayerState *render_p) {
     }
     if (local_state.game_mode == MODE_STORY && render_p->scene_id == SCENE_VOXWORLD) {
         draw_story_boss_world(&local_state.story_boss, now_ms);
+        draw_story_rift_world(&local_state.story_rift, now_ms, local_state.story_phase);
+        for (int si = 0; si < STORY_MAX_SWARM_ENEMIES; si++) {
+            draw_story_swarm_enemy_world(&local_state.story_swarm[si], now_ms);
+        }
     }
     draw_projectiles();
     if (render_p->in_vehicle && render_p->vehicle_type != VEH_BUGGY) draw_player_3rd(render_p);

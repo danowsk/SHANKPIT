@@ -29,6 +29,10 @@ static int tdmb_last_kills[MAX_CLIENTS];
 #define STORY_BOSS_ATTACK_MIN_MS 2500U
 #define STORY_BOSS_ATTACK_MAX_MS 4000U
 #define STORY_BOSS_ATTACK_RADIUS 125.0f
+#define STORY_RIFT_OPEN_DURATION_MS 1200U
+#define STORY_RIFT_SPEW_INTERVAL_MS 180U
+#define STORY_SWARM_CLEAR_TO_COMPLETE_MS 2500U
+
 
 static int mode_uses_team_scores(int mode) {
     return mode == MODE_TDM || mode == MODE_TDMB || mode == MODE_TDMO || mode == MODE_CTFB;
@@ -551,10 +555,85 @@ static float story_boss_weapon_damage(int weapon) {
     return 8.0f;
 }
 
-static int story_boss_is_targeted(const PlayerState *hero, const StoryBossState *boss, float max_dist, float cone_dot) {
-    float to_x = boss->x - hero->x;
-    float to_y = (boss->y + 36.0f) - (hero->y + EYE_HEIGHT);
-    float to_z = boss->z - hero->z;
+static void story_clear_swarm(void) {
+    memset(local_state.story_swarm, 0, sizeof(local_state.story_swarm));
+    memset(&local_state.story_rift, 0, sizeof(local_state.story_rift));
+}
+
+static void story_enemy_setup_stats(StoryEnemy *enemy, int type) {
+    enemy->type = type;
+    enemy->active = 1;
+    enemy->dying = 0;
+    enemy->death_ms = 0;
+    enemy->hurt_flash_until_ms = 0;
+    if (type == STORY_ENEMY_RIFT_HOUND) {
+        enemy->radius = 16.0f; enemy->height = 30.0f; enemy->max_health = 120.0f;
+        enemy->speed = 1.55f; enemy->attack_radius = 34.0f; enemy->damage = 8;
+    } else if (type == STORY_ENEMY_SHAMBLER_TROOPER) {
+        enemy->radius = 19.0f; enemy->height = 40.0f; enemy->max_health = 180.0f;
+        enemy->speed = 1.2f; enemy->attack_radius = 36.0f; enemy->damage = 11;
+    } else {
+        enemy->radius = 25.0f; enemy->height = 54.0f; enemy->max_health = 320.0f;
+        enemy->speed = 0.9f; enemy->attack_radius = 42.0f; enemy->damage = 18;
+    }
+    enemy->health = enemy->max_health;
+}
+
+static int story_spawn_enemy(int type, float x, float y, float z, unsigned int now_ms) {
+    for (int i = 0; i < STORY_MAX_SWARM_ENEMIES; i++) {
+        StoryEnemy *enemy = &local_state.story_swarm[i];
+        if (enemy->active) continue;
+        memset(enemy, 0, sizeof(*enemy));
+        story_enemy_setup_stats(enemy, type);
+        enemy->x = x; enemy->z = z;
+        float gy = voxworld_height_at(x, z);
+        if (gy < 0.0f) gy = y;
+        enemy->y = gy;
+        enemy->yaw = 0.0f;
+        enemy->spawn_ms = now_ms;
+        enemy->last_attack_ms = now_ms;
+        return 1;
+    }
+    return 0;
+}
+
+static int story_enemy_count_alive(void) {
+    int alive = 0;
+    for (int i = 0; i < STORY_MAX_SWARM_ENEMIES; i++) {
+        if (local_state.story_swarm[i].active) alive++;
+    }
+    return alive;
+}
+
+static void story_begin_rift_opening(unsigned int now_ms, float boss_x, float boss_y, float boss_z) {
+    StoryBossState *boss = &local_state.story_boss;
+    boss->active = 0;
+    boss->defeated = 1;
+    boss->health = 0.0f;
+    local_state.story_phase = STORY_PHASE_RIFT_OPENING;
+    local_state.story_phase_start_ms = now_ms;
+    story_clear_swarm();
+    StoryRiftState *rift = &local_state.story_rift;
+    rift->active = 1;
+    rift->x = boss_x;
+    rift->z = boss_z + 76.0f;
+    rift->y = voxworld_height_at(rift->x, rift->z) + 18.0f;
+    rift->yaw = 180.0f;
+    rift->radius = 18.0f;
+    rift->opened_ms = now_ms;
+    rift->next_spew_ms = now_ms + STORY_RIFT_OPEN_DURATION_MS;
+    rift->last_spew_ms = now_ms;
+    rift->spew_count = 0;
+    rift->wave_spawned = 0;
+    rift->pulse_seed = (unsigned int)(fabsf(boss_x) * 31.0f + fabsf(boss_z) * 17.0f) + now_ms;
+    printf("[STORY] boss defeated; rift opening\n");
+    (void)boss_y;
+}
+
+static int story_target_is_in_cone(const PlayerState *hero, float target_x, float target_y, float target_z, float max_dist, float cone_dot) {
+    float to_x = target_x - hero->x;
+    float to_y = target_y - (hero->y + EYE_HEIGHT);
+    float to_z = target_z - hero->z;
     float dist = sqrtf(to_x * to_x + to_y * to_y + to_z * to_z);
     if (dist <= 0.001f || dist > max_dist) return 0;
     float r = -hero->yaw * 0.0174533f;
@@ -565,6 +644,41 @@ static int story_boss_is_targeted(const PlayerState *hero, const StoryBossState 
     float inv = 1.0f / dist;
     float dot = fx * (to_x * inv) + fy * (to_y * inv) + fz * (to_z * inv);
     return dot >= cone_dot;
+}
+
+static void story_swarm_apply_player_hit(PlayerState *hero, unsigned int now_ms) {
+    if (local_state.story_phase != STORY_PHASE_SWARM) return;
+    int weapon = hero->current_weapon;
+    float max_dist = 420.0f;
+    float cone_dot = 0.9f;
+    if (weapon == WPN_SNIPER) cone_dot = 0.86f;
+    else if (weapon == WPN_SHOTGUN) cone_dot = 0.94f;
+    else if (weapon == WPN_KNIFE || weapon == WPN_KATANA) { max_dist = 26.0f; cone_dot = 0.70f; }
+    StoryEnemy *best = NULL;
+    float best_dist = 100000.0f;
+    for (int i = 0; i < STORY_MAX_SWARM_ENEMIES; i++) {
+        StoryEnemy *enemy = &local_state.story_swarm[i];
+        if (!enemy->active || enemy->dying) continue;
+        float ty = enemy->y + enemy->height * 0.55f;
+        if (!story_target_is_in_cone(hero, enemy->x, ty, enemy->z, max_dist, cone_dot)) continue;
+        float dx = enemy->x - hero->x;
+        float dz = enemy->z - hero->z;
+        float d = dx * dx + dz * dz;
+        if (d < best_dist) { best_dist = d; best = enemy; }
+    }
+    if (!best) return;
+    float dmg = story_boss_weapon_damage(weapon);
+    best->health -= dmg;
+    best->hurt_flash_until_ms = now_ms + 110;
+    if (best->health <= 0.0f) {
+        best->health = 0.0f;
+        best->dying = 1;
+        best->death_ms = now_ms;
+        best->active = 0;
+        hero->hit_feedback = 25;
+    } else {
+        hero->hit_feedback = 10;
+    }
 }
 
 static void story_boss_apply_player_hit(PlayerState *hero, unsigned int now_ms) {
@@ -580,7 +694,7 @@ static void story_boss_apply_player_hit(PlayerState *hero, unsigned int now_ms) 
         max_dist = 24.0f;
         cone_dot = 0.72f;
     }
-    if (!story_boss_is_targeted(hero, boss, max_dist, cone_dot)) return;
+    if (!story_target_is_in_cone(hero, boss->x, boss->y + 36.0f, boss->z, max_dist, cone_dot)) return;
     float dmg = story_boss_weapon_damage(weapon);
     boss->health -= dmg;
     if (boss->health < 0.0f) boss->health = 0.0f;
@@ -591,12 +705,7 @@ static void story_boss_apply_player_hit(PlayerState *hero, unsigned int now_ms) 
         next_damage_log_ms = now_ms + 350;
     }
     if (boss->health <= 0.0f) {
-        boss->defeated = 1;
-        boss->active = 0;
-        local_state.story_phase = STORY_PHASE_COMPLETE;
-        local_state.story_phase_start_ms = now_ms;
-        local_state.match_over = 1;
-        printf("[STORY] boss defeated\n");
+        story_begin_rift_opening(now_ms, boss->x, boss->y, boss->z);
     }
 }
 
@@ -627,6 +736,83 @@ static void story_boss_tick(PlayerState *hero, unsigned int now_ms) {
             local_state.story_phase_start_ms = now_ms;
             local_state.match_over = 1;
         }
+    }
+}
+
+static void story_swarm_spawn_wave(unsigned int now_ms) {
+    StoryRiftState *rift = &local_state.story_rift;
+    if (!rift->active || rift->wave_spawned) return;
+    const int types[3] = { STORY_ENEMY_RIFT_HOUND, STORY_ENEMY_SHAMBLER_TROOPER, STORY_ENEMY_GORE_BRUTE };
+    for (int i = 0; i < 3; i++) {
+        float a = (float)i * 2.09439f + (float)(rift->pulse_seed % 360) * 0.0174533f;
+        float d = rift->radius + 22.0f + (float)(i * 8);
+        float sx = rift->x + cosf(a) * d;
+        float sz = rift->z + sinf(a) * d;
+        story_spawn_enemy(types[i], sx, rift->y, sz, now_ms);
+        rift->last_spew_ms = now_ms;
+        rift->spew_count++;
+    }
+    rift->wave_spawned = 1;
+    printf("[STORY] swarm wave spawned (hound+trooper+brute)\n");
+}
+
+static void story_swarm_tick(PlayerState *hero, unsigned int now_ms) {
+    if (local_state.game_mode != MODE_STORY) return;
+    if (local_state.story_phase == STORY_PHASE_RIFT_OPENING) {
+        StoryRiftState *rift = &local_state.story_rift;
+        if (rift->active) {
+            float t = (float)(now_ms - rift->opened_ms) / (float)STORY_RIFT_OPEN_DURATION_MS;
+            if (t < 0.0f) t = 0.0f;
+            if (t > 1.0f) t = 1.0f;
+            rift->radius = 18.0f + t * 74.0f;
+        }
+        if (now_ms - local_state.story_phase_start_ms >= STORY_RIFT_OPEN_DURATION_MS) {
+            local_state.story_phase = STORY_PHASE_SWARM;
+            local_state.story_phase_start_ms = now_ms;
+            story_swarm_spawn_wave(now_ms);
+        }
+        return;
+    }
+    if (local_state.story_phase != STORY_PHASE_SWARM) return;
+    for (int i = 0; i < STORY_MAX_SWARM_ENEMIES; i++) {
+        StoryEnemy *enemy = &local_state.story_swarm[i];
+        if (!enemy->active) continue;
+        float dx = hero->x - enemy->x;
+        float dz = hero->z - enemy->z;
+        float dist = sqrtf(dx * dx + dz * dz);
+        if (dist > 0.001f) {
+            float inv = 1.0f / dist;
+            enemy->vx = dx * inv * enemy->speed;
+            enemy->vz = dz * inv * enemy->speed;
+            enemy->x += enemy->vx;
+            enemy->z += enemy->vz;
+            enemy->yaw = atan2f(dx, dz) * (180.0f / 3.14159f);
+        }
+        enemy->y = voxworld_height_at(enemy->x, enemy->z);
+        if (dist <= enemy->attack_radius && now_ms - enemy->last_attack_ms >= 850U) {
+            enemy->last_attack_ms = now_ms;
+            int damage = enemy->damage;
+            hero->shield_regen_timer = SHIELD_REGEN_DELAY;
+            if (hero->shield > 0) {
+                if (hero->shield >= damage) { hero->shield -= damage; damage = 0; }
+                else { damage -= hero->shield; hero->shield = 0; }
+            }
+            hero->health -= damage;
+            if (hero->health <= 0) {
+                hero->health = 0;
+                phys_enter_death_state(NULL, hero, now_ms, mode_respawn_delay_ms(local_state.game_mode), 0.0f, 0.0f);
+                local_state.story_phase = STORY_PHASE_FAILED;
+                local_state.story_phase_start_ms = now_ms;
+                local_state.match_over = 1;
+                return;
+            }
+        }
+    }
+    if (story_enemy_count_alive() == 0) {
+        local_state.story_phase = STORY_PHASE_AFTER_SWARM;
+        local_state.story_phase_start_ms = now_ms;
+        local_state.story_rift.active = 0;
+        printf("[STORY] swarm cleared; story continued\n");
     }
 }
 
@@ -886,6 +1072,11 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
             pitch = -5.0f;
         } else if (local_state.story_phase == STORY_PHASE_COMPLETE || local_state.story_phase == STORY_PHASE_FAILED) {
             fwd = 0.0f; str = 0.0f; shoot = 0; jump = 0; crouch = 0; reload = 0; ability = 0;
+        } else if (local_state.story_phase == STORY_PHASE_AFTER_SWARM) {
+            if (cmd_time - local_state.story_phase_start_ms >= STORY_SWARM_CLEAR_TO_COMPLETE_MS) {
+                local_state.story_phase = STORY_PHASE_COMPLETE;
+                local_state.story_phase_start_ms = cmd_time;
+            }
         }
     }
     if (local_state.match_over && (local_state.game_mode == MODE_TDMB || local_state.game_mode == MODE_CTFB)) {
@@ -1038,11 +1229,16 @@ void local_update(float fwd, float str, float yaw, float pitch, int shoot, int w
     }
     buggy_tick_all();
     update_projectiles(cmd_time);
-    if (local_state.game_mode == MODE_STORY && local_state.story_phase == STORY_PHASE_PLAYING) {
+    if (local_state.game_mode == MODE_STORY &&
+        (local_state.story_phase == STORY_PHASE_PLAYING || local_state.story_phase == STORY_PHASE_SWARM)) {
         if (p0->is_shooting >= 5 || (p0->current_weapon == WPN_KNIFE && p0->in_shoot) || (p0->current_weapon == WPN_KATANA && p0->in_shoot)) {
-            story_boss_apply_player_hit(p0, cmd_time);
+            if (local_state.story_phase == STORY_PHASE_PLAYING) story_boss_apply_player_hit(p0, cmd_time);
+            else story_swarm_apply_player_hit(p0, cmd_time);
         }
+    }
+    if (local_state.game_mode == MODE_STORY) {
         story_boss_tick(p0, cmd_time);
+        story_swarm_tick(p0, cmd_time);
     }
     if (local_state.game_mode == MODE_CTFB) {
         ctf_tick_flags(cmd_time);
@@ -1076,6 +1272,7 @@ void local_init_match(int num_players, int mode) {
     local_state.score_limit = (mode == MODE_TDMB || mode == MODE_TDMO) ? TDMB_SCORE_LIMIT : (mode == MODE_CTFB ? CTFB_SCORE_LIMIT : 0);
     local_state.story_phase = (mode == MODE_STORY) ? STORY_PHASE_CUTSCENE : STORY_PHASE_PLAYING;
     local_state.story_phase_start_ms = 0;
+    story_clear_swarm();
 
     if (mode == MODE_TDMB) {
         num_players = 1 + TDMB_BLUE_BOTS + TDMB_RED_BOTS;

@@ -290,7 +290,24 @@ typedef struct {
 } CtfMatchState;
 
 typedef enum { MODE_DEATHMATCH=0, MODE_TDM=1, MODE_SURVIVAL=2, MODE_CTF=3, MODE_ODDBALL=4, MODE_LOCAL=98, MODE_NET=99, MODE_EVOLUTION=100, MODE_TDMB=101, MODE_TDMO=102, MODE_CTFB=103, MODE_CTFO=104, MODE_STORY=105 } GameMode;
-typedef enum { STORY_PHASE_CUTSCENE=0, STORY_PHASE_PLAYING=1, STORY_PHASE_COMPLETE=2, STORY_PHASE_FAILED=3 } StoryPhase;
+typedef enum {
+    STORY_PHASE_CUTSCENE = 0,
+    STORY_PHASE_PLAYING = 1,
+    STORY_PHASE_RIFT_OPENING = 2,
+    STORY_PHASE_SWARM = 3,
+    STORY_PHASE_AFTER_SWARM = 4,
+    STORY_PHASE_FAILED = 5,
+    STORY_PHASE_COMPLETE = 6
+} StoryPhase;
+
+#define STORY_MAX_SWARM_ENEMIES 24
+
+typedef enum {
+    STORY_ENEMY_NONE = 0,
+    STORY_ENEMY_RIFT_HOUND = 1,
+    STORY_ENEMY_SHAMBLER_TROOPER = 2,
+    STORY_ENEMY_GORE_BRUTE = 3
+} StoryEnemyType;
 
 typedef struct {
     int active;
@@ -302,6 +319,39 @@ typedef struct {
     unsigned int last_attack_ms;
     unsigned int hurt_flash_until_ms;
 } StoryBossState;
+
+typedef struct {
+    int active;
+    int type;
+    float x, y, z;
+    float vx, vy, vz;
+    float yaw;
+    float radius;
+    float height;
+    float health;
+    float max_health;
+    float speed;
+    float attack_radius;
+    int damage;
+    unsigned int spawn_ms;
+    unsigned int last_attack_ms;
+    unsigned int hurt_flash_until_ms;
+    unsigned int death_ms;
+    int dying;
+} StoryEnemy;
+
+typedef struct {
+    int active;
+    float x, y, z;
+    float yaw;
+    float radius;
+    unsigned int opened_ms;
+    unsigned int next_spew_ms;
+    int spew_count;
+    int wave_spawned;
+    unsigned int pulse_seed;
+    unsigned int last_spew_ms;
+} StoryRiftState;
 
 typedef struct {
     PlayerState players[MAX_CLIENTS];
@@ -321,6 +371,8 @@ typedef struct {
     int story_phase;
     unsigned int story_phase_start_ms;
     StoryBossState story_boss;
+    StoryRiftState story_rift;
+    StoryEnemy story_swarm[STORY_MAX_SWARM_ENEMIES];
     CtfMatchState ctf;
     struct sockaddr_in clients[MAX_CLIENTS];
     ClientMeta client_meta[MAX_CLIENTS];

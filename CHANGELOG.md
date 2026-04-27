@@ -2,6 +2,27 @@
 
 ## Recent changes
 
+### 2026-04-26
+- Fixed buggy camera yaw decoupling from body steering and added steering catch-up behavior for tighter vehicle control feel (`cf9a35d`, merged in #273).
+- Replaced STORY mode with a Voxworld breach titan boss prototype to refocus the mode direction (`7a772f7`, merged in #271).
+
+### 2026-04-25
+- Repaired merge-conflict damage in `lobby/main.c` skin rendering to restore clean builds (`dcc4885`, merged in #270).
+- Added the **EMIREE** playable skin with palette-zone and glow-accent rendering updates (`bb3871e`, merged in #263).
+- Improved articulated run posing for the bat skin and weapon-arm mounting for cleaner third-person motion (`e8d5e7f`, merged in #265).
+- Removed in-game scene label and portal-list overlay clutter for a cleaner gameplay HUD (`c6af459`, merged in #262).
+- Updated the Ability 1 HUD into a square tile format and tuned cooldown/icon label styling (`8c18e67`, `a484796`, merged in #261).
+- Removed gameplay HUD debug readouts from the in-game UI (`db9e4b6`, merged in #260).
+
+### 2026-04-22
+- Tuned live weapon balance by adjusting magnum capacity and sniper fire rate (`8e8b86b`, merged in #259).
+
+### 2026-04-21
+- Added a STORY mode vertical-slice flow with intro and cave encounter content (`3b522ad`, merged in #253).
+
+### 2026-04-20
+- Refactored first-person magnum viewmodel massing for improved weapon framing (`5132f3e`, merged in #243).
+
 ### 2026-04-18
 - Added a deterministic night starfield layer to the retro sky system for richer low-light atmosphere while preserving visual reproducibility (`e0e441b`, merged in #235).
 - Refactored the buggy flow into a persistent terrain-aligned vehicle entity to improve movement coherence and world integration (`27af898`, merged in #234).

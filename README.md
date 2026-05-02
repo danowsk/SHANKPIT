@@ -1,5 +1,7 @@
 # SHANKPIT Game Architecture Document
 
+hey fam - we are soft locked out of our other github account. Development will continue in this repo for now.
+
 ## What SHANKPIT is right now
 
 At a high level, SHANKPIT currently includes:

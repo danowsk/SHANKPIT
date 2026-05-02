@@ -13,6 +13,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  construct_only:
+      name: 🧠 Construct Only (Deterministic Snapshot)
+      runs-on: ubuntu-latest
+      permissions:
+        contents: read
+  
+      steps:
+        - uses: actions/checkout@v4
+  
+        - name: Normalize merged layout
+          shell: bash
+          run: |
+            set -euo pipefail
+            if [ ! -e apps ] && [ -d apps2 ]; then ln -s apps2 apps; fi
+            if [ ! -e packages ] && [ -d packages2 ]; then ln -s packages2 packages; fi
+            if [ ! -e docs ] && [ -d docs2 ]; then ln -s docs2 docs; fi
+  
+            echo "Normalized layout:"
+            ls -al
+  
+        - name: Generate Source Construct (IDENTICAL TO FACTORY)
+          shell: bash
+          run: |
+            set -euo pipefail
+  
+            OUT="SHANKPIT_CONSTRUCT.txt"
+            echo "SHANKPIT BUILD ${{ github.run_number }} CONSTRUCT" > "$OUT"
+            echo "" >> "$OUT"
+  
+            ROOTS=""
+            for d in packages apps services docs; do
+              if [ -d "$d" ]; then ROOTS="$ROOTS $d"; fi
+            done
+  
+            FILES=$(find $ROOTS -type f \
+              \( -name "*.c" -o -name "*.h" -o -name "*.go" -o -name "*.md" -o -name "Makefile" -o -name "*.yml" -o -name "*.yaml" \) \
+              ! -path "*/.git/*" \
+              ! -path "*/vendor/*" \
+              ! -path "*/node_modules/*" \
+              ! -path "*/artifacts/*" \
+              ! -path "*/build/*" \
+              ! -path "*/sdl2_mingw/*" \
+              ! -path "*/SDL2-2.28.5/*" \
+              | sort)
+  
+            for file in $FILES; do
+              echo "--- FILE START: $file ---" >> "$OUT"
+              cat "$file" >> "$OUT"
+              echo "" >> "$OUT"
+              echo "--- FILE END: $file ---" >> "$OUT"
+              echo "" >> "$OUT"
+            done
+  
+        - name: Upload Construct Only Artifact
+          uses: actions/upload-artifact@v4
+          with:
+            name: ShankPit_Construct_${{ github.run_number }}_${{ github.sha }}
+            path: SHANKPIT_CONSTRUCT.txt
   build:
     name: 🏗️ Build, Test & Package
     runs-on: ubuntu-latest
